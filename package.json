@@ -40,7 +40,8 @@
     "react-native-svg": "15.11.2",
     "react-native-web": "~0.20.0",
     "react-native-webview": "13.13.5",
-    "victory-native": "^41.18.0",
+    "victory": "^36.9.0",
+    "victory-native": "^36.9.0",
     "zod": "^4.0.17"
   },
   "devDependencies": {
