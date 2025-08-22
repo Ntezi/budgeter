@@ -1,5 +1,5 @@
 import {
-    doc, getDoc, setDoc, onSnapshot, updateDoc, collection,
+    doc, getDoc, setDoc, onSnapshot, updateDoc, collection, getDocs, writeBatch, deleteDoc,
     onSnapshot as onSnap, serverTimestamp, query,
 } from 'firebase/firestore';
 
@@ -128,4 +128,19 @@ export function watchTransactionsTotals(
         });
         cb(totals);
     });
+}
+
+export async function deletePeriod(userId: string, periodId: string) {
+  const ref = doc(db, 'users', userId, 'periods', periodId);
+  const subs = ['transactions', 'incomeItems', 'planItems']; // known subcollections
+  for (const name of subs) {
+    const colRef = collection(db, 'users', userId, 'periods', periodId, name);
+    const snap = await getDocs(colRef);
+    if (!snap.empty) {
+      const batch = writeBatch(db);
+      snap.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+    }
+  }
+  await deleteDoc(ref);
 }

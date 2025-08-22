@@ -19,7 +19,8 @@ import {
 import {addTransaction} from "@/lib/repo/transactions";
 import {watchPlanTotals} from "@/lib/repo/plans";
 import {watchIncomeItems} from "@/lib/repo/income";
-import {Link, useRouter} from "expo-router";
+import {useRouter} from "expo-router";
+import {autoPopulateForNewPeriod} from '../../lib/repo/recurring';
 
 type CompareMode = 'AUTO' | 'MANUAL';
 
@@ -91,8 +92,10 @@ export default function Dashboard() {
         if (!user) return;
         const m = nextMonthMeta();
         await createPeriod(user.uid, m.id, m.title);
+        await autoPopulateForNewPeriod(user.uid, m.id);   // <-- add this
         router.push(`/budget/${m.id}`);
     }
+
 
     return (
         <ScrollView contentContainerStyle={styles.container}>

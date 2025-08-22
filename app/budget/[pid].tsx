@@ -1,15 +1,24 @@
 import {useLocalSearchParams, useRouter} from 'expo-router';
 import {useEffect, useMemo, useState} from 'react';
-import {View, Text, StyleSheet, ScrollView, Button, Alert} from 'react-native';
+import {View, Text, StyleSheet, ScrollView, Button, Alert, Platform, Switch} from 'react-native';
 import {useAuthUser} from '@/providers/AuthProvider';
 import {
     getOrCreatePeriod, watchPeriod, setTargetPct, setPeriodTitle, setPeriodStatus,
-    PeriodDoc, PeriodStatus,
+    deletePeriod, PeriodDoc, PeriodStatus,
 } from '@/lib/repo/periods';
 import {fmtMoney, parsePct100} from '@/lib/format';
 import {EditRow} from '@/components/EditRow';
-import {IncomeItem, addIncomeItem, deleteIncomeItem, updateIncomeItem, watchIncomeItems} from '@/lib/repo/income';
-import {PlanItem, PlanGroup, addPlanItem, deletePlanItem, updatePlanItem, watchPlanTotals} from '@/lib/repo/plans';
+import {Segmented} from '@/components/Segmented';
+import {
+    IncomeItem, addIncomeItem, deleteIncomeItem, updateIncomeItem, watchIncomeItems
+} from '@/lib/repo/income';
+import {
+    PlanItem, PlanGroup, addPlanItem, deletePlanItem, updatePlanItem, watchPlanTotals
+} from '@/lib/repo/plans';
+import {
+    watchRecurring, addRecurring, updateRecurring, deleteRecurring,
+    generateForPeriod, type Recurring
+} from '@/lib/repo/recurring';
 
 export default function BudgetDetail() {
     const {pid} = useLocalSearchParams<{ pid: string }>();
@@ -29,6 +38,12 @@ export default function BudgetDetail() {
     const [planItems, setPlanItems] = useState<PlanItem[]>([]);
     const [totals, setTotals] = useState({needs: 0, wants: 0, sd: 0});
     const [newPlan, setNewPlan] = useState<PlanItem>({name: '', amount: 0, group: 'NEED'});
+
+    // Recurring templates (global)
+    const [recRows, setRecRows] = useState<Recurring[]>([]);
+    const [recDraft, setRecDraft] = useState<Recurring>({
+        name: '', amount: 0, group: 'NEED', dayOfMonth: 1, active: true,
+    });
 
     const readOnly = status === 'DECIDED';
 
@@ -50,10 +65,12 @@ export default function BudgetDetail() {
             setTotals(t);
             setPlanItems(items);
         });
+        const unR = watchRecurring(user.uid, setRecRows);
         return () => {
             unP();
             unI();
             unM();
+            unR();
         };
     }, [user?.uid, pid]);
 
@@ -81,13 +98,64 @@ export default function BudgetDetail() {
 
     async function finalize() {
         if (!user || !pid) return;
+        if (Platform.OS === 'web') {
+            const ok = window.confirm('Finalize this budget? It will become read-only.');
+            if (!ok) return;
+            try {
+                await setPeriodStatus(user.uid, pid, 'DECIDED');
+            } catch (e: any) {
+                alert(`Finalize failed: ${e?.message ?? e}`);
+            }
+            return;
+        }
         Alert.alert('Finalize budget?', 'Mark this budget as DECIDED. It becomes read-only.', [
-            {text: 'Cancel'},
-            {text: 'Finalize', style: 'destructive', onPress: async () => setPeriodStatus(user.uid, pid, 'DECIDED')},
+            {text: 'Cancel', style: 'cancel'},
+            {
+                text: 'Finalize', style: 'destructive', onPress: async () => {
+                    try {
+                        await setPeriodStatus(user.uid, pid, 'DECIDED');
+                    } catch (e: any) {
+                        Alert.alert('Error', e?.message ?? String(e));
+                    }
+                }
+            },
         ]);
     }
 
-    // CRUD handlers (respect readOnly)
+    async function handleDelete() {
+        if (!user || !pid) return;
+        if (readOnly) {
+            const msg = 'Decided budgets are view-only. Unfinalize support can be added if needed.';
+            Platform.OS === 'web' ? alert(msg) : Alert.alert('Blocked', msg);
+            return;
+        }
+        if (Platform.OS === 'web') {
+            const ok = window.confirm('Delete this draft budget and all its items? This cannot be undone.');
+            if (!ok) return;
+            try {
+                await deletePeriod(user.uid, pid);
+                router.replace('/(tabs)/budgets');
+            } catch (e: any) {
+                alert(`Delete failed: ${e?.message ?? e}`);
+            }
+            return;
+        }
+        Alert.alert('Delete budget?', 'Remove the budget and all items (transactions, income, manual plan).', [
+            {text: 'Cancel', style: 'cancel'},
+            {
+                text: 'Delete', style: 'destructive', onPress: async () => {
+                    try {
+                        await deletePeriod(user.uid, pid);
+                        router.replace('/(tabs)/budgets');
+                    } catch (e: any) {
+                        Alert.alert('Delete failed', e?.message ?? String(e));
+                    }
+                }
+            },
+        ]);
+    }
+
+    // Income CRUD
     const saveNewIncome = async () => {
         if (!user || !pid || readOnly || !newIncome.name || !newIncome.amount) return;
         await addIncomeItem(user.uid, pid, newIncome);
@@ -102,6 +170,7 @@ export default function BudgetDetail() {
         await deleteIncomeItem(user.uid, pid, id);
     };
 
+    // Plan CRUD
     const saveNewPlan = async () => {
         if (!user || !pid || readOnly || !newPlan.name || !newPlan.amount) return;
         await addPlanItem(user.uid, pid, newPlan);
@@ -116,6 +185,32 @@ export default function BudgetDetail() {
         await deletePlanItem(user.uid, pid, id);
     };
 
+    // Recurring CRUD (always editable; global templates)
+    const saveNewRecurring = async () => {
+        if (!user || !recDraft.name || !recDraft.amount) return;
+        await addRecurring(user.uid, recDraft);
+        setRecDraft({...recDraft, name: '', amount: 0});
+    };
+    const saveRecurring = async (r: Recurring) => {
+        if (!user || !r.id) return;
+        await updateRecurring(user.uid, r.id, {
+            name: r.name, amount: r.amount, group: r.group, dayOfMonth: r.dayOfMonth, active: r.active,
+        });
+    };
+    const delRecurring = async (r: Recurring) => {
+        if (!user || !r.id) return;
+        await deleteRecurring(user.uid, r.id);
+    };
+    const generateRecurringForThisBudget = async () => {
+        if (!user || !pid) return;
+        try {
+            const {expenseWritten, incomeWritten} = await generateForPeriod(user.uid, pid, recRows);
+            Alert.alert('Recurring added', `Expenses: ${expenseWritten}\nIncome: ${incomeWritten}`);
+        } catch (e: any) {
+            Alert.alert('Generate failed', e?.message ?? String(e));
+        }
+    };
+
     return (
         <ScrollView contentContainerStyle={styles.container}>
             <Text style={styles.h1}>{titleText || pid}</Text>
@@ -123,9 +218,13 @@ export default function BudgetDetail() {
                 <Text style={[styles.badge, readOnly ? styles.badgeDecided : styles.badgeDraft]}>
                     {readOnly ? 'DECIDED' : 'DRAFT'}
                 </Text>
-                {!readOnly && <Button title="Finalize" onPress={finalize}/>}
+                <View style={{flexDirection: 'row', gap: 10}}>
+                    {!readOnly && <Button title="Finalize" onPress={finalize}/>}
+                    {!readOnly && <Button title="Delete" color="#EF4444" onPress={handleDelete}/>}
+                </View>
             </View>
 
+            {/* Title */}
             <View style={styles.card}>
                 <Text style={styles.h2}>Title</Text>
                 <EditRow
@@ -138,6 +237,7 @@ export default function BudgetDetail() {
                 />
             </View>
 
+            {/* Income */}
             <View style={styles.card}>
                 <Text style={styles.h2}>Income items</Text>
                 {incomeItems.map((it) => (
@@ -163,6 +263,7 @@ export default function BudgetDetail() {
                 <Text style={styles.help}>Total income: {fmtMoney(incomeTotal)}</Text>
             </View>
 
+            {/* Auto % targets */}
             <View style={styles.card}>
                 <Text style={styles.h2}>Auto Targets (by % of total income)</Text>
                 <EditRow name="Needs %" amount={Number(pNeeds)}
@@ -180,6 +281,7 @@ export default function BudgetDetail() {
                 </Text>
             </View>
 
+            {/* Manual plan */}
             <PlanSection title="Needs (manual items)" group="NEED" items={planItems.filter(i => i.group === 'NEED')}
                          onChangeItem={(it, patch) => Object.assign(it, patch)} onSaveItem={savePlan}
                          onDeleteItem={(it) => delPlan(it.id)}
@@ -198,6 +300,98 @@ export default function BudgetDetail() {
                          onDeleteItem={(it) => delPlan(it.id)}
                          newItem={newPlan} setNewItem={setNewPlan} onAddItem={saveNewPlan} total={totals.sd}
                          readOnly={readOnly}/>
+
+            {/* Recurring templates (global, editable here) */}
+            <View style={styles.card}>
+                <Text style={styles.h2}>Recurring templates</Text>
+                <Text style={styles.help}>These are global templates. Edits here apply to all budgets.</Text>
+
+                {recRows.map((r) => (
+                    <View key={r.id} style={{gap: 8}}>
+                        <Segmented
+                            value={r.group}
+                            options={[
+                                {label: 'Need', value: 'NEED'},
+                                {label: 'Want', value: 'WANT'},
+                                {label: 'S&D', value: 'SAVINGS_DEBT'},
+                            ]}
+                            onChange={(v) => {
+                                r.group = v as any;
+                            }}
+                        />
+                        <EditRow
+                            name={r.name}
+                            amount={r.amount}
+                            onChange={(p) => {
+                                if ('name' in p) r.name = String(p.name);
+                                if ('amount' in p) r.amount = Number(p.amount);
+                            }}
+                            onSave={() => saveRecurring(r)}
+                            onDelete={() => delRecurring(r)}
+                            // Templates remain editable even if budget is decided
+                        />
+                        <View style={styles.row}>
+                            <Text>Day of month</Text>
+                            <Segmented
+                                value={String(r.dayOfMonth)}
+                                options={[1, 5, 10, 15, 20, 25, 28].map((d) => ({label: String(d), value: String(d)}))}
+                                onChange={(v) => {
+                                    r.dayOfMonth = Number(v);
+                                }}
+                            />
+                        </View>
+                        <View style={styles.row}>
+                            <Text>Active</Text>
+                            <Switch value={r.active !== false} onValueChange={(v) => {
+                                r.active = v;
+                                saveRecurring(r);
+                            }}/>
+                        </View>
+                        <View style={{height: 1, backgroundColor: '#F3F4F6', marginVertical: 6}}/>
+                    </View>
+                ))}
+
+                {/* Add new template */}
+                <Text style={styles.h3}>Add new template</Text>
+                <Segmented
+                    value={recDraft.group}
+                    options={[
+                        {label: 'Need', value: 'NEED'},
+                        {label: 'Want', value: 'WANT'},
+                        {label: 'S&D', value: 'SAVINGS_DEBT'},
+                    ]}
+                    onChange={(v) => setRecDraft({...recDraft, group: v as any})}
+                />
+                <EditRow
+                    addMode
+                    name={recDraft.name}
+                    amount={recDraft.amount}
+                    onChange={(p) => setRecDraft({
+                        ...recDraft,
+                        ...('name' in p ? {name: String(p.name)} : {}),
+                        ...('amount' in p ? {amount: Number(p.amount)} : {}),
+                    })}
+                    onSave={saveNewRecurring}
+                />
+                <View style={styles.row}>
+                    <Text>Day of month</Text>
+                    <Segmented
+                        value={String(recDraft.dayOfMonth)}
+                        options={[1, 5, 10, 15, 20, 25, 28].map((d) => ({label: String(d), value: String(d)}))}
+                        onChange={(v) => setRecDraft({...recDraft, dayOfMonth: Number(v)})}
+                    />
+                </View>
+                <View style={styles.row}>
+                    <Text>Active</Text>
+                    <Switch value={recDraft.active !== false}
+                            onValueChange={(v) => setRecDraft({...recDraft, active: v})}/>
+                </View>
+
+                <View style={{marginTop: 8}}>
+                    <Button title={`Generate recurring for ${pid}`} onPress={generateRecurringForThisBudget}
+                            disabled={readOnly}/>
+                </View>
+            </View>
         </ScrollView>
     );
 }
@@ -249,7 +443,8 @@ const styles = StyleSheet.create({
     container: {padding: 16, gap: 16},
     h1: {fontSize: 22, fontWeight: '700'},
     h2: {fontSize: 16, fontWeight: '700', marginBottom: 8},
-    rowHeader: {flexDirection: 'row', alignItems: 'center', gap: 12},
+    h3: {fontSize: 14, fontWeight: '700', marginTop: 8},
+    rowHeader: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'},
     badge: {
         paddingHorizontal: 8,
         paddingVertical: 4,
@@ -271,4 +466,5 @@ const styles = StyleSheet.create({
         elevation: 2
     },
     help: {color: '#6B7280', fontSize: 12},
+    row: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'},
 });
