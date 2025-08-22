@@ -139,12 +139,12 @@ export default function Dashboard() {
                         </Text>
                     </Pressable>
                 ))}
-                <Link href="/(tabs)/budget" style={styles.link}>View all budgets →</Link>
+                {/*<Link href="/(tabs)/budget" style={styles.link}>View all budgets →</Link>*/}
             </View>
 
-            <View style={{marginTop: 16}}>
+            {/*<View style={{marginTop: 16}}>
                 <Button title="Seed sample data" onPress={seed}/>
-            </View>
+            </View>*/}
         </ScrollView>
     );
 }
