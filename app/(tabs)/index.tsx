@@ -1,5 +1,5 @@
 import React, {useEffect, useMemo, useState} from 'react';
-import {View, Text, StyleSheet, ScrollView, Button} from 'react-native';
+import {View, Text, StyleSheet, ScrollView, Button, Pressable} from 'react-native';
 import {StatCard} from "@/components/StatCard";
 import {fmtMoney} from "@/lib/format";
 import {PieChart} from "@/components/components/PieChart";
@@ -8,12 +8,23 @@ import {DeltaBadge} from "@/components/DeltaBadge";
 import {Colors} from "@/lib/budget";
 import {Segmented} from "@/components/Segmented";
 import {useAuthUser} from "@/providers/AuthProvider";
-import {getOrCreatePeriod, periodIdFromDate, watchPeriod, watchTransactionsTotals} from "@/lib/repo/periods";
+import {
+    createPeriod,
+    getOrCreatePeriod,
+    nextMonthMeta,
+    PeriodDoc,
+    periodIdFromDate,
+    watchPeriod, watchPeriods, watchTransactionsTotals
+} from "@/lib/repo/periods";
 import {addTransaction} from "@/lib/repo/transactions";
+import {watchPlanTotals} from "@/lib/repo/plans";
+import {watchIncomeItems} from "@/lib/repo/income";
+import {Link, useRouter} from "expo-router";
 
 type CompareMode = 'AUTO' | 'MANUAL';
 
 export default function Dashboard() {
+    const router = useRouter();
     const user = useAuthUser();
     const pid = periodIdFromDate();
     const [income, setIncome] = useState(0);
@@ -22,19 +33,22 @@ export default function Dashboard() {
     const [actuals, setActuals] = useState({needs: 0, wants: 0, sd: 0});
     const [mode, setMode] = useState<CompareMode>('AUTO');
 
-    // Subscribe Firestore
+    const [periods, setPeriods] = useState<(PeriodDoc & { id: string })[]>([]);
+
     useEffect(() => {
         if (!user) return;
         getOrCreatePeriod(user.uid, pid);
-        const un1 = watchPeriod(user.uid, pid, (p) => {
-            setIncome(p.incomeTotal ?? 0);
-            setPct(p.targetPct ?? pct);
-            setManual(p.manualTargets ?? {});
-        });
-        const un2 = watchTransactionsTotals(user.uid, pid, setActuals);
+        const unP = watchPeriod(user.uid, pid, (p) => setPct(p.targetPct ?? pct));
+        const unI = watchIncomeItems(user.uid, pid, (_items, total) => setIncome(total));
+        const unM = watchPlanTotals(user.uid, pid, (t) => setManual(t as any));
+        const unA = watchTransactionsTotals(user.uid, pid, setActuals);
+        const unList = watchPeriods(user.uid, setPeriods);
         return () => {
-            un1();
-            un2();
+            unP();
+            unI();
+            unM();
+            unA();
+            unList();
         };
     }, [user?.uid, pid]);
 
@@ -73,9 +87,16 @@ export default function Dashboard() {
         await addTransaction(user.uid, pid, {amount: 38035, group: 'SAVINGS_DEBT'});
     }
 
+    async function createNext() {
+        if (!user) return;
+        const m = nextMonthMeta();
+        await createPeriod(user.uid, m.id, m.title);
+        router.push(`/budget/${m.id}`);
+    }
+
     return (
         <ScrollView contentContainerStyle={styles.container}>
-            <Text style={styles.header}>August 2025</Text>
+            <Text style={styles.header}>Dashboard</Text>
 
             <View style={styles.grid}>
                 <StatCard title="Monthly Income" value={fmtMoney(income)}/>
@@ -85,11 +106,9 @@ export default function Dashboard() {
 
             <View style={{gap: 10}}>
                 <Text style={styles.section}>Compare to</Text>
-                <Segmented
-                    value={mode}
-                    options={[{label: 'Auto 50/30/20', value: 'AUTO'}, {label: 'Manual', value: 'MANUAL'}]}
-                    onChange={setMode}
-                />
+                <Segmented value={mode}
+                           options={[{label: 'Auto 50/30/20', value: 'AUTO'}, {label: 'Manual', value: 'MANUAL'}]}
+                           onChange={setMode}/>
             </View>
 
             <PieChart data={chartData} total={Math.max(spent, 1)} colors={[Colors.needs, Colors.wants, Colors.sd]}/>
@@ -101,6 +120,26 @@ export default function Dashboard() {
                 <Row label="Wants" color={Colors.wants} actual={actuals.wants} target={target.wants}
                      diff={diffs.wants}/>
                 <Row label="Savings & Debts" color={Colors.sd} actual={actuals.sd} target={target.sd} diff={diffs.sd}/>
+            </View>
+
+            <View style={{marginTop: 24, gap: 10}}>
+                <View style={styles.rowHeader}>
+                    <Text style={styles.section}>Budgets</Text>
+                    <Button title="New (next month)" onPress={createNext}/>
+                </View>
+                {periods.slice(0, 5).map((p) => (
+                    <Pressable key={p.id} style={styles.bRow} onPress={() => router.push(`/budget/${p.id}`)}>
+                        <View style={{flex: 1}}>
+                            <Text style={styles.bTitle}>{p.title || p.id}</Text>
+                            <Text style={styles.bSub}>{p.id} • {p.status || 'DRAFT'}</Text>
+                        </View>
+                        <Text
+                            style={[styles.badgeSm, (p.status === 'DECIDED') ? styles.badgeDecided : styles.badgeDraft]}>
+                            {p.status === 'DECIDED' ? 'View' : 'Edit'}
+                        </Text>
+                    </Pressable>
+                ))}
+                <Link href="/(tabs)/budget" style={styles.link}>View all budgets →</Link>
             </View>
 
             <View style={{marginTop: 16}}>
@@ -135,5 +174,31 @@ const styles = StyleSheet.create({
     grid: {flexDirection: 'row', gap: 12},
     section: {fontWeight: '700', marginTop: 6},
     row: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'},
+    rowHeader: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'},
     rowLabel: {fontWeight: '600'},
+    bRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        backgroundColor: '#fff',
+        padding: 12,
+        borderRadius: 12,
+        shadowColor: '#000',
+        shadowOpacity: 0.04,
+        shadowRadius: 8,
+        elevation: 1
+    },
+    bTitle: {fontSize: 16, fontWeight: '700'},
+    bSub: {color: '#6B7280', marginTop: 2},
+    badgeSm: {
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 999,
+        overflow: 'hidden',
+        color: '#111',
+        fontWeight: '700'
+    },
+    badgeDraft: {backgroundColor: '#DBEAFE'},
+    badgeDecided: {backgroundColor: '#DCFCE7'},
+    link: {color: '#2563EB', marginTop: 6, fontWeight: '600'},
 });
