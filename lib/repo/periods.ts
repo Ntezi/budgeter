@@ -28,10 +28,18 @@ export const nextMonthMeta = (d = new Date()) => {
     };
 };
 
+export function periodTitleFromId(periodId: string) {
+    const [yearRaw, monthRaw] = periodId.split('-');
+    const year = Number(yearRaw);
+    const month = Number(monthRaw);
+    if (!year || !month || month < 1 || month > 12) return periodId;
+    return format(new Date(year, month - 1, 1), 'MMMM yyyy');
+}
+
 export async function getOrCreatePeriod(userId: string, periodId: string) {
     const ref = doc(db, 'users', userId, 'periods', periodId);
     const snap = await getDoc(ref);
-    const defaultTitle = format(addMonths(new Date(), 1), 'MMMM yyyy');
+    const defaultTitle = periodTitleFromId(periodId);
     if (!snap.exists()) {
         await setDoc(ref, {
             title: defaultTitle,
@@ -57,7 +65,7 @@ export async function createPeriod(userId: string, periodId: string, title: stri
     const snap = await getDoc(ref);
     if (!snap.exists()) {
         await setDoc(ref, {
-            title,
+            title: title || periodTitleFromId(periodId),
             status: 'DRAFT',
             incomeTotal: 0,
             targetPct: {needs: 0.5, wants: 0.3, sd: 0.2},
@@ -112,6 +120,14 @@ export async function setTargetPct(
     await updateDoc(ref, {targetPct});
 }
 
+export async function assertPeriodEditable(userId: string, periodId: string) {
+    const ref = doc(db, 'users', userId, 'periods', periodId);
+    const snap = await getDoc(ref);
+    if (snap.exists() && snap.data().status === 'DECIDED') {
+        throw new Error('This budget is DECIDED and locked for plan/income/transaction edits.');
+    }
+}
+
 export function watchTransactionsTotals(
     userId: string,
     periodId: string,
@@ -132,7 +148,7 @@ export function watchTransactionsTotals(
 
 export async function deletePeriod(userId: string, periodId: string) {
   const ref = doc(db, 'users', userId, 'periods', periodId);
-  const subs = ['transactions', 'incomeItems', 'planItems']; // known subcollections
+  const subs = ['transactions', 'incomeItems', 'planItems', 'allocations', 'walletAccounts']; // known subcollections
   for (const name of subs) {
     const colRef = collection(db, 'users', userId, 'periods', periodId, name);
     const snap = await getDocs(colRef);

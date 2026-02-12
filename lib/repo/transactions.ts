@@ -3,7 +3,7 @@ import {
   serverTimestamp, updateDoc, deleteDoc,
 } from 'firebase/firestore';
 import { db } from '../firebase';
-import type { Group } from './periods';
+import {assertPeriodEditable, type Group} from './periods';
 
 export type Tx = {
   id?: string;
@@ -33,6 +33,7 @@ export function watchTransactions(
 }
 
 export async function addTransaction(userId: string, pid: string, tx: Omit<Tx, 'id'>) {
+  await assertPeriodEditable(userId, pid);
   return addDoc(txCol(userId, pid), {
     ...tx,
     date: tx.date ?? new Date().toISOString().slice(0, 10),
@@ -43,10 +44,12 @@ export async function addTransaction(userId: string, pid: string, tx: Omit<Tx, '
 export async function setTransaction(
   userId: string, pid: string, id: string, patch: Partial<Tx>
 ) {
+  await assertPeriodEditable(userId, pid);
   return updateDoc(doc(txCol(userId, pid), id), patch as any);
 }
 
 export async function delTransaction(userId: string, pid: string, id: string) {
+  await assertPeriodEditable(userId, pid);
   return deleteDoc(doc(txCol(userId, pid), id));
 }
 

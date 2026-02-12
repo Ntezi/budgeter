@@ -1,197 +1,123 @@
-import {useEffect, useState} from 'react';
-import {View, Text, StyleSheet, ScrollView, Button, Switch} from 'react-native';
+import {useEffect, useMemo, useState} from 'react';
+import {Button, Pressable, ScrollView, StyleSheet, Text, TextInput, View} from 'react-native';
+import {useRouter} from 'expo-router';
 import {useAuthUser} from '@/providers/AuthProvider';
 import {
-    watchRecurring, addRecurring, updateRecurring, deleteRecurring,
-    type Recurring, type RecurringFlow, generateForPeriod,
-} from '@/lib/repo/recurring';
-import {periodIdFromDate} from '@/lib/repo/periods';
-import {EditRow} from '@/components/EditRow';
-import {Segmented} from '@/components/Segmented';
+  createPeriod,
+  nextMonthMeta,
+  periodTitleFromId,
+  type PeriodDoc,
+  watchPeriods,
+} from '@/lib/repo/periods';
+import {seedBudgetForNewPeriod} from '@/lib/repo/recurring';
+import {applyAllocationDefaultsForPeriod} from '@/lib/repo/allocations';
+import {EmptyState} from '@/components/EmptyState';
 
-export default function RecurringTab() {
-    const uid = useAuthUser()?.uid;
-    const pid = periodIdFromDate();
+export default function BudgetsTab() {
+  const uid = useAuthUser()?.uid;
+  const router = useRouter();
+  const next = useMemo(() => nextMonthMeta(), []);
+  const [periods, setPeriods] = useState<(PeriodDoc & {id: string})[]>([]);
+  const [newPid, setNewPid] = useState(next.id);
+  const [newTitle, setNewTitle] = useState(next.title);
 
-    const [rows, setRows] = useState<Recurring[]>([]);
-    const [draft, setDraft] = useState<Recurring>({
-        flow: 'EXPENSE',
-        name: '', amount: 0, group: 'NEED', dayOfMonth: 1, active: true,
-    });
+  useEffect(() => {
+    if (!uid) return;
+    return watchPeriods(uid, setPeriods);
+  }, [uid]);
 
-    useEffect(() => {
-        if (!uid) return;
-        const un = watchRecurring(uid, setRows);
-        return () => un();
-    }, [uid]);
-
-    async function saveNew() {
-        if (!uid || !draft.name || !draft.amount) return;
-        await addRecurring(uid, draft);
-        setDraft({...draft, name: '', amount: 0}); // keep flow/group/day
+  async function createBudget() {
+    if (!uid) return;
+    const pid = newPid.trim();
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(pid)) return;
+    const title = newTitle.trim() || periodTitleFromId(pid);
+    const exists = periods.some((row) => row.id === pid);
+    await createPeriod(uid, pid, title);
+    if (!exists) {
+      await seedBudgetForNewPeriod(uid, pid);
+      await applyAllocationDefaultsForPeriod(uid, pid);
     }
+    router.push(`/budget/${pid}`);
+  }
 
-    async function saveRow(r: Recurring) {
-        if (!uid || !r.id) return;
-        await updateRecurring(uid, r.id, {
-            flow: r.flow ?? 'EXPENSE',
-            name: r.name,
-            amount: r.amount,
-            group: r.flow === 'EXPENSE' ? (r.group ?? 'NEED') : undefined,
-            dayOfMonth: r.dayOfMonth,
-            active: r.active,
-        });
-    }
+  return (
+    <ScrollView contentContainerStyle={styles.container}>
+      <Text style={styles.h1}>Budgets</Text>
+      <Text style={styles.help}>Monthly periods (spreadsheet-style ledger rows)</Text>
 
-    async function delRow(r: Recurring) {
-        if (!uid || !r.id) return;
-        await deleteRecurring(uid, r.id);
-    }
+      <View style={styles.card}>
+        <Text style={styles.h2}>Create / Open Period</Text>
+        <View style={styles.inputRow}>
+          <Text style={styles.label}>Period ID</Text>
+          <TextInput value={newPid} onChangeText={setNewPid} style={styles.input} placeholder="2026-02" />
+        </View>
+        <View style={styles.inputRow}>
+          <Text style={styles.label}>Title</Text>
+          <TextInput
+            value={newTitle}
+            onChangeText={setNewTitle}
+            style={styles.input}
+            placeholder="February 2026"
+          />
+        </View>
+        <Button title="Create or Open" onPress={createBudget} />
+      </View>
 
-    async function generate() {
-        if (!uid) return;
-        const res = await generateForPeriod(uid, pid, rows);
-        alert(`Generated for ${pid}\nExpenses: ${res.expenseWritten}\nIncome: ${res.incomeWritten}`);
-    }
+      {!periods.length ? <EmptyState title="No budgets yet" hint="Create your first monthly period above." /> : null}
 
-    return (
-        <ScrollView contentContainerStyle={styles.container}>
-            <Text style={styles.h1}>Recurring templates</Text>
-            <Text style={styles.help}>Period target: {pid}</Text>
-
-            {rows.map((r) => (
-                <View key={r.id} style={styles.card}>
-                    {/* Flow: EXPENSE or INCOME */}
-                    <Segmented
-                        value={(r.flow ?? 'EXPENSE') as RecurringFlow}
-                        options={[
-                            {label: 'Expense', value: 'EXPENSE'},
-                            {label: 'Income', value: 'INCOME'},
-                        ]}
-                        onChange={(v) => {
-                            r.flow = v as RecurringFlow;
-                        }}
-                    />
-
-                    {/* Group only for Expense */}
-                    {(r.flow ?? 'EXPENSE') === 'EXPENSE' && (
-                        <Segmented
-                            value={r.group ?? 'NEED'}
-                            options={[
-                                {label: 'Need', value: 'NEED'},
-                                {label: 'Want', value: 'WANT'},
-                                {label: 'S&D', value: 'SAVINGS_DEBT'},
-                            ]}
-                            onChange={(v) => {
-                                r.group = v as any;
-                            }}
-                        />
-                    )}
-
-                    {/* Name & Amount */}
-                    <EditRow
-                        name={r.name}
-                        amount={r.amount}
-                        onChange={(p) => {
-                            if ('name' in p) r.name = String(p.name);
-                            if ('amount' in p) r.amount = Number(p.amount);
-                        }}
-                        onSave={() => saveRow(r)}
-                        onDelete={() => delRow(r)}
-                    />
-
-                    {/* Day + Active */}
-                    <View style={styles.row}>
-                        <Text>Day of month</Text>
-                        <Segmented
-                            value={String(r.dayOfMonth)}
-                            options={[1, 5, 10, 15, 20, 25, 28].map((d) => ({label: String(d), value: String(d)}))}
-                            onChange={(v) => {
-                                r.dayOfMonth = Number(v);
-                            }}
-                        />
-                    </View>
-                    <View style={styles.row}>
-                        <Text>Active</Text>
-                        <Switch value={r.active !== false} onValueChange={(v) => {
-                            r.active = v;
-                            saveRow(r);
-                        }}/>
-                    </View>
-                </View>
-            ))}
-
-            {/* Add new */}
-            <View style={styles.card}>
-                <Text style={styles.h2}>Add new</Text>
-                <Segmented
-                    value={(draft.flow ?? 'EXPENSE') as RecurringFlow}
-                    options={[
-                        {label: 'Expense', value: 'EXPENSE'},
-                        {label: 'Income', value: 'INCOME'},
-                    ]}
-                    onChange={(v) => setDraft({...draft, flow: v as RecurringFlow})}
-                />
-
-                {(draft.flow ?? 'EXPENSE') === 'EXPENSE' && (
-                    <Segmented
-                        value={draft.group ?? 'NEED'}
-                        options={[
-                            {label: 'Need', value: 'NEED'},
-                            {label: 'Want', value: 'WANT'},
-                            {label: 'S&D', value: 'SAVINGS_DEBT'},
-                        ]}
-                        onChange={(v) => setDraft({...draft, group: v as any})}
-                    />
-                )}
-
-                <EditRow
-                    addMode
-                    name={draft.name}
-                    amount={draft.amount}
-                    onChange={(p) =>
-                        setDraft({
-                            ...draft,
-                            ...('name' in p ? {name: String(p.name)} : {}),
-                            ...('amount' in p ? {amount: Number(p.amount)} : {}),
-                        })
-                    }
-                    onSave={saveNew}
-                />
-
-                <View style={styles.row}>
-                    <Text>Day of month</Text>
-                    <Segmented
-                        value={String(draft.dayOfMonth)}
-                        options={[1, 5, 10, 15, 20, 25, 28].map((d) => ({label: String(d), value: String(d)}))}
-                        onChange={(v) => setDraft({...draft, dayOfMonth: Number(v)})}
-                    />
-                </View>
-                <View style={styles.row}>
-                    <Text>Active</Text>
-                    <Switch value={draft.active !== false} onValueChange={(v) => setDraft({...draft, active: v})}/>
-                </View>
-
-                <Button title={`Generate for ${pid}`} onPress={generate}/>
-            </View>
-        </ScrollView>
-    );
+      {periods.map((p) => (
+        <Pressable key={p.id} style={styles.row} onPress={() => router.push(`/budget/${p.id}`)}>
+          <View style={{flex: 1}}>
+            <Text style={styles.title}>{p.title || p.id}</Text>
+            <Text style={styles.sub}>{p.id}</Text>
+          </View>
+          <View style={[styles.badge, p.status === 'DECIDED' ? styles.done : styles.draft]}>
+            <Text style={styles.badgeText}>{p.status === 'DECIDED' ? 'DECIDED' : 'DRAFT'}</Text>
+          </View>
+        </Pressable>
+      ))}
+    </ScrollView>
+  );
 }
 
 const styles = StyleSheet.create({
-    container: {padding: 16, gap: 12},
-    h1: {fontSize: 22, fontWeight: '700'},
-    h2: {fontSize: 16, fontWeight: '700'},
-    help: {color: '#6B7280'},
-    card: {
-        backgroundColor: '#fff',
-        padding: 12,
-        borderRadius: 12,
-        gap: 8,
-        shadowColor: '#000',
-        shadowOpacity: 0.04,
-        shadowRadius: 8,
-        elevation: 1
-    },
-    row: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'},
+  container: {padding: 16, gap: 12},
+  h1: {fontSize: 24, fontWeight: '700'},
+  h2: {fontSize: 16, fontWeight: '700'},
+  help: {fontSize: 12, color: '#6B7280'},
+  card: {
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 10,
+    padding: 12,
+    gap: 10,
+    backgroundColor: '#FFFFFF',
+  },
+  inputRow: {gap: 6},
+  label: {fontSize: 12, color: '#6B7280'},
+  input: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  row: {
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  title: {fontSize: 16, fontWeight: '600'},
+  sub: {fontSize: 12, color: '#6B7280'},
+  badge: {borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4},
+  badgeText: {fontSize: 12, fontWeight: '700'},
+  draft: {backgroundColor: '#DBEAFE'},
+  done: {backgroundColor: '#DCFCE7'},
 });

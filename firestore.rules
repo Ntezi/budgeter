@@ -10,6 +10,23 @@ service cloud.firestore {
     // Lock each user to their own subtree (if you store per-user docs here)
     match /users/{uid} {
       allow read, write: if isSignedIn() && uid == request.auth.uid;
+
+      match /accounts/{accountId} {
+        allow read, write: if isSignedIn() && uid == request.auth.uid;
+      }
+
+      match /allocationDefaults/{defaultId} {
+        allow read, write: if isSignedIn() && uid == request.auth.uid;
+      }
+
+      match /settings/{settingsId} {
+        allow read, write: if isSignedIn() && uid == request.auth.uid;
+      }
+
+      match /periods/{periodId}/allocations/{allocationId} {
+        allow read, write: if isSignedIn() && uid == request.auth.uid;
+      }
+
       match /{sub=**} {
         allow read, write: if isSignedIn() && uid == request.auth.uid;
       }

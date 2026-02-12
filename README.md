@@ -1,50 +1,100 @@
-# Welcome to your Expo app 👋
+# Budgeter (Expo + Firebase)
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Budgeter is a monthly budgeting app with period-based planning (`YYYY-MM`), actual transaction tracking, recurring templates, and wallet allocation dispatch.
 
-## Get started
+## Key Features
+
+- Monthly periods with status: `DRAFT` / `DECIDED`
+- 50/30/20 targets (auto) + manual plan items
+- Transactions by group (`NEED`, `WANT`, `SAVINGS_DEBT`)
+- Canonical recurring template flow (income + expense templates)
+- Accounts / Wallets tab:
+  - account CRUD + archive
+  - per-period wallet defaults + totals
+  - per-budget account selection and item-level allocations (e.g. `Electricity -> MoMo`)
+  - allocations remain editable even after `DECIDED`
+  - allocation defaults auto-applied to new periods (idempotent)
+  - computed balances (`openingBalance + all allocations`)
+- Reminder settings for daily email prompts (integration-ready)
+
+## Tech Stack
+
+- Expo Router + React Native + TypeScript
+- Firebase Auth (Google popup on web) + Firestore
+- Victory charting
+
+## Setup
 
 1. Install dependencies
 
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
 ```bash
-npm run reset-project
+npm install
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+2. Create local env file
 
-## Learn more
+```bash
+cp .env.example .env
+```
 
-To learn more about developing your project with Expo, look at the following resources:
+3. Fill Firebase values in `.env`
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+```dotenv
+EXPO_PUBLIC_FIREBASE_API_KEY=...
+EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=...
+EXPO_PUBLIC_FIREBASE_PROJECT_ID=...
+EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=...
+EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=...
+EXPO_PUBLIC_FIREBASE_APP_ID=...
+EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID=
+EXPO_PUBLIC_APP_CURRENCY=GHS
+```
 
-## Join the community
+4. Start app
 
-Join our community of developers creating universal apps.
+```bash
+npx expo start
+```
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## Firebase Rules / Deploy
+
+- Rules file: `firestore.rules`
+- Firebase config files: `firebase.json`, `.firebaserc`
+
+Deploy Firestore rules/indexes:
+
+```bash
+npx firebase deploy --only firestore
+```
+
+## Quality Commands
+
+```bash
+npm run lint
+npx tsc --noEmit
+```
+
+## Reminder Email Integration
+
+UI stores reminder settings at `users/{uid}/settings/reminders`.
+
+Current implementation is integration-ready (data model + UI). For sending:
+
+1. Add a scheduled Cloud Function (daily).
+2. Read reminder settings for users with `dailyBalanceReminderEnabled == true`.
+3. Enqueue/send email via your provider (SendGrid, SES, Postmark, etc.).
+4. Keep provider keys in server-side env only (never commit secrets).
+
+A runnable stub entry point is provided at:
+
+- `scripts/daily-balance-reminder-stub.js`
+
+## Edit Policy for `DECIDED` Periods
+
+- Locked after `DECIDED`: income items, plan items, transactions, period delete.
+- Allowed after `DECIDED`: wallet allocations (dispatch/rebalancing) in Budget and Accounts.
+
+## Project Docs
+
+- Firestore schema: `docs/firestore-schema.md`
+- API contract: `docs/api-contract.md`

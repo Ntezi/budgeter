@@ -77,14 +77,24 @@ export default function TransactionsTab() {
             Alert.alert('Missing info', 'Please enter a name and amount.');
             return;
         }
-        await addTransaction(uid, pid, draft);
-        setDraft({...draft, name: '', amount: 0}); // keep group/date
+        try {
+            await addTransaction(uid, pid, draft);
+            setDraft({...draft, name: '', amount: 0}); // keep group/date
+        } catch (e: unknown) {
+            const message = e instanceof Error ? e.message : String(e);
+            Alert.alert('Blocked', message);
+        }
     }
 
     async function onGenerate() {
         if (!uid) return;
-        await generateForPeriod(uid, pid, templates);
-        Alert.alert('Generated', `Recurring transactions created for ${pid}`);
+        try {
+            await generateForPeriod(uid, pid, templates);
+            Alert.alert('Generated', `Recurring transactions created for ${pid}`);
+        } catch (e: unknown) {
+            const message = e instanceof Error ? e.message : String(e);
+            Alert.alert('Blocked', message);
+        }
     }
 
     return (
@@ -128,17 +138,27 @@ export default function TransactionsTab() {
                     onChange={(patch) => Object.assign(t, patch)}
                     onSave={async () => {
                         if (!uid || !t.id) return;
-                        await setTransaction(uid, pid, t.id, {
-                            name: t.name,
-                            amount: t.amount,
-                            group: t.group,
-                            date: t.date,
-                            note: t.note,
-                        });
+                        try {
+                            await setTransaction(uid, pid, t.id, {
+                                name: t.name,
+                                amount: t.amount,
+                                group: t.group,
+                                date: t.date,
+                                note: t.note,
+                            });
+                        } catch (e: unknown) {
+                            const message = e instanceof Error ? e.message : String(e);
+                            Alert.alert('Blocked', message);
+                        }
                     }}
                     onDelete={async () => {
                         if (!uid || !t.id) return;
-                        await delTransaction(uid, pid, t.id);
+                        try {
+                            await delTransaction(uid, pid, t.id);
+                        } catch (e: unknown) {
+                            const message = e instanceof Error ? e.message : String(e);
+                            Alert.alert('Blocked', message);
+                        }
                     }}
                 />
             ))}

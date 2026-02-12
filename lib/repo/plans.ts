@@ -1,7 +1,8 @@
 import {
-    addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, serverTimestamp, updateDoc,
+    addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc,
 } from 'firebase/firestore';
 import {db} from '../firebase';
+import {assertPeriodEditable} from './periods';
 
 export type PlanGroup = 'NEED' | 'WANT' | 'SAVINGS_DEBT';
 export type PlanItem = { id?: string; group: PlanGroup; name: string; amount: number };
@@ -31,13 +32,29 @@ export function watchPlanTotals(
 }
 
 export async function addPlanItem(userId: string, periodId: string, item: Omit<PlanItem, 'id'>) {
+    await assertPeriodEditable(userId, periodId);
     return addDoc(planCol(userId, periodId), {...item, createdAt: serverTimestamp()});
 }
 
 export async function updatePlanItem(userId: string, periodId: string, id: string, patch: Partial<PlanItem>) {
+    await assertPeriodEditable(userId, periodId);
     return updateDoc(doc(planCol(userId, periodId), id), patch as any);
 }
 
 export async function deletePlanItem(userId: string, periodId: string, id: string) {
+    await assertPeriodEditable(userId, periodId);
     return deleteDoc(doc(planCol(userId, periodId), id));
+}
+
+export async function putPlanWithId(
+    userId: string,
+    periodId: string,
+    id: string,
+    item: Omit<PlanItem, 'id'>
+) {
+    await assertPeriodEditable(userId, periodId);
+    return setDoc(doc(planCol(userId, periodId), id), {
+        ...item,
+        createdAt: serverTimestamp(),
+    }, {merge: true});
 }

@@ -2,6 +2,7 @@ import {
     addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc,
 } from 'firebase/firestore';
 import {db} from '../firebase';
+import {assertPeriodEditable} from './periods';
 
 export type IncomeItem = { id?: string; name: string; amount: number };
 
@@ -28,14 +29,17 @@ export function watchIncomeItems(
 }
 
 export async function addIncomeItem(userId: string, periodId: string, item: Omit<IncomeItem, 'id'>) {
+    await assertPeriodEditable(userId, periodId);
     return addDoc(incomeCol(userId, periodId), {...item, createdAt: serverTimestamp()});
 }
 
 export async function updateIncomeItem(userId: string, periodId: string, id: string, patch: Partial<IncomeItem>) {
+    await assertPeriodEditable(userId, periodId);
     return updateDoc(doc(incomeCol(userId, periodId), id), patch as any);
 }
 
 export async function deleteIncomeItem(userId: string, periodId: string, id: string) {
+    await assertPeriodEditable(userId, periodId);
     return deleteDoc(doc(incomeCol(userId, periodId), id));
 }
 

@@ -16,42 +16,47 @@ import {
     periodIdFromDate,
     watchPeriod, watchPeriods, watchTransactionsTotals
 } from "@/lib/repo/periods";
-import {addTransaction} from "@/lib/repo/transactions";
 import {watchPlanTotals} from "@/lib/repo/plans";
 import {watchIncomeItems} from "@/lib/repo/income";
 import {useRouter} from "expo-router";
-import {autoPopulateForNewPeriod} from '../../lib/repo/recurring';
+import {seedBudgetForNewPeriod} from '@/lib/repo/recurring';
+import {applyAllocationDefaultsForPeriod, watchAllocations} from '@/lib/repo/allocations';
+import {TagPill} from '@/components/TagPill';
 
 type CompareMode = 'AUTO' | 'MANUAL';
 
 export default function Dashboard() {
     const router = useRouter();
     const user = useAuthUser();
+    const uid = user?.uid;
     const pid = periodIdFromDate();
     const [income, setIncome] = useState(0);
     const [pct, setPct] = useState({needs: 0.5, wants: 0.3, sd: 0.2});
     const [manual, setManual] = useState<{ needs?: number; wants?: number; sd?: number }>({});
     const [actuals, setActuals] = useState({needs: 0, wants: 0, sd: 0});
     const [mode, setMode] = useState<CompareMode>('AUTO');
+    const [allocTotals, setAllocTotals] = useState({needs: 0, wants: 0, savings: 0, total: 0});
 
     const [periods, setPeriods] = useState<(PeriodDoc & { id: string })[]>([]);
 
     useEffect(() => {
-        if (!user) return;
-        getOrCreatePeriod(user.uid, pid);
-        const unP = watchPeriod(user.uid, pid, (p) => setPct(p.targetPct ?? pct));
-        const unI = watchIncomeItems(user.uid, pid, (_items, total) => setIncome(total));
-        const unM = watchPlanTotals(user.uid, pid, (t) => setManual(t as any));
-        const unA = watchTransactionsTotals(user.uid, pid, setActuals);
-        const unList = watchPeriods(user.uid, setPeriods);
+        if (!uid) return;
+        getOrCreatePeriod(uid, pid);
+        const unP = watchPeriod(uid, pid, (p) => setPct(p.targetPct ?? {needs: 0.5, wants: 0.3, sd: 0.2}));
+        const unI = watchIncomeItems(uid, pid, (_items, total) => setIncome(total));
+        const unM = watchPlanTotals(uid, pid, (t) => setManual(t as any));
+        const unA = watchTransactionsTotals(uid, pid, setActuals);
+        const unAlloc = watchAllocations(uid, pid, (_rows, totals) => setAllocTotals(totals));
+        const unList = watchPeriods(uid, setPeriods);
         return () => {
             unP();
             unI();
             unM();
             unA();
+            unAlloc();
             unList();
         };
-    }, [user?.uid, pid]);
+    }, [uid, pid]);
 
     const autoTargets = useMemo(() => ({
         needs: income * pct.needs,
@@ -81,18 +86,15 @@ export default function Dashboard() {
         {x: 'Savings & Debts', y: actuals.sd},
     ];
 
-    async function seed() {
-        if (!user) return;
-        await addTransaction(user.uid, pid, {amount: 27200, group: 'NEED'});
-        await addTransaction(user.uid, pid, {amount: 22250, group: 'WANT'});
-        await addTransaction(user.uid, pid, {amount: 38035, group: 'SAVINGS_DEBT'});
-    }
-
     async function createNext() {
-        if (!user) return;
+        if (!uid) return;
         const m = nextMonthMeta();
-        await createPeriod(user.uid, m.id, m.title);
-        await autoPopulateForNewPeriod(user.uid, m.id);   // <-- add this
+        const exists = periods.some((row) => row.id === m.id);
+        await createPeriod(uid, m.id, m.title);
+        if (!exists) {
+            await seedBudgetForNewPeriod(uid, m.id);
+            await applyAllocationDefaultsForPeriod(uid, m.id);
+        }
         router.push(`/budget/${m.id}`);
     }
 
@@ -123,6 +125,34 @@ export default function Dashboard() {
                 <Row label="Wants" color={Colors.wants} actual={actuals.wants} target={target.wants}
                      diff={diffs.wants}/>
                 <Row label="Savings & Debts" color={Colors.sd} actual={actuals.sd} target={target.sd} diff={diffs.sd}/>
+            </View>
+
+            <View style={styles.card}>
+                <Text style={styles.section}>Wallet Allocations ({pid})</Text>
+                <View style={styles.allocRow}>
+                    <TagPill tag="NEEDS"/>
+                    <Text>{fmtMoney(allocTotals.needs)}</Text>
+                    <TagPill tag="WANTS"/>
+                    <Text>{fmtMoney(allocTotals.wants)}</Text>
+                    <TagPill tag="SAVINGS"/>
+                    <Text>{fmtMoney(allocTotals.savings)}</Text>
+                </View>
+                <Text style={styles.bSub}>Subtotal: {fmtMoney(allocTotals.total)}</Text>
+                {income > 0 ? (
+                    <View style={{gap: 2}}>
+                        <Text style={styles.bSub}>
+                            Remaining vs auto target (Needs): {fmtMoney(autoTargets.needs - allocTotals.needs)}
+                        </Text>
+                        <Text style={styles.bSub}>
+                            Remaining vs auto target (Wants): {fmtMoney(autoTargets.wants - allocTotals.wants)}
+                        </Text>
+                        <Text style={styles.bSub}>
+                            Remaining vs auto target (Savings): {fmtMoney(autoTargets.sd - allocTotals.savings)}
+                        </Text>
+                    </View>
+                ) : (
+                    <Text style={styles.bSub}>Set income to unlock target comparison.</Text>
+                )}
             </View>
 
             <View style={{marginTop: 24, gap: 10}}>
@@ -179,6 +209,15 @@ const styles = StyleSheet.create({
     row: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'},
     rowHeader: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'},
     rowLabel: {fontWeight: '600'},
+    card: {
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        borderRadius: 10,
+        backgroundColor: '#FFFFFF',
+        padding: 12,
+        gap: 8,
+    },
+    allocRow: {flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8},
     bRow: {
         flexDirection: 'row',
         alignItems: 'center',
