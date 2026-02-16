@@ -1,6 +1,17 @@
 import {
-    doc, getDoc, setDoc, onSnapshot, updateDoc, collection, getDocs, writeBatch, deleteDoc,
-    onSnapshot as onSnap, serverTimestamp, query,
+    doc,
+    getDoc,
+    setDoc,
+    onSnapshot,
+    updateDoc,
+    collection,
+    getDocs,
+    writeBatch,
+    deleteDoc,
+    onSnapshot as onSnap,
+    serverTimestamp,
+    query,
+    limit,
 } from 'firebase/firestore';
 
 import {db} from '../firebase';
@@ -151,8 +162,11 @@ export async function deletePeriod(userId: string, periodId: string) {
   const subs = ['transactions', 'incomeItems', 'planItems', 'allocations', 'walletAccounts']; // known subcollections
   for (const name of subs) {
     const colRef = collection(db, 'users', userId, 'periods', periodId, name);
-    const snap = await getDocs(colRef);
-    if (!snap.empty) {
+    // Firestore batches cap at 500 ops; delete in chunks.
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const snap = await getDocs(query(colRef, limit(400)));
+      if (snap.empty) break;
       const batch = writeBatch(db);
       snap.forEach((d) => batch.delete(d.ref));
       await batch.commit();

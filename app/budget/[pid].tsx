@@ -1,6 +1,6 @@
 import {useLocalSearchParams, useRouter} from 'expo-router';
 import {useEffect, useMemo, useState} from 'react';
-import {View, Text, StyleSheet, ScrollView, Button, Alert, Platform, Pressable, TextInput} from 'react-native';
+import {View, Text, StyleSheet, ScrollView, Button, Alert, Platform, Pressable, TextInput, useWindowDimensions} from 'react-native';
 import {useAuthUser} from '@/providers/AuthProvider';
 import {
   getOrCreatePeriod, watchPeriod, setTargetPct, setPeriodTitle, setPeriodStatus,
@@ -17,17 +17,12 @@ import {
 } from '@/lib/repo/plans';
 import {watchAccounts, type Account} from '@/lib/repo/accounts';
 import {
-  addPeriodWalletAccount,
   deleteAllocation,
-  removePeriodWalletAccount,
   upsertAllocationForBudgetItem,
   watchAllocations,
-  watchPeriodWalletAccounts,
   type Allocation,
-  type AllocationTotals,
 } from '@/lib/repo/allocations';
 import type {WalletTag} from '@/lib/domain';
-import {TagPill} from '@/components/TagPill';
 
 export default function BudgetDetail() {
   const {pid} = useLocalSearchParams<{pid: string}>();
@@ -50,22 +45,15 @@ export default function BudgetDetail() {
   const [newPlan, setNewPlan] = useState<PlanItem>({name: '', amount: 0, group: 'NEED'});
 
   const [accounts, setAccounts] = useState<Account[]>([]);
-  const [walletAccountIds, setWalletAccountIds] = useState<string[]>([]);
   const [allocations, setAllocations] = useState<Allocation[]>([]);
-  const [allocationTotals, setAllocationTotals] = useState<AllocationTotals>({
-    needs: 0,
-    wants: 0,
-    savings: 0,
-    total: 0,
-  });
   const [allocationDrafts, setAllocationDrafts] = useState<Record<string, {
     accountId: string;
-    amount: number;
-    tag: WalletTag;
-    note: string;
   }>>({});
 
   const readOnly = status === 'DECIDED';
+  const {width} = useWindowDimensions();
+  const isCompact = width < 720;
+  const isWide = width >= 1100;
 
   useEffect(() => {
     if (!uid || !pid) return;
@@ -85,19 +73,16 @@ export default function BudgetDetail() {
       setTotals(t);
       setPlanItems(items);
     });
-    const unAlloc = watchAllocations(uid, pid, (rows, totals) => {
+    const unAlloc = watchAllocations(uid, pid, (rows) => {
       setAllocations(rows);
-      setAllocationTotals(totals);
     });
     const unAccounts = watchAccounts(uid, setAccounts, {includeArchived: true});
-    const unWallet = watchPeriodWalletAccounts(uid, pid, setWalletAccountIds);
     return () => {
       unP();
       unI();
       unM();
       unAlloc();
       unAccounts();
-      unWallet();
     };
   }, [uid, pid]);
 
@@ -113,30 +98,16 @@ export default function BudgetDetail() {
     sd: incomeTotal * pct.sd,
   }), [incomeTotal, pct]);
 
-  const accountById = useMemo(
-    () => Object.fromEntries(
+  const accountOptions = useMemo(
+    () =>
       accounts
         .filter((row): row is Account & {id: string} => Boolean(row.id))
-        .map((row) => [row.id, row])
-    ),
+        .map((row) => ({
+          label: row.archived ? `${row.name} (archived)` : row.name,
+          value: row.id,
+          archived: row.archived === true,
+        })),
     [accounts]
-  );
-
-  const selectableAccounts = useMemo(
-    () =>
-      accounts.filter((row): row is Account & {id: string} => {
-        const id = row.id;
-        if (!id) return false;
-        return !row.archived || walletAccountIds.includes(id);
-      }),
-    [accounts, walletAccountIds]
-  );
-
-  const selectedWalletAccounts = useMemo(
-    () => walletAccountIds
-      .map((id) => accountById[id])
-      .filter((row): row is Account & {id: string} => Boolean(row)),
-    [walletAccountIds, accountById]
   );
 
   const planItemsWithId = useMemo(
@@ -152,27 +123,19 @@ export default function BudgetDetail() {
     return map;
   }, [allocations]);
 
-  const allocatedPlanCount = useMemo(
-    () => Object.keys(planAllocationsByItemId).length,
-    [planAllocationsByItemId]
-  );
-
   useEffect(() => {
     setAllocationDrafts((prev) => {
-      const next: Record<string, {accountId: string; amount: number; tag: WalletTag; note: string}> = {};
+      const next: Record<string, {accountId: string}> = {};
       for (const item of planItemsWithId) {
         const existing = planAllocationsByItemId[item.id];
         const prevDraft = prev[item.id];
         next[item.id] = {
-          accountId: existing?.accountId ?? prevDraft?.accountId ?? walletAccountIds[0] ?? '',
-          amount: existing?.amount ?? prevDraft?.amount ?? item.amount ?? 0,
-          tag: existing?.tag ?? prevDraft?.tag ?? planGroupToWalletTag(item.group),
-          note: existing?.note ?? prevDraft?.note ?? '',
+          accountId: existing?.accountId ?? prevDraft?.accountId ?? '',
         };
       }
       return next;
     });
-  }, [planItemsWithId, planAllocationsByItemId, walletAccountIds]);
+  }, [planItemsWithId, planAllocationsByItemId]);
 
   async function saveTitle() {
     if (!uid || !pid) return;
@@ -218,17 +181,11 @@ export default function BudgetDetail() {
 
   async function handleDelete() {
     if (!uid || !pid) return;
-    if (readOnly) {
-      const msg = 'Decided budgets are view-only. Unfinalize support can be added if needed.';
-      if (Platform.OS === 'web') {
-        alert(msg);
-      } else {
-        Alert.alert('Blocked', msg);
-      }
-      return;
-    }
+    const warning = readOnly
+      ? 'This budget is DECIDED. Deleting will remove all items and cannot be undone.'
+      : 'Delete this draft budget and all its items? This cannot be undone.';
     if (Platform.OS === 'web') {
-      const ok = window.confirm('Delete this draft budget and all its items? This cannot be undone.');
+      const ok = window.confirm(warning);
       if (!ok) return;
       try {
         await deletePeriod(uid, pid);
@@ -239,7 +196,7 @@ export default function BudgetDetail() {
       }
       return;
     }
-    Alert.alert('Delete budget?', 'Remove the budget and all items (transactions, income, manual plan).', [
+    Alert.alert('Delete budget?', warning, [
       {text: 'Cancel', style: 'cancel'},
       {
         text: 'Delete',
@@ -264,7 +221,9 @@ export default function BudgetDetail() {
   };
   const saveIncome = async (it: IncomeItem) => {
     if (!uid || !pid || readOnly || !it.id) return;
-    await updateIncomeItem(uid, pid, it.id, {name: it.name, amount: it.amount});
+    const name = it.name.trim();
+    if (!name) return;
+    await updateIncomeItem(uid, pid, it.id, {name, amount: it.amount});
   };
   const delIncome = async (id?: string) => {
     if (!uid || !pid || readOnly || !id) return;
@@ -278,71 +237,68 @@ export default function BudgetDetail() {
   };
   const savePlan = async (it: PlanItem) => {
     if (!uid || !pid || readOnly || !it.id) return;
-    await updatePlanItem(uid, pid, it.id, {name: it.name, amount: it.amount, group: it.group});
+    const name = it.name.trim();
+    if (!name) return;
+    await updatePlanItem(uid, pid, it.id, {name, amount: it.amount, group: it.group});
+    await savePlanAllocation(it as PlanItem & {id: string});
   };
   const delPlan = async (id?: string) => {
     if (!uid || !pid || readOnly || !id) return;
     await deletePlanItem(uid, pid, id);
+    await clearPlanAllocation(id);
   };
 
   function patchAllocationDraft(itemId: string, patch: Partial<{
     accountId: string;
-    amount: number;
-    tag: WalletTag;
-    note: string;
   }>) {
     setAllocationDrafts((prev) => ({
       ...prev,
       [itemId]: {
         accountId: patch.accountId ?? prev[itemId]?.accountId ?? '',
-        amount: patch.amount ?? prev[itemId]?.amount ?? 0,
-        tag: patch.tag ?? prev[itemId]?.tag ?? 'NEEDS',
-        note: patch.note ?? prev[itemId]?.note ?? '',
       },
     }));
-  }
-
-  async function includeWalletAccount(accountId: string) {
-    if (!uid || !pid) return;
-    await addPeriodWalletAccount(uid, pid, accountId);
-  }
-
-  async function excludeWalletAccount(accountId: string) {
-    if (!uid || !pid) return;
-    const used = allocations.some((row) => row.accountId === accountId && (row.amount || 0) > 0);
-    if (used) {
-      Alert.alert(
-        'Account in use',
-        'Re-assign or clear allocations linked to this account before removing it from this budget wallet.'
-      );
-      return;
-    }
-    await removePeriodWalletAccount(uid, pid, accountId);
   }
 
   async function savePlanAllocation(item: PlanItem & {id: string}) {
     if (!uid || !pid) return;
     const draft = allocationDrafts[item.id];
+    const existing = planAllocationsByItemId[item.id];
     if (!draft?.accountId) {
-      Alert.alert('Select account', `Pick an account for "${item.name}" first.`);
-      return;
-    }
-    const amount = Number(draft.amount) || 0;
-    if (amount <= 0) {
-      const existing = planAllocationsByItemId[item.id];
       if (existing?.id) await deleteAllocation(uid, pid, existing.id);
       return;
     }
-    await addPeriodWalletAccount(uid, pid, draft.accountId);
+    const amount = Number(item.amount) || 0;
+    if (amount <= 0) {
+      if (existing?.id) await deleteAllocation(uid, pid, existing.id);
+      return;
+    }
     await upsertAllocationForBudgetItem(uid, pid, {
       sourceType: 'PLAN',
       sourceItemId: item.id,
       sourceItemName: item.name,
       accountId: draft.accountId,
       amount,
-      tag: draft.tag,
-      note: draft.note.trim(),
+      tag: planGroupToWalletTag(item.group),
+      note: existing?.note ?? '',
     });
+  }
+
+  async function saveIncomeSection() {
+    if (!uid || !pid || readOnly) return;
+    for (const it of incomeItems) {
+      if (!it.id) continue;
+      const name = it.name.trim();
+      if (!name) continue;
+      await updateIncomeItem(uid, pid, it.id, {name, amount: it.amount});
+    }
+  }
+
+  async function savePlanSection(group: PlanGroup) {
+    if (!uid || !pid || readOnly) return;
+    const items = planItemsWithId.filter((it) => it.group === group);
+    for (const it of items) {
+      await savePlan(it);
+    }
   }
 
   async function clearPlanAllocation(itemId: string) {
@@ -353,7 +309,7 @@ export default function BudgetDetail() {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScrollView contentContainerStyle={[styles.container, isWide && styles.containerWide]}>
       <Text style={styles.h1}>{titleText || pid}</Text>
       <View style={styles.rowHeader}>
         <Text style={[styles.badge, readOnly ? styles.badgeDecided : styles.badgeDraft]}>
@@ -361,20 +317,20 @@ export default function BudgetDetail() {
         </Text>
         <View style={styles.inline}>
           {!readOnly ? <Button title="Finalize" onPress={finalize}/> : null}
-          {!readOnly ? <Button title="Delete" color="#EF4444" onPress={handleDelete}/> : null}
+          <Button title="Delete" color="#EF4444" onPress={handleDelete}/>
         </View>
       </View>
 
       <View style={styles.card}>
         <Text style={styles.h2}>Title</Text>
-        <EditRow
-          name={titleText}
-          amount={0}
-          onChange={(p) => 'name' in p && setTitleText(String(p.name))}
-          onSave={saveTitle}
-          addMode
-          disabled={readOnly}
+        <TextInput
+          style={[styles.input, readOnly && styles.inputDisabled]}
+          value={titleText}
+          onChangeText={setTitleText}
+          editable={!readOnly}
+          placeholder="Budget title"
         />
+        <Button title="Save title" onPress={saveTitle} disabled={readOnly}/>
       </View>
 
       <AccordionSection
@@ -390,6 +346,7 @@ export default function BudgetDetail() {
             onChange={(p) => Object.assign(it, p)}
             onSave={() => saveIncome(it)}
             onDelete={() => delIncome(it.id)}
+            showSave={false}
             disabled={readOnly}
           />
         ))}
@@ -400,35 +357,47 @@ export default function BudgetDetail() {
             amount={newIncome.amount}
             onChange={(p) => setNewIncome({...newIncome, ...p})}
             onSave={saveNewIncome}
+            saveLabel="Add"
           />
         ) : null}
+        <Button title="Save income items" onPress={saveIncomeSection} disabled={readOnly}/>
       </AccordionSection>
 
       <AccordionSection
         title="Auto Targets (by % of total income)"
         subtitle={`Needs ${pNeeds}% · Wants ${pWants}% · S&D ${pSd}%`}
       >
-        <EditRow
-          name="Needs %"
-          amount={Number(pNeeds)}
-          onChange={(p) => p.amount !== undefined && setPNeeds(String(p.amount))}
-          onSave={saveAutoPct}
-          disabled={readOnly}
-        />
-        <EditRow
-          name="Wants %"
-          amount={Number(pWants)}
-          onChange={(p) => p.amount !== undefined && setPWants(String(p.amount))}
-          onSave={saveAutoPct}
-          disabled={readOnly}
-        />
-        <EditRow
-          name="Savings & Debts %"
-          amount={Number(pSd)}
-          onChange={(p) => p.amount !== undefined && setPSd(String(p.amount))}
-          onSave={saveAutoPct}
-          disabled={readOnly}
-        />
+        <View style={styles.targetRow}>
+          <Text style={styles.targetLabel}>Needs %</Text>
+          <TextInput
+            style={[styles.input, styles.targetInput, readOnly && styles.inputDisabled]}
+            value={pNeeds}
+            onChangeText={setPNeeds}
+            inputMode="decimal"
+            editable={!readOnly}
+          />
+        </View>
+        <View style={styles.targetRow}>
+          <Text style={styles.targetLabel}>Wants %</Text>
+          <TextInput
+            style={[styles.input, styles.targetInput, readOnly && styles.inputDisabled]}
+            value={pWants}
+            onChangeText={setPWants}
+            inputMode="decimal"
+            editable={!readOnly}
+          />
+        </View>
+        <View style={styles.targetRow}>
+          <Text style={styles.targetLabel}>Savings & Debts %</Text>
+          <TextInput
+            style={[styles.input, styles.targetInput, readOnly && styles.inputDisabled]}
+            value={pSd}
+            onChangeText={setPSd}
+            inputMode="decimal"
+            editable={!readOnly}
+          />
+        </View>
+        <Button title="Save targets" onPress={saveAutoPct} disabled={readOnly}/>
         <Text style={styles.help}>
           Targets → Needs {fmtMoney(autoTargets.needs)} · Wants {fmtMoney(autoTargets.wants)} ·
           S&D {fmtMoney(autoTargets.sd)}
@@ -443,13 +412,18 @@ export default function BudgetDetail() {
           group="NEED"
           items={planItems.filter((i) => i.group === 'NEED')}
           onChangeItem={(it, patch) => Object.assign(it, patch)}
-          onSaveItem={savePlan}
           onDeleteItem={(it) => delPlan(it.id)}
           newItem={newPlan}
           setNewItem={setNewPlan}
           onAddItem={saveNewPlan}
           total={totals.needs}
           readOnly={readOnly}
+          accountOptions={accountOptions}
+          allocationDrafts={allocationDrafts}
+          onSelectAccount={(itemId, accountId) => patchAllocationDraft(itemId, {accountId})}
+          isCompact={isCompact}
+          onSaveSection={() => savePlanSection('NEED')}
+          saveLabel="Save needs items"
         />
       </AccordionSection>
 
@@ -461,13 +435,18 @@ export default function BudgetDetail() {
           group="WANT"
           items={planItems.filter((i) => i.group === 'WANT')}
           onChangeItem={(it, patch) => Object.assign(it, patch)}
-          onSaveItem={savePlan}
           onDeleteItem={(it) => delPlan(it.id)}
           newItem={newPlan}
           setNewItem={setNewPlan}
           onAddItem={saveNewPlan}
           total={totals.wants}
           readOnly={readOnly}
+          accountOptions={accountOptions}
+          allocationDrafts={allocationDrafts}
+          onSelectAccount={(itemId, accountId) => patchAllocationDraft(itemId, {accountId})}
+          isCompact={isCompact}
+          onSaveSection={() => savePlanSection('WANT')}
+          saveLabel="Save wants items"
         />
       </AccordionSection>
 
@@ -479,166 +458,24 @@ export default function BudgetDetail() {
           group="SAVINGS_DEBT"
           items={planItems.filter((i) => i.group === 'SAVINGS_DEBT')}
           onChangeItem={(it, patch) => Object.assign(it, patch)}
-          onSaveItem={savePlan}
           onDeleteItem={(it) => delPlan(it.id)}
           newItem={newPlan}
           setNewItem={setNewPlan}
           onAddItem={saveNewPlan}
           total={totals.sd}
           readOnly={readOnly}
+          accountOptions={accountOptions}
+          allocationDrafts={allocationDrafts}
+          onSelectAccount={(itemId, accountId) => patchAllocationDraft(itemId, {accountId})}
+          isCompact={isCompact}
+          onSaveSection={() => savePlanSection('SAVINGS_DEBT')}
+          saveLabel="Save savings items"
         />
       </AccordionSection>
 
-      <View style={styles.card}>
-        <Text style={styles.h2}>Wallet Allocations</Text>
-        <Text style={styles.help}>
-          Build a wallet for this period by selecting accounts, then map budget items to those accounts.
-        </Text>
-
-        <AccordionSection
-          title="1) Wallet Accounts In This Budget"
-          subtitle={`${selectedWalletAccounts.length} selected`}
-          defaultOpen
-        >
-          {!selectableAccounts.length ? (
-            <Text style={styles.help}>Create accounts first in the Accounts tab.</Text>
-          ) : null}
-          <View style={styles.walletGrid}>
-            {selectableAccounts.map((account) => {
-              const selected = walletAccountIds.includes(account.id);
-              return (
-                <Pressable
-                  key={account.id}
-                  style={[styles.walletChip, selected && styles.walletChipActive]}
-                  onPress={() =>
-                    selected ? excludeWalletAccount(account.id) : includeWalletAccount(account.id)
-                  }
-                >
-                  <Text style={[styles.walletName, selected && styles.walletNameActive]}>{account.name}</Text>
-                  <Text style={[styles.walletHint, selected && styles.walletHintActive]}>
-                    Type: {account.type ?? 'OTHER'}
-                  </Text>
-                  <Text style={[styles.walletHint, selected && styles.walletHintActive]}>
-                    {selected ? 'In this budget wallet' : 'Tap to include'}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </AccordionSection>
-
-        <AccordionSection
-          title="2) Allocate Plan Items To Wallet Accounts"
-          subtitle={`${allocatedPlanCount}/${planItemsWithId.length} items mapped`}
-          defaultOpen
-        >
-          {!planItemsWithId.length ? (
-            <Text style={styles.help}>Add plan items first, then allocate each item to an account.</Text>
-          ) : null}
-          {!!planItemsWithId.length && !selectedWalletAccounts.length ? (
-            <Text style={styles.help}>Select at least one wallet account above to start allocating.</Text>
-          ) : null}
-
-          {planItemsWithId.map((item) => {
-            const draft = allocationDrafts[item.id] ?? {
-              accountId: selectedWalletAccounts[0]?.id ?? '',
-              amount: item.amount || 0,
-              tag: planGroupToWalletTag(item.group),
-              note: '',
-            };
-            const existing = planAllocationsByItemId[item.id];
-            return (
-              <View key={item.id} style={styles.allocRowCard}>
-                <View style={styles.rowHeader}>
-                  <View style={{flex: 1}}>
-                    <Text style={styles.rowTitle}>{item.name}</Text>
-                    <Text style={styles.help}>Planned: {fmtMoney(item.amount || 0)}</Text>
-                  </View>
-                  <TagPill tag={planGroupToWalletTag(item.group)}/>
-                </View>
-
-                <View style={styles.accountPickWrap}>
-                  {selectedWalletAccounts.map((account) => {
-                    const active = draft.accountId === account.id;
-                    return (
-                      <Pressable
-                        key={account.id}
-                        style={[styles.accountPick, active && styles.accountPickActive]}
-                        onPress={() => patchAllocationDraft(item.id, {accountId: account.id})}
-                      >
-                        <Text style={[styles.accountPickText, active && styles.accountPickTextActive]}>
-                          {account.name}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-
-                <TextInput
-                  style={styles.input}
-                  value={String(draft.amount || '')}
-                  onChangeText={(value) => patchAllocationDraft(item.id, {amount: parseMoney(value)})}
-                  inputMode="decimal"
-                  placeholder="Allocation amount"
-                />
-                <TextInput
-                  style={styles.input}
-                  value={draft.note}
-                  onChangeText={(note) => patchAllocationDraft(item.id, {note})}
-                  placeholder="Note (optional)"
-                />
-                <View style={styles.inline}>
-                  <Button
-                    title="Save allocation"
-                    onPress={() => savePlanAllocation(item)}
-                    disabled={!selectedWalletAccounts.length}
-                  />
-                  {existing ? (
-                    <Button
-                      title="Clear"
-                      color="#B91C1C"
-                      onPress={() => clearPlanAllocation(item.id)}
-                    />
-                  ) : null}
-                </View>
-                <Text style={styles.help}>
-                  {existing
-                    ? `Current → ${accountById[existing.accountId]?.name ?? 'Unknown account'} (${fmtMoney(existing.amount || 0)})`
-                    : 'No allocation yet'}
-                </Text>
-              </View>
-            );
-          })}
-        </AccordionSection>
-
-        <View style={styles.row}>
-          <TagPill tag="NEEDS"/>
-          <Text>{fmtMoney(allocationTotals.needs)}</Text>
-          <TagPill tag="WANTS"/>
-          <Text>{fmtMoney(allocationTotals.wants)}</Text>
-          <TagPill tag="SAVINGS"/>
-          <Text>{fmtMoney(allocationTotals.savings)}</Text>
-        </View>
-        <Text style={styles.help}>Total allocated: {fmtMoney(allocationTotals.total)}</Text>
-        {incomeTotal > 0 ? (
-          <>
-            <Text style={styles.help}>
-              Remaining vs auto target (Needs): {fmtMoney(autoTargets.needs - allocationTotals.needs)}
-            </Text>
-            <Text style={styles.help}>
-              Remaining vs auto target (Wants): {fmtMoney(autoTargets.wants - allocationTotals.wants)}
-            </Text>
-            <Text style={styles.help}>
-              Remaining vs auto target (Savings): {fmtMoney(autoTargets.sd - allocationTotals.savings)}
-            </Text>
-          </>
-        ) : (
-          <Text style={styles.help}>Set income to compare allocations against targets.</Text>
-        )}
-        <View style={styles.inline}>
-          <Button title="Manage accounts" onPress={() => router.push('/(tabs)/accounts')}/>
-          <Button title="Recurring templates" onPress={() => router.push('/(tabs)/recurring')}/>
-        </View>
+      <View style={styles.inline}>
+        <Button title="Manage accounts" onPress={() => router.push('/(tabs)/accounts')}/>
+        <Button title="Recurring templates" onPress={() => router.push('/(tabs)/recurring')}/>
       </View>
     </ScrollView>
   );
@@ -648,36 +485,52 @@ function PlanSection({
   group,
   items,
   onChangeItem,
-  onSaveItem,
   onDeleteItem,
   newItem,
   setNewItem,
   onAddItem,
   total,
   readOnly,
+  accountOptions,
+  allocationDrafts,
+  onSelectAccount,
+  isCompact,
+  onSaveSection,
+  saveLabel,
 }: {
   group: PlanGroup;
   items: PlanItem[];
   onChangeItem: (it: PlanItem, patch: Partial<PlanItem>) => void;
-  onSaveItem: (it: PlanItem) => void;
   onDeleteItem: (it: PlanItem) => void;
   newItem: PlanItem;
   setNewItem: (it: PlanItem) => void;
   onAddItem: () => void;
   total: number;
   readOnly: boolean;
+  accountOptions: AccountOption[];
+  allocationDrafts: Record<string, {accountId: string}>;
+  onSelectAccount: (itemId: string, accountId: string) => void;
+  isCompact: boolean;
+  onSaveSection?: () => void;
+  saveLabel?: string;
 }) {
+  const itemsWithId = items.filter((it): it is PlanItem & {id: string} => Boolean(it.id));
   return (
     <View style={styles.sectionBody}>
-      {items.map((it) => (
-        <EditRow
+      {!accountOptions.length ? (
+        <Text style={styles.help}>Create an account in the Accounts tab to map items here.</Text>
+      ) : null}
+      {itemsWithId.map((it) => (
+        <PlanItemRow
           key={it.id}
-          name={it.name}
-          amount={it.amount}
+          item={it}
           onChange={(p) => onChangeItem(it, p)}
-          onSave={() => onSaveItem(it)}
           onDelete={() => onDeleteItem(it)}
+          accountOptions={accountOptions}
+          selectedAccountId={allocationDrafts[it.id]?.accountId ?? ''}
+          onSelectAccount={(accountId) => onSelectAccount(it.id, accountId)}
           disabled={readOnly}
+          isCompact={isCompact}
         />
       ))}
       {!readOnly ? (
@@ -687,9 +540,127 @@ function PlanSection({
           amount={newItem.group === group ? newItem.amount : 0}
           onChange={(p) => setNewItem({...newItem, group, ...p})}
           onSave={onAddItem}
+          saveLabel="Add"
         />
       ) : null}
+      {!readOnly && onSaveSection ? (
+        <Button title={saveLabel ?? 'Save items'} onPress={onSaveSection}/>
+      ) : null}
       <Text style={styles.help}>Subtotal: {fmtMoney(total)}</Text>
+    </View>
+  );
+}
+
+type AccountOption = {label: string; value: string; archived?: boolean};
+
+function PlanItemRow({
+  item,
+  onChange,
+  onDelete,
+  accountOptions,
+  selectedAccountId,
+  onSelectAccount,
+  disabled,
+  isCompact,
+}: {
+  item: PlanItem & {id: string};
+  onChange: (patch: Partial<PlanItem>) => void;
+  onDelete: () => void;
+  accountOptions: AccountOption[];
+  selectedAccountId: string;
+  onSelectAccount: (accountId: string) => void;
+  disabled: boolean;
+  isCompact: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const selectedLabel =
+    accountOptions.find((option) => option.value === selectedAccountId)?.label ??
+    (selectedAccountId ? 'Unknown account' : undefined);
+  const hasAccounts = accountOptions.length > 0;
+  return (
+    <View style={[styles.planRow, isCompact && styles.planRowStack]}>
+      <TextInput
+        style={[styles.input, styles.planName, isCompact && styles.fullWidth, disabled && styles.inputDisabled]}
+        placeholder="Name"
+        value={item.name}
+        onChangeText={(text) => onChange({name: text})}
+        editable={!disabled}
+      />
+      <TextInput
+        style={[styles.input, styles.planAmount, isCompact && styles.fullWidth, disabled && styles.inputDisabled]}
+        keyboardType="numeric"
+        inputMode="decimal"
+        placeholder="0"
+        value={String(item.amount || '')}
+        onChangeText={(text) => onChange({amount: parseMoney(text)})}
+        editable={!disabled}
+      />
+      <View style={[styles.dropdownWrap, isCompact && styles.fullWidth]}>
+        <Pressable
+          style={[
+            styles.dropdownTrigger,
+            (!hasAccounts || disabled) && styles.dropdownDisabled,
+            isCompact && styles.fullWidth,
+          ]}
+          disabled={!hasAccounts || disabled}
+          onPress={() => hasAccounts && !disabled && setOpen((v) => !v)}
+        >
+          <Text
+            style={[styles.dropdownText, !selectedAccountId && styles.dropdownPlaceholder]}
+            numberOfLines={1}
+          >
+            {selectedLabel ?? (hasAccounts ? 'Select account' : 'No accounts')}
+          </Text>
+          <Text style={styles.dropdownChevron}>{open ? '▴' : '▾'}</Text>
+        </Pressable>
+        {open && hasAccounts ? (
+          <View style={styles.dropdownMenu}>
+            <Pressable
+              style={[styles.dropdownOption, !selectedAccountId && styles.dropdownOptionActive]}
+              onPress={() => {
+                onSelectAccount('');
+                setOpen(false);
+              }}
+            >
+              <Text
+                style={[
+                  styles.dropdownOptionText,
+                  !selectedAccountId && styles.dropdownOptionTextActive,
+                ]}
+              >
+                Unassigned
+              </Text>
+            </Pressable>
+            {accountOptions.map((option) => {
+              const active = option.value === selectedAccountId;
+              return (
+                <Pressable
+                  key={option.value}
+                  style={[styles.dropdownOption, active && styles.dropdownOptionActive]}
+                  onPress={() => {
+                    onSelectAccount(option.value);
+                    setOpen(false);
+                  }}
+                >
+                  <Text style={[styles.dropdownOptionText, active && styles.dropdownOptionTextActive]}>
+                    {option.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
+      </View>
+      {!disabled ? (
+        <View style={[styles.actionRow, isCompact && styles.fullWidth]}>
+          <Pressable
+            style={({pressed}) => [styles.btn, styles.del, pressed && styles.btnPressed]}
+            onPress={onDelete}
+          >
+            <Text style={styles.btnText}>Del</Text>
+          </Pressable>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -701,11 +672,11 @@ function planGroupToWalletTag(group: PlanGroup): WalletTag {
 }
 
 const styles = StyleSheet.create({
-  container: {padding: 16, gap: 16},
+  container: {padding: 16, gap: 16, width: '100%'},
+  containerWide: {maxWidth: 1100, alignSelf: 'center'},
   h1: {fontSize: 22, fontWeight: '700'},
   h2: {fontSize: 16, fontWeight: '700', marginBottom: 8},
-  rowTitle: {fontSize: 14, fontWeight: '700'},
-  rowHeader: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'},
+  rowHeader: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10},
   badge: {
     paddingHorizontal: 8,
     paddingVertical: 4,
@@ -727,50 +698,8 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   help: {color: '#6B7280', fontSize: 12},
-  row: {flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8},
-  sectionBody: {gap: 6},
+  sectionBody: {gap: 8},
   inline: {flexDirection: 'row', gap: 10, alignItems: 'center', flexWrap: 'wrap'},
-  walletGrid: {gap: 8},
-  walletChip: {
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    borderRadius: 10,
-    backgroundColor: '#F9FAFB',
-    padding: 10,
-    gap: 6,
-  },
-  walletChipActive: {
-    borderColor: '#2563EB',
-    backgroundColor: '#EFF6FF',
-  },
-  walletName: {fontSize: 14, fontWeight: '700', color: '#111827'},
-  walletNameActive: {color: '#1D4ED8'},
-  walletHint: {fontSize: 12, color: '#6B7280'},
-  walletHintActive: {color: '#1D4ED8'},
-  allocRowCard: {
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 10,
-    backgroundColor: '#FFFFFF',
-    padding: 10,
-    gap: 8,
-    marginBottom: 8,
-  },
-  accountPickWrap: {flexDirection: 'row', gap: 8, flexWrap: 'wrap'},
-  accountPick: {
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    backgroundColor: '#F9FAFB',
-  },
-  accountPickActive: {
-    borderColor: '#2563EB',
-    backgroundColor: '#DBEAFE',
-  },
-  accountPickText: {fontSize: 12, fontWeight: '600', color: '#374151'},
-  accountPickTextActive: {color: '#1E40AF'},
   input: {
     borderWidth: 1,
     borderColor: '#D1D5DB',
@@ -779,4 +708,56 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
+  inputDisabled: {backgroundColor: '#F3F4F6', color: '#6B7280'},
+  targetRow: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap'},
+  targetLabel: {fontSize: 13, color: '#111827', fontWeight: '600'},
+  targetInput: {width: 120, textAlign: 'right'},
+  planRow: {flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap'},
+  planRowStack: {flexDirection: 'column', alignItems: 'stretch'},
+  planName: {flexGrow: 1, minWidth: 180},
+  planAmount: {width: 120, minWidth: 120, textAlign: 'right'},
+  fullWidth: {width: '100%'},
+  dropdownWrap: {minWidth: 180, flexGrow: 1},
+  dropdownTrigger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  dropdownDisabled: {backgroundColor: '#F3F4F6'},
+  dropdownText: {fontSize: 13, color: '#111827'},
+  dropdownPlaceholder: {color: '#9CA3AF'},
+  dropdownChevron: {fontSize: 12, color: '#6B7280'},
+  dropdownMenu: {
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+    overflow: 'hidden',
+    zIndex: 10,
+    elevation: 2,
+  },
+  dropdownOption: {paddingHorizontal: 10, paddingVertical: 8},
+  dropdownOptionActive: {backgroundColor: '#EEF2FF'},
+  dropdownOptionText: {fontSize: 13, color: '#374151'},
+  dropdownOptionTextActive: {color: '#1E3A8A', fontWeight: '700'},
+  actionRow: {flexDirection: 'row', gap: 8, flexWrap: 'wrap'},
+  btn: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+    minWidth: 64,
+    alignItems: 'center',
+    cursor: 'pointer',
+  },
+  save: {backgroundColor: '#10B981'},
+  del: {backgroundColor: '#EF4444'},
+  btnPressed: {opacity: 0.85},
+  btnText: {color: '#fff', fontWeight: '700'},
 });

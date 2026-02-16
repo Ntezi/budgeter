@@ -22,7 +22,20 @@ import {Segmented} from '@/components/Segmented';
 import {EmptyState} from '@/components/EmptyState';
 import {AccordionSection} from '@/components/AccordionSection';
 
-const dayOptions = [1, 5, 10, 15, 20, 25, 28].map((d) => ({label: String(d), value: String(d)}));
+function stripLegacyBucketNote(note?: string) {
+  if (!note) return '';
+  const parts = note
+    .split('|')
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const cleaned = parts.filter((part) => !part.toLowerCase().startsWith('buckettype='));
+  return cleaned.join(' | ');
+}
+
+function normalizeNote(note?: string) {
+  const cleaned = stripLegacyBucketNote(note).trim();
+  return cleaned ? cleaned : undefined;
+}
 
 export default function RecurringTab() {
   const router = useRouter();
@@ -84,7 +97,7 @@ export default function RecurringTab() {
       group: draft.flow === 'INCOME' ? undefined : draft.group ?? 'NEED',
       dayOfMonth: draft.dayOfMonth,
       active: draft.active !== false,
-      note: draft.note,
+      note: normalizeNote(draft.note),
     });
     setDraft((prev) => ({...prev, name: '', amount: 0}));
   }
@@ -98,7 +111,7 @@ export default function RecurringTab() {
       group: r.flow === 'INCOME' ? undefined : r.group ?? 'NEED',
       dayOfMonth: r.dayOfMonth,
       active: r.active !== false,
-      note: r.note,
+      note: normalizeNote(r.note),
     });
   }
 
@@ -208,7 +221,7 @@ export default function RecurringTab() {
           <AccordionSection
             key={r.id}
             title={r.name || '(Unnamed template)'}
-            subtitle={`${flow} · ${flow === 'EXPENSE' ? (r.group ?? 'NEED') : '—'} · Day ${r.dayOfMonth} · ${r.active !== false ? 'Active' : 'Paused'} · ${fmtMoney(r.amount || 0)}`}
+            subtitle={`${flow} · ${flow === 'EXPENSE' ? (r.group ?? 'NEED') : '—'} · ${r.active !== false ? 'Active' : 'Paused'} · ${fmtMoney(r.amount || 0)}`}
           >
             <View style={styles.cardBody}>
               <Segmented
@@ -246,15 +259,6 @@ export default function RecurringTab() {
               />
 
               <View style={styles.row}>
-                <Text>Day of month</Text>
-                <Segmented
-                  value={String(r.dayOfMonth)}
-                  options={dayOptions}
-                  onChange={(v) => patchRow(r.id, {dayOfMonth: Number(v)})}
-                />
-              </View>
-
-              <View style={styles.row}>
                 <Text>Active</Text>
                 <Switch
                   value={r.active !== false}
@@ -265,12 +269,6 @@ export default function RecurringTab() {
                 />
               </View>
 
-              <TextInput
-                style={styles.noteInput}
-                value={r.note ?? ''}
-                onChangeText={(note) => patchRow(r.id, {note})}
-                placeholder="Note (optional)"
-              />
             </View>
           </AccordionSection>
         );
@@ -314,14 +312,6 @@ export default function RecurringTab() {
           />
 
           <View style={styles.row}>
-            <Text>Day of month</Text>
-            <Segmented
-              value={String(draft.dayOfMonth)}
-              options={dayOptions}
-              onChange={(v) => setDraft((prev) => ({...prev, dayOfMonth: Number(v)}))}
-            />
-          </View>
-          <View style={styles.row}>
             <Text>Active</Text>
             <Switch
               value={draft.active !== false}
@@ -364,14 +354,6 @@ const styles = StyleSheet.create({
   summaryLine: {fontSize: 13, color: '#334155'},
   row: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'},
   cardBody: {gap: 8},
-  noteInput: {
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    borderRadius: 8,
-    backgroundColor: '#F9FAFB',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
   csvInput: {
     borderWidth: 1,
     borderColor: '#D1D5DB',

@@ -26,8 +26,8 @@ export function Segmented<T extends string>({
 }
 
 const styles = StyleSheet.create({
-    row: {flexDirection: 'row', backgroundColor: '#F3F4F6', borderRadius: 10, padding: 4, gap: 4},
-    btn: {flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center'},
+    row: {flexDirection: 'row', backgroundColor: '#F3F4F6', borderRadius: 10, padding: 4, gap: 4, flexWrap: 'wrap'},
+    btn: {flexGrow: 1, minWidth: 120, paddingVertical: 8, borderRadius: 8, alignItems: 'center'},
     active: {backgroundColor: '#FFFFFF', shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 6, elevation: 1},
     txt: {color: '#4B5563', fontWeight: '600'},
     activeTxt: {color: '#111827'},
