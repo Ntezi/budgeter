@@ -28,12 +28,14 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
       : require('../../assets/images/budgeter_logo_black_280x72.png');
 
   return (
-    <View className="flex-1 gap-5 px-3 pb-4 pt-5">
-      <View className="mx-2 h-12 justify-center rounded-xl border border-border bg-card px-3 dark:border-zinc-800 dark:bg-zinc-900">
-        <Image source={logoSource} className="h-7 w-[132px]" resizeMode="contain" />
+    <View className="flex-1 pb-4 pt-5">
+      <View className="px-5 pb-4">
+        <View className="h-12 w-full justify-center overflow-hidden rounded-xl border border-border bg-card px-3 dark:border-zinc-800 dark:bg-zinc-900">
+          <Image source={logoSource} className="h-7 w-[132px]" resizeMode="contain" />
+        </View>
       </View>
 
-      <ScrollView className="flex-1" contentContainerClassName="gap-1 pb-4">
+      <ScrollView className="flex-1 px-3" contentContainerClassName="gap-1 pb-4">
         {NAV_ITEMS.map((item) => {
           const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
           return (

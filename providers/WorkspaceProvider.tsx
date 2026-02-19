@@ -30,15 +30,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [workspaceUid, setWorkspaceUidState] = useState<string | null>(null);
   const [sharedMemberships, setSharedMemberships] = useState<WorkspaceMember[]>([]);
-  const [hasStoredWorkspaceSelection, setHasStoredWorkspaceSelection] = useState(false);
   const [storageInitialized, setStorageInitialized] = useState(false);
+  const [manualWorkspaceSelectionThisSession, setManualWorkspaceSelectionThisSession] = useState(false);
 
   useEffect(() => {
     if (!user?.uid) {
       setWorkspaceUidState(null);
       setSharedMemberships([]);
-      setHasStoredWorkspaceSelection(false);
       setStorageInitialized(false);
+      setManualWorkspaceSelectionThisSession(false);
       setReady(true);
       return;
     }
@@ -46,11 +46,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     let mounted = true;
     setReady(false);
     setStorageInitialized(false);
+    setManualWorkspaceSelectionThisSession(false);
     AsyncStorage.getItem(storageKeyFor(user.uid))
       .then((stored) => {
         if (!mounted) return;
         const normalized = stored?.trim() || null;
-        setHasStoredWorkspaceSelection(Boolean(normalized));
         setWorkspaceUidState(normalized || user.uid);
       })
       .finally(() => {
@@ -95,18 +95,17 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!user?.uid) return;
-    // First-login behavior for invited users:
-    // if there is no stored workspace preference yet, default to the first shared workspace.
-    if (!hasStoredWorkspaceSelection && storageInitialized) {
-      const firstSharedOwnerUid = sharedMemberships.find((membership) => membership.ownerUid && membership.ownerUid !== user.uid)?.ownerUid;
-      if (firstSharedOwnerUid && workspaceUid !== firstSharedOwnerUid) {
-        setWorkspaceUidState(firstSharedOwnerUid);
-        setHasStoredWorkspaceSelection(true);
-        AsyncStorage.setItem(storageKeyFor(user.uid), firstSharedOwnerUid).catch(() => undefined);
-        return;
-      }
+    if (!storageInitialized || manualWorkspaceSelectionThisSession) return;
+    // Default invited users to the first shared workspace when they log in.
+    const firstSharedOwnerUid = sharedMemberships.find((membership) => membership.ownerUid && membership.ownerUid !== user.uid)?.ownerUid;
+    if (firstSharedOwnerUid && workspaceUid !== firstSharedOwnerUid) {
+      setWorkspaceUidState(firstSharedOwnerUid);
+      AsyncStorage.setItem(storageKeyFor(user.uid), firstSharedOwnerUid).catch(() => undefined);
     }
+  }, [manualWorkspaceSelectionThisSession, sharedMemberships, storageInitialized, user?.uid, workspaceUid]);
 
+  useEffect(() => {
+    if (!user?.uid) return;
     if (!workspaceOptions.length) {
       setWorkspaceUidState(user.uid);
       return;
@@ -115,15 +114,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     if (!exists) {
       setWorkspaceUidState(user.uid);
       AsyncStorage.setItem(storageKeyFor(user.uid), user.uid).catch(() => undefined);
-      setHasStoredWorkspaceSelection(true);
     }
-  }, [hasStoredWorkspaceSelection, sharedMemberships, storageInitialized, workspaceOptions, workspaceUid, user?.uid]);
+  }, [workspaceOptions, workspaceUid, user?.uid]);
 
   const setWorkspaceUid = useCallback(async (ownerUid: string) => {
     if (!user?.uid) return;
     const next = ownerUid || user.uid;
+    setManualWorkspaceSelectionThisSession(true);
     setWorkspaceUidState(next);
-    setHasStoredWorkspaceSelection(true);
     await AsyncStorage.setItem(storageKeyFor(user.uid), next);
   }, [user?.uid]);
 
