@@ -3,7 +3,7 @@ import {
   serverTimestamp, updateDoc, deleteDoc,
 } from 'firebase/firestore';
 import { db } from '../firebase';
-import type { Group } from './periods';
+import { assertPeriodEditable, type Group } from './periods';
 
 export type Tx = {
   id?: string;
@@ -14,10 +14,22 @@ export type Tx = {
   categoryId?: string;
   note?: string;
   fromTemplateId?: string;
+  shoppingListId?: string;
+  shoppingListName?: string;
+  shoppingItemId?: string;
+  shoppingItemName?: string;
 };
 
 export const txCol = (userId: string, pid: string) =>
   collection(db, 'users', userId, 'periods', pid, 'transactions');
+
+function compactFields<T extends Record<string, any>>(input: T): Partial<T> {
+  const out: Record<string, any> = {};
+  Object.entries(input).forEach(([key, value]) => {
+    if (value !== undefined) out[key] = value;
+  });
+  return out as Partial<T>;
+}
 
 export function watchTransactions(
   userId: string,
@@ -33,20 +45,23 @@ export function watchTransactions(
 }
 
 export async function addTransaction(userId: string, pid: string, tx: Omit<Tx, 'id'>) {
-  return addDoc(txCol(userId, pid), {
+  await assertPeriodEditable(userId, pid);
+  return addDoc(txCol(userId, pid), compactFields({
     ...tx,
     date: tx.date ?? new Date().toISOString().slice(0, 10),
     createdAt: serverTimestamp(),
-  });
+  }) as any);
 }
 
 export async function setTransaction(
   userId: string, pid: string, id: string, patch: Partial<Tx>
 ) {
-  return updateDoc(doc(txCol(userId, pid), id), patch as any);
+  await assertPeriodEditable(userId, pid);
+  return updateDoc(doc(txCol(userId, pid), id), compactFields(patch) as any);
 }
 
 export async function delTransaction(userId: string, pid: string, id: string) {
+  await assertPeriodEditable(userId, pid);
   return deleteDoc(doc(txCol(userId, pid), id));
 }
 
@@ -57,8 +72,9 @@ export async function putTransactionWithId(
   id: string,
   tx: Omit<Tx, 'id'>
 ) {
-  return setDoc(doc(txCol(userId, pid), id), {
+  await assertPeriodEditable(userId, pid);
+  return setDoc(doc(txCol(userId, pid), id), compactFields({
     ...tx,
     createdAt: serverTimestamp(),
-  }, { merge: true });
+  }) as any, { merge: true });
 }

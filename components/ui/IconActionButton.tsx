@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, type PressableProps } from 'react-native';
+import { Platform, Pressable, Text, View, type PressableProps } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { cn } from '@/lib/cn';
 
@@ -34,22 +34,82 @@ export function IconActionButton({
   className,
   iconSize = 18,
   disabled,
+  onPress,
+  onHoverIn,
+  onHoverOut,
+  onFocus,
+  onBlur,
   ...props
 }: Props) {
+  const [savedFlash, setSavedFlash] = React.useState(false);
+  const [showTooltip, setShowTooltip] = React.useState(false);
+  const timerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  React.useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, []);
+
+  async function handlePress(event: any) {
+    if (!onPress) return;
+    const result = onPress(event);
+    if (icon !== 'content-save-outline') return;
+    try {
+      await Promise.resolve(result as any);
+      if (timerRef.current) clearTimeout(timerRef.current);
+      setSavedFlash(true);
+      timerRef.current = setTimeout(() => setSavedFlash(false), 1400);
+    } catch {
+      // Keep silent here; calling screen handles error UI.
+    }
+  }
+
+  const resolvedIcon: IconName = savedFlash ? 'check-circle-outline' : icon;
+  const resolvedColor = savedFlash ? '#16A34A' : VARIANT_COLOR[variant];
+
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      className={cn(
-        'h-8 w-8 items-center justify-center rounded-md border active:opacity-80',
-        VARIANT_CLASS[variant],
-        disabled && 'opacity-50',
-        className
-      )}
-      disabled={disabled}
-      {...props}
-    >
-      <MaterialCommunityIcons name={icon} size={iconSize} color={VARIANT_COLOR[variant]} />
-    </Pressable>
+    <View className="relative items-center">
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        {...({ title: label } as any)}
+        className={cn(
+          'h-8 w-8 items-center justify-center rounded-md border active:opacity-80',
+          VARIANT_CLASS[variant],
+          savedFlash && 'border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-900/30',
+          disabled && 'opacity-50',
+          className
+        )}
+        disabled={disabled}
+        onPress={handlePress}
+        onHoverIn={(event) => {
+          if (Platform.OS === 'web') setShowTooltip(true);
+          onHoverIn?.(event);
+        }}
+        onHoverOut={(event) => {
+          if (Platform.OS === 'web') setShowTooltip(false);
+          onHoverOut?.(event);
+        }}
+        onFocus={(event) => {
+          if (Platform.OS === 'web') setShowTooltip(true);
+          onFocus?.(event);
+        }}
+        onBlur={(event) => {
+          if (Platform.OS === 'web') setShowTooltip(false);
+          onBlur?.(event);
+        }}
+        {...props}
+      >
+        <MaterialCommunityIcons name={resolvedIcon} size={iconSize} color={resolvedColor} />
+      </Pressable>
+      {Platform.OS === 'web' && showTooltip ? (
+        <View className="pointer-events-none absolute -top-7 z-50 rounded-md bg-zinc-700/85 px-2 py-1">
+          <Text className="text-[11px] text-zinc-100" numberOfLines={1}>
+            {label}
+          </Text>
+        </View>
+      ) : null}
+    </View>
   );
 }

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
+import { Image, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { Slot, usePathname, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -10,6 +10,8 @@ const NAV_ITEMS = [
   { label: 'Transactions', href: '/transactions', icon: 'credit-card-outline' as const },
   { label: 'Budgets', href: '/budgets', icon: 'wallet-outline' as const },
   { label: 'Accounts', href: '/accounts', icon: 'bank-outline' as const },
+  { label: 'Expenses', href: '/expenses', icon: 'format-list-bulleted' as const },
+  { label: 'Shopping', href: '/shopping', icon: 'cart-outline' as const },
   { label: 'Recurring', href: '/recurring', icon: 'repeat' as const },
   { label: 'Reports', href: '/reports', icon: 'chart-bar' as const },
   { label: 'Settings', href: '/settings', icon: 'cog-outline' as const },
@@ -22,8 +24,12 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <View className="flex-1 gap-5 px-3 pb-4 pt-5">
       <View className="flex-row items-center gap-3 px-3">
-        <View className="h-9 w-9 items-center justify-center rounded-xl bg-primary dark:bg-zinc-50">
-          <Text className="text-lg font-bold text-primary-foreground dark:text-zinc-900">B</Text>
+        <View className="h-9 w-9 items-center justify-center rounded-xl border border-border bg-card dark:border-zinc-700 dark:bg-zinc-900">
+          <Image
+            source={require('../../assets/images/budgeter_icon_white_square_36.png')}
+            className="h-7 w-7"
+            resizeMode="contain"
+          />
         </View>
         <Text className="text-xl font-bold text-foreground dark:text-zinc-50">Budgeter</Text>
       </View>
@@ -38,6 +44,7 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
                 'h-11 flex-row items-center gap-3 rounded-lg px-3',
                 active ? 'bg-primary/10 dark:bg-zinc-800' : 'bg-transparent'
               )}
+              {...({ title: item.label } as any)}
               onPress={() => {
                 router.push(item.href);
                 if (onNavigate) onNavigate();
@@ -82,15 +89,19 @@ export default function ShellLayout() {
           <View className="flex-1">
             {!isDesktop ? (
               <View className="h-14 flex-row items-center gap-3 border-b border-border bg-card px-4 dark:border-zinc-800 dark:bg-zinc-900">
-                <Pressable className="h-9 w-9 items-center justify-center rounded-md bg-muted dark:bg-zinc-800" onPress={() => setMenuOpen(true)}>
+                <Pressable
+                  className="h-9 w-9 items-center justify-center rounded-md bg-muted dark:bg-zinc-800"
+                  onPress={() => setMenuOpen(true)}
+                  {...({ title: 'Open navigation' } as any)}
+                >
                   <MaterialCommunityIcons name="menu" size={20} color="#717182" />
                 </Pressable>
                 <Text className="text-base font-semibold text-foreground dark:text-zinc-50">{pageTitle}</Text>
               </View>
             ) : null}
 
-            <View className="flex-1 px-4 pb-6 pt-4 md:px-8 md:pt-6">
-              <View className="mx-auto w-full max-w-5xl flex-1">
+            <View className="flex-1 px-3 pb-6 pt-3 sm:px-4 md:px-8 md:pt-6">
+              <View className="mx-auto w-full max-w-[1460px] flex-1">
                 <Slot />
               </View>
             </View>

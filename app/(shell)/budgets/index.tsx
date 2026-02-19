@@ -5,7 +5,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { AppCard } from '@/components/ui/AppCard';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppBadge } from '@/components/ui/AppBadge';
-import { useAuthUser } from '@/providers/AuthProvider';
+import { useWorkspaceUid } from '@/providers/WorkspaceProvider';
 import {
   createPeriod,
   nextMonthMeta,
@@ -20,7 +20,7 @@ import { watchPlanTotals } from '@/lib/repo/plans';
 import { fmtMoney } from '@/lib/format';
 
 export default function BudgetsScreen() {
-  const uid = useAuthUser()?.uid;
+  const uid = useWorkspaceUid();
   const router = useRouter();
   const next = useMemo(() => nextMonthMeta(), []);
 
@@ -41,11 +41,11 @@ export default function BudgetsScreen() {
 
     sortedPeriods.forEach((period) => {
       unsubs.push(
-        watchIncomeItems(uid, period.id, (_rows, total) => {
+        watchIncomeItems(uid, period.id, (_rows, activeTotal) => {
           setTotalsByPeriod((prev) => ({
             ...prev,
             [period.id]: {
-              income: total,
+              income: activeTotal,
               planned: prev[period.id]?.planned ?? 0,
             },
           }));

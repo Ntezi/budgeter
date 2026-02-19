@@ -3,7 +3,8 @@ import { Alert, ScrollView, Text, View } from 'react-native';
 import { AppCard } from '@/components/ui/AppCard';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppBadge } from '@/components/ui/AppBadge';
-import { useAuthUser } from '@/providers/AuthProvider';
+import { AppProgressBar } from '@/components/ui/AppProgressBar';
+import { useWorkspaceUid } from '@/providers/WorkspaceProvider';
 import { type PeriodDoc, periodTitleFromId, watchPeriods } from '@/lib/repo/periods';
 import { fetchAccountsReport, fetchPeriodReport, type AccountReport, type PeriodReport } from '@/lib/repo/reports';
 import { buildWorkbook, exportWorkbook } from '@/lib/export';
@@ -43,6 +44,7 @@ function buildBudgetWorkbook(report: PeriodReport) {
     return {
       Name: item.name,
       Amount: item.amount || 0,
+      Active: item.active === false ? 'No' : 'Yes',
       'Allocation Account': allocation ? accountById.get(allocation.accountId)?.name ?? allocation.accountId : '',
       'Allocation Amount': allocation?.amount ?? 0,
     };
@@ -125,7 +127,7 @@ function buildAccountsWorkbook(report: AccountReport) {
 }
 
 export default function ReportsScreen() {
-  const uid = useAuthUser()?.uid;
+  const uid = useWorkspaceUid();
   const { theme } = useThemeMode();
 
   const [periods, setPeriods] = useState<(PeriodDoc & { id: string })[]>([]);
@@ -136,6 +138,7 @@ export default function ReportsScreen() {
   const [accountReport, setAccountReport] = useState<AccountReport | null>(null);
   const [accountLoading, setAccountLoading] = useState(false);
   const [accountExporting, setAccountExporting] = useState(false);
+  const [loadingLatest, setLoadingLatest] = useState(false);
 
   useEffect(() => {
     if (!uid) return;
@@ -181,6 +184,47 @@ export default function ReportsScreen() {
     ];
   }, [accountReport]);
 
+  const loadedReports = useMemo(
+    () => periods.map((period) => reportsById[period.id]).filter(Boolean) as PeriodReport[],
+    [periods, reportsById]
+  );
+
+  const portfolioTotals = useMemo(() => {
+    return loadedReports.reduce(
+      (acc, report) => {
+        acc.income += report.totals.incomeTotal || 0;
+        acc.planned += report.totals.plan.total || 0;
+        acc.spent += report.totals.transactions.total || 0;
+        acc.needs += report.totals.transactions.needs || 0;
+        acc.wants += report.totals.transactions.wants || 0;
+        acc.savings += report.totals.transactions.sd || 0;
+        return acc;
+      },
+      { income: 0, planned: 0, spent: 0, needs: 0, wants: 0, savings: 0 }
+    );
+  }, [loadedReports]);
+
+  const trendRows = useMemo(
+    () =>
+      loadedReports.map((report) => ({
+        periodId: report.periodId,
+        title: report.period?.title || periodTitleFromId(report.periodId),
+        income: report.totals.incomeTotal || 0,
+        spent: report.totals.transactions.total || 0,
+        remaining: (report.totals.incomeTotal || 0) - (report.totals.transactions.total || 0),
+      })),
+    [loadedReports]
+  );
+
+  const categoryShare = useMemo(() => {
+    const total = Math.max(portfolioTotals.spent, 1);
+    return [
+      { label: 'Needs', amount: portfolioTotals.needs, pct: (portfolioTotals.needs / total) * 100, color: 'bg-needs' },
+      { label: 'Wants', amount: portfolioTotals.wants, pct: (portfolioTotals.wants / total) * 100, color: 'bg-wants' },
+      { label: 'Savings-Debt', amount: portfolioTotals.savings, pct: (portfolioTotals.savings / total) * 100, color: 'bg-savings' },
+    ];
+  }, [portfolioTotals]);
+
   async function exportBudget(pid: string) {
     if (!uid || exportingById[pid]) return;
     setExportingById((prev) => ({ ...prev, [pid]: true }));
@@ -206,6 +250,17 @@ export default function ReportsScreen() {
       Alert.alert('Export failed', e instanceof Error ? e.message : String(e));
     } finally {
       setAccountExporting(false);
+    }
+  }
+
+  async function loadLatestReports() {
+    if (!periods.length || loadingLatest) return;
+    setLoadingLatest(true);
+    try {
+      const latest = periods.slice(0, 6).map((period) => period.id);
+      await Promise.all(latest.map((pid) => loadReport(pid, true)));
+    } finally {
+      setLoadingLatest(false);
     }
   }
 
@@ -267,6 +322,92 @@ export default function ReportsScreen() {
           </View>
         ) : (
           !accountLoading && <Text className="text-sm text-muted-foreground">No accounts report available yet.</Text>
+        )}
+      </AppCard>
+
+      <AppCard className="gap-4">
+        <View className="flex-row flex-wrap items-center justify-between gap-2">
+          <View>
+            <Text className="text-base font-semibold text-foreground dark:text-zinc-50">Portfolio Summary</Text>
+            <Text className="text-xs text-muted-foreground">Cross-budget totals and trend analytics.</Text>
+          </View>
+          <AppButton
+            label={loadingLatest ? 'Loading...' : 'Load Latest 6 Budgets'}
+            onPress={() => void loadLatestReports()}
+            variant="outline"
+            disabled={loadingLatest || !periods.length}
+          />
+        </View>
+
+        <View className="grid grid-cols-1 gap-3 md:grid-cols-4">
+          <AppCard className="p-3">
+            <Text className="text-xs uppercase tracking-wide text-muted-foreground">Loaded Budgets</Text>
+            <Text className="text-lg font-semibold text-foreground dark:text-zinc-50">{loadedReports.length}</Text>
+          </AppCard>
+          <AppCard className="p-3">
+            <Text className="text-xs uppercase tracking-wide text-muted-foreground">Income</Text>
+            <Text className="text-lg font-semibold text-foreground dark:text-zinc-50">{fmtMoney(portfolioTotals.income)}</Text>
+          </AppCard>
+          <AppCard className="p-3">
+            <Text className="text-xs uppercase tracking-wide text-muted-foreground">Spent</Text>
+            <Text className="text-lg font-semibold text-foreground dark:text-zinc-50">{fmtMoney(portfolioTotals.spent)}</Text>
+          </AppCard>
+          <AppCard className="p-3">
+            <Text className="text-xs uppercase tracking-wide text-muted-foreground">Remaining</Text>
+            <Text
+              className={`text-lg font-semibold ${
+                portfolioTotals.income - portfolioTotals.spent >= 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-700 dark:text-red-300'
+              }`}
+            >
+              {fmtMoney(portfolioTotals.income - portfolioTotals.spent)}
+            </Text>
+          </AppCard>
+        </View>
+
+        {loadedReports.length ? (
+          <>
+            <View className="gap-2">
+              <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Category Spend Share</Text>
+              {categoryShare.map((row) => (
+                <View key={row.label} className="gap-1">
+                  <View className="flex-row items-center justify-between">
+                    <Text className="text-xs text-foreground dark:text-zinc-50">{row.label}</Text>
+                    <Text className="text-xs text-muted-foreground">
+                      {fmtMoney(row.amount)} · {Math.round(row.pct)}%
+                    </Text>
+                  </View>
+                  <AppProgressBar value={row.pct} indicatorClassName={row.color} />
+                </View>
+              ))}
+            </View>
+
+            <View className="gap-2">
+              <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Monthly Trend</Text>
+              <View className="rounded-md border border-border dark:border-zinc-800">
+                <View className="flex-row border-b border-border px-3 py-2 dark:border-zinc-800">
+                  <Text className="w-[180px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Period</Text>
+                  <Text className="w-[120px] text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Income</Text>
+                  <Text className="w-[120px] text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Spent</Text>
+                  <Text className="w-[120px] text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Remaining</Text>
+                </View>
+                {trendRows.map((row) => (
+                  <View key={row.periodId} className="flex-row border-b border-border px-3 py-2 last:border-b-0 dark:border-zinc-800">
+                    <View className="w-[180px]">
+                      <Text className="text-sm text-foreground dark:text-zinc-50">{row.title}</Text>
+                      <Text className="text-xs text-muted-foreground">{row.periodId}</Text>
+                    </View>
+                    <Text className="w-[120px] text-right text-sm text-foreground dark:text-zinc-50">{fmtMoney(row.income)}</Text>
+                    <Text className="w-[120px] text-right text-sm text-foreground dark:text-zinc-50">{fmtMoney(row.spent)}</Text>
+                    <Text className={`w-[120px] text-right text-sm ${row.remaining >= 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-700 dark:text-red-300'}`}>
+                      {fmtMoney(row.remaining)}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          </>
+        ) : (
+          <Text className="text-sm text-muted-foreground">Load budgets to view aggregate trend reports.</Text>
         )}
       </AppCard>
 

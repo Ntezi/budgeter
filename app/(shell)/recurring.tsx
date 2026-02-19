@@ -8,7 +8,8 @@ import { AppButton } from '@/components/ui/AppButton';
 import { AppBadge } from '@/components/ui/AppBadge';
 import { AppSegmented } from '@/components/ui/AppSegmented';
 import { IconActionButton } from '@/components/ui/IconActionButton';
-import { useAuthUser } from '@/providers/AuthProvider';
+import { DropdownField } from '@/components/ui/DropdownField';
+import { useWorkspaceUid } from '@/providers/WorkspaceProvider';
 import {
   addRecurring,
   deleteRecurring,
@@ -25,10 +26,11 @@ import { createPeriod, nextMonthMeta, periodIdFromDate } from '@/lib/repo/period
 import { applyAllocationDefaultsForPeriod } from '@/lib/repo/allocations';
 import { fmtMoney, parseMoney } from '@/lib/format';
 import { PLAN_GROUP_OPTIONS } from '@/lib/groups';
+import { firstTag, parseTagsInput, tagsLabel, tagsToInput } from '@/lib/tags';
 
 export default function RecurringScreen() {
   const router = useRouter();
-  const uid = useAuthUser()?.uid;
+  const uid = useWorkspaceUid();
 
   const [rows, setRows] = useState<Recurring[]>([]);
   const [csvText, setCsvText] = useState(recurringCsvHeader);
@@ -37,10 +39,14 @@ export default function RecurringScreen() {
     flow: 'EXPENSE',
     name: '',
     amount: 0,
+    tags: [],
     group: 'NEED',
     dayOfMonth: 1,
     active: true,
   });
+  const [formError, setFormError] = useState('');
+  const [tagFilter, setTagFilter] = useState('ALL');
+  const [sortMode, setSortMode] = useState<'CREATED' | 'TAG'>('CREATED');
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingDraft, setEditingDraft] = useState<Recurring | null>(null);
@@ -52,19 +58,46 @@ export default function RecurringScreen() {
 
   const activeRows = useMemo(() => rows.filter((row) => row.active !== false), [rows]);
   const activeTotal = useMemo(() => activeRows.reduce((sum, row) => sum + (row.amount || 0), 0), [activeRows]);
+  const tagOptions = useMemo(() => {
+    const tags = [...new Set(rows.flatMap((row) => row.tags || []))].sort((a, b) => a.localeCompare(b));
+    return [{ label: 'All tags', value: 'ALL' }, ...tags.map((tag) => ({ label: `#${tag}`, value: tag }))];
+  }, [rows]);
+  const displayRows = useMemo(() => {
+    let out = [...rows];
+    if (tagFilter !== 'ALL') out = out.filter((row) => (row.tags || []).includes(tagFilter));
+    if (sortMode === 'TAG') {
+      out.sort((a, b) => {
+        const ta = firstTag(a.tags);
+        const tb = firstTag(b.tags);
+        if (ta !== tb) return ta.localeCompare(tb);
+        return (a.name || '').localeCompare(b.name || '');
+      });
+    }
+    return out;
+  }, [rows, sortMode, tagFilter]);
 
   async function addRow() {
-    if (!uid || !draft.name || !draft.amount) return;
+    if (!uid) return;
+    if (!draft.name?.trim()) {
+      setFormError('Template name is required.');
+      return;
+    }
+    if (!draft.amount || draft.amount <= 0) {
+      setFormError('Amount must be greater than 0.');
+      return;
+    }
     await addRecurring(uid, {
       flow: draft.flow ?? 'EXPENSE',
       name: draft.name.trim(),
       amount: draft.amount,
+      tags: draft.tags ?? [],
       group: draft.flow === 'INCOME' ? undefined : draft.group ?? 'NEED',
       dayOfMonth: 1,
       active: draft.active !== false,
       note: draft.note?.trim() || undefined,
     });
-    setDraft((prev) => ({ ...prev, name: '', amount: 0 }));
+    setDraft((prev) => ({ ...prev, name: '', amount: 0, tags: [] }));
+    setFormError('');
   }
 
   function beginEdit(row: Recurring) {
@@ -84,6 +117,7 @@ export default function RecurringScreen() {
       flow: row.flow ?? 'EXPENSE',
       name: row.name,
       amount: row.amount,
+      tags: row.tags ?? [],
       group: row.flow === 'INCOME' ? undefined : row.group ?? 'NEED',
       dayOfMonth: row.dayOfMonth ?? 1,
       active: row.active !== false,
@@ -134,6 +168,7 @@ export default function RecurringScreen() {
     name: 'w-[220px]',
     flow: 'w-[150px]',
     group: 'w-[190px]',
+    tags: 'w-[220px]',
     amount: 'w-[130px]',
     status: 'w-[110px]',
     actions: 'w-[140px]',
@@ -198,17 +233,33 @@ export default function RecurringScreen() {
       </AppCard>
 
       <AppCard className="gap-3">
+        <View className="flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <View className="w-full md:w-64">
+            <DropdownField value={tagFilter} options={tagOptions} onChange={setTagFilter} placeholder="Filter by tag" menuStrategy="inline" />
+          </View>
+          <AppSegmented
+            value={sortMode}
+            onChange={(value) => setSortMode(value as 'CREATED' | 'TAG')}
+            compact
+            options={[
+              { label: 'Created', value: 'CREATED' },
+              { label: 'Tag', value: 'TAG' },
+            ]}
+          />
+        </View>
+
         <View>
           <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Templates</Text>
           <Text className="text-xs text-muted-foreground">Aligned list view from redesign baseline.</Text>
         </View>
 
         <ScrollView horizontal showsHorizontalScrollIndicator>
-          <View className="min-w-[940px] flex-1">
+          <View className="min-w-[1160px] flex-1">
             <View className="flex-row border-b border-border pb-2 dark:border-zinc-800">
               <Text className={`${col.name} text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Name</Text>
               <Text className={`${col.flow} text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Type</Text>
               <Text className={`${col.group} text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Category</Text>
+              <Text className={`${col.tags} text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Tags</Text>
               <Text className={`${col.amount} text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Amount</Text>
               <Text className={`${col.status} text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Status</Text>
               <Text className={`${col.actions} text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Actions</Text>
@@ -248,6 +299,14 @@ export default function RecurringScreen() {
                   </View>
                 )}
               </View>
+              <View className={`${col.tags} pr-2`}>
+                <AppInput
+                  value={tagsToInput(draft.tags)}
+                  onChangeText={(value) => setDraft((prev) => ({ ...prev, tags: parseTagsInput(value) }))}
+                  placeholder="utilities, vegetables"
+                  className="h-9"
+                />
+              </View>
               <View className={`${col.amount} pr-2`}>
                 <AppInput
                   value={String(draft.amount || '')}
@@ -264,8 +323,13 @@ export default function RecurringScreen() {
                 <IconActionButton icon="plus" label="Add template" onPress={addRow} />
               </View>
             </View>
+            {formError ? (
+              <View className="py-1">
+                <Text className="text-xs text-destructive">{formError}</Text>
+              </View>
+            ) : null}
 
-            {rows.map((row) => {
+            {displayRows.map((row) => {
               const isEditing = editingId === row.id && editingDraft;
               return (
                 <View key={row.id} className="flex-row items-center border-b border-border py-2 dark:border-zinc-800">
@@ -316,6 +380,19 @@ export default function RecurringScreen() {
                     )}
                   </View>
 
+                  <View className={`${col.tags} pr-2`}>
+                    {isEditing ? (
+                      <AppInput
+                        value={tagsToInput(editingDraft.tags)}
+                        onChangeText={(value) => setEditingDraft((prev) => (prev ? { ...prev, tags: parseTagsInput(value) } : prev))}
+                        className="h-9"
+                        placeholder="tags"
+                      />
+                    ) : (
+                      <Text className="text-xs text-muted-foreground">{tagsLabel(row.tags)}</Text>
+                    )}
+                  </View>
+
                   <View className={`${col.amount} pr-2`}>
                     {isEditing ? (
                       <AppInput
@@ -362,9 +439,9 @@ export default function RecurringScreen() {
               );
             })}
 
-            {!rows.length ? (
+            {!displayRows.length ? (
               <View className="py-4">
-                <Text className="text-sm text-muted-foreground">No templates yet. Add one above.</Text>
+                <Text className="text-sm text-muted-foreground">No templates for this filter.</Text>
               </View>
             ) : null}
           </View>

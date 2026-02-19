@@ -8,7 +8,7 @@ import { AppBadge } from '@/components/ui/AppBadge';
 import { AppSegmented } from '@/components/ui/AppSegmented';
 import { AppProgressBar } from '@/components/ui/AppProgressBar';
 import { fmtMoney } from '@/lib/format';
-import { useAuthUser } from '@/providers/AuthProvider';
+import { useWorkspaceUid } from '@/providers/WorkspaceProvider';
 import {
   createPeriod,
   getOrCreatePeriod,
@@ -31,7 +31,7 @@ type CompareMode = 'AUTO' | 'MANUAL';
 
 export default function DashboardScreen() {
   const router = useRouter();
-  const uid = useAuthUser()?.uid;
+  const uid = useWorkspaceUid();
   const pid = periodIdFromDate();
 
   const [periods, setPeriods] = useState<(PeriodDoc & { id: string })[]>([]);
@@ -50,7 +50,7 @@ export default function DashboardScreen() {
     const unPeriod = watchPeriod(uid, pid, (period) => {
       setTargetPct(period.targetPct ?? { needs: 0.5, wants: 0.3, sd: 0.2 });
     });
-    const unIncome = watchIncomeItems(uid, pid, (_rows, total) => setIncomeTotal(total));
+    const unIncome = watchIncomeItems(uid, pid, (_rows, activeTotal) => setIncomeTotal(activeTotal));
     const unPlan = watchPlanTotals(uid, pid, (totals) => setPlanTotals(totals));
     const unActual = watchTransactionsTotals(uid, pid, setActualTotals);
     const unAlloc = watchAllocations(uid, pid, (_rows, totals) => setAllocationTotals(totals));

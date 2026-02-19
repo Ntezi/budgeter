@@ -4,7 +4,7 @@ import {
 import {db} from '../firebase';
 import {assertPeriodEditable} from './periods';
 
-export type IncomeItem = { id?: string; name: string; amount: number };
+export type IncomeItem = { id?: string; name: string; amount: number; active?: boolean };
 
 export function incomeCol(userId: string, periodId: string) {
     return collection(db, 'users', userId, 'periods', periodId, 'incomeItems');
@@ -13,24 +13,31 @@ export function incomeCol(userId: string, periodId: string) {
 export function watchIncomeItems(
     userId: string,
     periodId: string,
-    cb: (items: IncomeItem[], total: number) => void
+    cb: (items: IncomeItem[], activeTotal: number, grossTotal: number) => void
 ) {
     const q = query(incomeCol(userId, periodId), orderBy('createdAt', 'asc'));
     return onSnapshot(q, (snap) => {
         const items: IncomeItem[] = [];
-        let total = 0;
+        let activeTotal = 0;
+        let grossTotal = 0;
         snap.forEach((d) => {
             const it = {id: d.id, ...(d.data() as any)} as IncomeItem;
-            total += it.amount || 0;
+            const amount = it.amount || 0;
+            grossTotal += amount;
+            if (it.active !== false) activeTotal += amount;
             items.push(it);
         });
-        cb(items, total);
+        cb(items, activeTotal, grossTotal);
     });
 }
 
 export async function addIncomeItem(userId: string, periodId: string, item: Omit<IncomeItem, 'id'>) {
     await assertPeriodEditable(userId, periodId);
-    return addDoc(incomeCol(userId, periodId), {...item, createdAt: serverTimestamp()});
+    return addDoc(incomeCol(userId, periodId), {
+        ...item,
+        active: item.active !== false,
+        createdAt: serverTimestamp(),
+    });
 }
 
 export async function updateIncomeItem(userId: string, periodId: string, id: string, patch: Partial<IncomeItem>) {
@@ -51,6 +58,7 @@ export async function putIncomeWithId(
 ) {
     return setDoc(doc(incomeCol(userId, periodId), id), {
         ...item,
+        active: item.active !== false,
         createdAt: serverTimestamp(),
     }, {merge: true});
 }

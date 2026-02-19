@@ -8,7 +8,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "reminders:send": "node ./scripts/send-daily-balance-reminders.js"
   },
   "dependencies": {
     "@expo/vector-icons": "^14.1.0",
@@ -34,8 +35,10 @@
     "expo-system-ui": "~5.0.11",
     "expo-web-browser": "~14.2.0",
     "firebase": "^12.3.0",
+    "firebase-admin": "^13.6.1",
     "firebase-tools": "^14.12.0",
     "nativewind": "^4.1.23",
+    "nodemailer": "^8.0.1",
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "react-native": "0.79.6",

@@ -89,7 +89,10 @@ export async function fetchPeriodReport(uid: string, pid: string): Promise<Perio
   accountsSnap.forEach((d) => accounts.push({id: d.id, ...(d.data() as Account)}));
 
   let incomeTotal = 0;
-  for (const item of incomeItems) incomeTotal += item.amount || 0;
+  for (const item of incomeItems) {
+    if (item.active === false) continue;
+    incomeTotal += item.amount || 0;
+  }
 
   const planTotals = {needs: 0, wants: 0, sd: 0};
   for (const item of planItems) {

@@ -5,11 +5,13 @@ import { ActivityIndicator, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '@/providers/AuthProvider';
 import { ThemeProvider, useThemeMode } from '@/providers/ThemeProvider';
+import { WorkspaceProvider, useWorkspace } from '@/providers/WorkspaceProvider';
 import { getOnboardingComplete } from '@/lib/onboarding';
 
 function AppGate() {
   const { ready: authReady, user } = useAuth();
   const { ready: themeReady } = useThemeMode();
+  const { ready: workspaceReady } = useWorkspace();
   const pathname = usePathname();
   const router = useRouter();
 
@@ -32,7 +34,7 @@ function AppGate() {
   }, [pathname]);
 
   useEffect(() => {
-    if (!authReady || !themeReady || !checkedOnboarding) return;
+    if (!authReady || !themeReady || !workspaceReady || !checkedOnboarding) return;
 
     const isOnboarding = pathname.startsWith('/onboarding');
     const isAuth = pathname.startsWith('/auth');
@@ -50,9 +52,12 @@ function AppGate() {
     if (onboardingComplete && user && (isOnboarding || isAuth || pathname === '/')) {
       router.replace('/dashboard');
     }
-  }, [authReady, checkedOnboarding, onboardingComplete, pathname, router, themeReady, user]);
+  }, [authReady, checkedOnboarding, onboardingComplete, pathname, router, themeReady, user, workspaceReady]);
 
-  const loading = useMemo(() => !(authReady && themeReady && checkedOnboarding), [authReady, themeReady, checkedOnboarding]);
+  const loading = useMemo(
+    () => !(authReady && themeReady && workspaceReady && checkedOnboarding),
+    [authReady, themeReady, workspaceReady, checkedOnboarding]
+  );
 
   if (loading) {
     return (
@@ -77,7 +82,9 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <ThemeProvider>
         <AuthProvider>
-          <AppGate />
+          <WorkspaceProvider>
+            <AppGate />
+          </WorkspaceProvider>
         </AuthProvider>
       </ThemeProvider>
     </SafeAreaProvider>

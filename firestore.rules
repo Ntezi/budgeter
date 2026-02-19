@@ -2,6 +2,25 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function isSignedIn() { return request.auth != null; }
+    function isSelf(uid) { return isSignedIn() && request.auth.uid == uid; }
+    function membershipDocId(ownerUid, memberUid) { return ownerUid + "_" + memberUid; }
+    function isWorkspaceMember(ownerUid) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/workspaceMembers/$(membershipDocId(ownerUid, request.auth.uid)));
+    }
+    function canAccessWorkspace(ownerUid) {
+      return isSelf(ownerUid) || isWorkspaceMember(ownerUid);
+    }
+
+    match /workspaceMembers/{membershipId} {
+      allow create: if isSignedIn() &&
+        request.resource.data.ownerUid == request.auth.uid &&
+        request.resource.data.memberUid is string;
+      allow read: if isSignedIn() &&
+        (resource.data.ownerUid == request.auth.uid || resource.data.memberUid == request.auth.uid);
+      allow update, delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+    }
+
     function isOwner() { return isSignedIn() && request.auth.uid == resource.data.ownerId; }
     function creatingForSelf() {
       return isSignedIn() && request.auth.uid == request.resource.data.ownerId;
@@ -9,26 +28,26 @@ service cloud.firestore {
 
     // Lock each user to their own subtree (if you store per-user docs here)
     match /users/{uid} {
-      allow read, write: if isSignedIn() && uid == request.auth.uid;
+      allow read, write: if canAccessWorkspace(uid);
 
       match /accounts/{accountId} {
-        allow read, write: if isSignedIn() && uid == request.auth.uid;
+        allow read, write: if canAccessWorkspace(uid);
       }
 
       match /allocationDefaults/{defaultId} {
-        allow read, write: if isSignedIn() && uid == request.auth.uid;
+        allow read, write: if canAccessWorkspace(uid);
       }
 
       match /settings/{settingsId} {
-        allow read, write: if isSignedIn() && uid == request.auth.uid;
+        allow read, write: if canAccessWorkspace(uid);
       }
 
       match /periods/{periodId}/allocations/{allocationId} {
-        allow read, write: if isSignedIn() && uid == request.auth.uid;
+        allow read, write: if canAccessWorkspace(uid);
       }
 
       match /{sub=**} {
-        allow read, write: if isSignedIn() && uid == request.auth.uid;
+        allow read, write: if canAccessWorkspace(uid);
       }
     }
 

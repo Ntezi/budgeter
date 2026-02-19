@@ -16,6 +16,7 @@ export type Recurring = {
     flow?: RecurringFlow;        // ← NEW (default EXPENSE)
     name: string;
     amount: number;
+    tags?: string[];
     group?: Group;               // required when flow = EXPENSE
     dayOfMonth: number;          // 1..31 (clamped)
     active?: boolean;            // undefined = true
@@ -97,6 +98,7 @@ function normalizeRecurring(input: Omit<Recurring, 'id'>): Omit<Recurring, 'id'>
         flow,
         name: input.name.trim(),
         amount: Number(input.amount) || 0,
+        tags: Array.isArray(input.tags) ? input.tags.map((t) => String(t).trim().toLowerCase()).filter(Boolean) : [],
         dayOfMonth: Math.min(31, Math.max(1, Number(input.dayOfMonth) || 1)),
         active: input.active !== false,
     };
@@ -117,6 +119,7 @@ function toFirestoreWrite(input: Omit<Recurring, 'id'>) {
         active: row.active,
     };
     if (row.group) out.group = row.group;
+    if (row.tags?.length) out.tags = row.tags;
     if (row.start) out.start = row.start;
     if (row.end) out.end = row.end;
     if (row.note) out.note = row.note;
@@ -130,6 +133,10 @@ function toFirestorePatch(patch: Partial<Recurring>) {
     if ('amount' in patch && patch.amount !== undefined) out.amount = Number(patch.amount) || 0;
     if ('dayOfMonth' in patch && patch.dayOfMonth !== undefined) {
         out.dayOfMonth = Math.min(31, Math.max(1, Number(patch.dayOfMonth) || 1));
+    }
+    if ('tags' in patch) {
+        const next = Array.isArray(patch.tags) ? patch.tags.map((t) => String(t).trim().toLowerCase()).filter(Boolean) : [];
+        out.tags = next;
     }
     if ('active' in patch) out.active = patch.active !== false;
     if ('group' in patch) out.group = patch.group ?? deleteField();
