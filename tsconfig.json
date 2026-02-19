@@ -12,14 +12,17 @@
     }
   },
   "include": [
-    "**/*.ts",
-    "**/*.tsx",
-    ".expo/types/**/*.ts",
-    "expo-env.d.ts",
-    "types",
     "app",
     "components",
     "lib",
-    "models"
+    "models",
+    "providers",
+    "types",
+    "nativewind-env.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "Redesign Budgeter UI_UX"
   ]
 }

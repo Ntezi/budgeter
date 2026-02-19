@@ -61,6 +61,18 @@ npx expo start
 - Rules file: `firestore.rules`
 - Firebase config files: `firebase.json`, `.firebaserc`
 
+### GitHub Actions Env
+
+`Deploy Firebase Hosting` expects these Actions Variables or Secrets:
+
+- `EXPO_PUBLIC_FIREBASE_API_KEY`
+- `EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN`
+- `EXPO_PUBLIC_FIREBASE_PROJECT_ID`
+- `EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET`
+- `EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`
+- `EXPO_PUBLIC_FIREBASE_APP_ID`
+- Optional: `EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID`, `EXPO_PUBLIC_APP_CURRENCY`
+
 Deploy Firestore rules/indexes:
 
 ```bash

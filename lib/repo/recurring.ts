@@ -245,6 +245,7 @@ export async function seedBudgetFromRecurring(
         if (r.end && pid > r.end) return false;
         return true;
     });
+    let nextPriority = 1;
     for (const r of eligible) {
         if (!r.id) continue;
         const flow: RecurringFlow = r.flow ?? 'EXPENSE';
@@ -261,8 +262,10 @@ export async function seedBudgetFromRecurring(
                 name: r.name,
                 amount: r.amount,
                 group: (r.group ?? 'NEED') as Group,
+                priority: nextPriority,
             });
             planWritten++;
+            nextPriority++;
         }
     }
     return {planWritten, incomeWritten};

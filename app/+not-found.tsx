@@ -1,38 +1,18 @@
-import { Link, Stack } from 'expo-router';
-import { StyleSheet, Text, View } from 'react-native';
+import React from 'react';
+import { View, Text } from 'react-native';
+import { useRouter } from 'expo-router';
+import { AppButton } from '@/components/ui/AppButton';
 
 export default function NotFoundScreen() {
+  const router = useRouter();
+
   return (
-    <>
-      <Stack.Screen options={{ title: 'Oops!' }} />
-      <View style={styles.container}>
-        <Text style={styles.title}>This screen does not exist.</Text>
-        <Link href="/" style={styles.link}>
-          <Text style={styles.linkText}>Go to home screen!</Text>
-        </Link>
-      </View>
-    </>
+    <View className="flex-1 items-center justify-center gap-4 bg-background px-6 dark:bg-slate-950">
+      <Text className="text-2xl font-bold text-foreground dark:text-slate-100">Page not found</Text>
+      <Text className="text-center text-sm text-muted-foreground">
+        The route you opened does not exist in this app shell.
+      </Text>
+      <AppButton label="Go to Dashboard" onPress={() => router.replace('/dashboard')} />
+    </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  link: {
-    marginTop: 15,
-    paddingVertical: 15,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-  },
-  linkText: {
-    color: '#2563EB',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-});

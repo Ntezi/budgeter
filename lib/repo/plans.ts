@@ -5,7 +5,7 @@ import {db} from '../firebase';
 import {assertPeriodEditable} from './periods';
 
 export type PlanGroup = 'NEED' | 'WANT' | 'SAVINGS_DEBT';
-export type PlanItem = { id?: string; group: PlanGroup; name: string; amount: number };
+export type PlanItem = { id?: string; group: PlanGroup; name: string; amount: number; priority?: number };
 
 export function planCol(userId: string, periodId: string) {
     return collection(db, 'users', userId, 'periods', periodId, 'planItems');
@@ -26,6 +26,12 @@ export function watchPlanTotals(
             if (it.group === 'NEED') totals.needs += it.amount || 0;
             else if (it.group === 'WANT') totals.wants += it.amount || 0;
             else totals.sd += it.amount || 0;
+        });
+        items.sort((a, b) => {
+            const pa = Number(a.priority ?? Number.MAX_SAFE_INTEGER);
+            const pb = Number(b.priority ?? Number.MAX_SAFE_INTEGER);
+            if (pa !== pb) return pa - pb;
+            return (a.name ?? '').localeCompare(b.name ?? '');
         });
         cb(totals, items);
     });
