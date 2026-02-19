@@ -81,7 +81,7 @@ export default function SettingsScreen() {
       return;
     }
     if (memberUid === activeWorkspaceOwnerUid) {
-      setMemberSuccess('That Collaborator ID belongs to the workspace owner. No invite needed.');
+      setMemberSuccess('That Collaborator ID is the workspace owner. Enter another person\'s Collaborator ID to invite them.');
       return;
     }
     if (ownedMembers.some((row) => row.memberUid === memberUid && row.status !== 'REMOVED')) {
