@@ -15,26 +15,26 @@ type Props = Omit<PressableProps, 'children'> & {
 };
 
 const VARIANT_CLASS: Record<AppButtonVariant, string> = {
-  primary: 'bg-primary dark:bg-slate-100',
-  secondary: 'bg-secondary dark:bg-slate-800',
-  outline: 'border border-border bg-card dark:bg-slate-900',
+  primary: 'bg-primary',
+  secondary: 'bg-secondary dark:bg-zinc-800',
+  outline: 'border border-border bg-background dark:border-zinc-800 dark:bg-zinc-900/60',
   ghost: 'bg-transparent',
   destructive: 'bg-destructive',
 };
 
 const VARIANT_TEXT_CLASS: Record<AppButtonVariant, string> = {
-  primary: 'text-primary-foreground dark:text-slate-900',
-  secondary: 'text-secondary-foreground dark:text-slate-100',
-  outline: 'text-foreground dark:text-slate-100',
-  ghost: 'text-foreground dark:text-slate-100',
+  primary: 'text-primary-foreground',
+  secondary: 'text-secondary-foreground dark:text-zinc-50',
+  outline: 'text-foreground dark:text-zinc-50',
+  ghost: 'text-foreground dark:text-zinc-50',
   destructive: 'text-white',
 };
 
 const SIZE_CLASS: Record<AppButtonSize, string> = {
-  sm: 'h-9 px-3',
-  md: 'h-11 px-4',
-  lg: 'h-12 px-5',
-  icon: 'h-10 w-10 items-center justify-center px-0',
+  sm: 'h-8 rounded-md px-3',
+  md: 'h-9 rounded-md px-4',
+  lg: 'h-10 rounded-md px-6',
+  icon: 'h-9 w-9 rounded-md items-center justify-center px-0',
 };
 
 export function AppButton({
@@ -50,7 +50,7 @@ export function AppButton({
   return (
     <Pressable
       className={cn(
-        'items-center justify-center rounded-lg active:opacity-90',
+        'items-center justify-center active:opacity-90',
         VARIANT_CLASS[variant],
         SIZE_CLASS[size],
         disabled && 'opacity-50',
@@ -60,7 +60,7 @@ export function AppButton({
       {...props}
     >
       {typeof children === 'string' || typeof children === 'number' || label ? (
-        <Text className={cn('text-sm font-semibold', VARIANT_TEXT_CLASS[variant], textClassName)}>
+        <Text className={cn('text-sm font-medium', VARIANT_TEXT_CLASS[variant], textClassName)}>
           {label ?? children}
         </Text>
       ) : (

@@ -7,7 +7,6 @@ import { AppInput } from '@/components/ui/AppInput';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppBadge } from '@/components/ui/AppBadge';
 import { AppSegmented } from '@/components/ui/AppSegmented';
-import { DropdownField } from '@/components/ui/DropdownField';
 import { IconActionButton } from '@/components/ui/IconActionButton';
 import { useAuthUser } from '@/providers/AuthProvider';
 import {
@@ -22,7 +21,7 @@ import {
   updateRecurring,
   watchRecurring,
 } from '@/lib/repo/recurring';
-import { createPeriod, nextMonthMeta, periodIdFromDate, watchPeriods } from '@/lib/repo/periods';
+import { createPeriod, nextMonthMeta, periodIdFromDate } from '@/lib/repo/periods';
 import { applyAllocationDefaultsForPeriod } from '@/lib/repo/allocations';
 import { fmtMoney, parseMoney } from '@/lib/format';
 import { PLAN_GROUP_OPTIONS } from '@/lib/groups';
@@ -32,8 +31,6 @@ export default function RecurringScreen() {
   const uid = useAuthUser()?.uid;
 
   const [rows, setRows] = useState<Recurring[]>([]);
-  const [periodOptions, setPeriodOptions] = useState<string[]>([]);
-  const [selectedPid, setSelectedPid] = useState(periodIdFromDate());
   const [csvText, setCsvText] = useState(recurringCsvHeader);
 
   const [draft, setDraft] = useState<Recurring>({
@@ -50,24 +47,8 @@ export default function RecurringScreen() {
 
   useEffect(() => {
     if (!uid) return;
-    const unRows = watchRecurring(uid, setRows);
-    const unPeriods = watchPeriods(uid, (periods) => {
-      const ids = periods.map((row) => row.id);
-      setPeriodOptions(ids.length ? ids.slice(0, 8) : [periodIdFromDate()]);
-    });
-
-    return () => {
-      unRows();
-      unPeriods();
-    };
+    return watchRecurring(uid, setRows);
   }, [uid]);
-
-  useEffect(() => {
-    if (!periodOptions.length) return;
-    if (!periodOptions.includes(selectedPid)) {
-      setSelectedPid(periodOptions[0]);
-    }
-  }, [periodOptions, selectedPid]);
 
   const activeRows = useMemo(() => rows.filter((row) => row.active !== false), [rows]);
   const activeTotal = useMemo(() => activeRows.reduce((sum, row) => sum + (row.amount || 0), 0), [activeRows]);
@@ -122,10 +103,11 @@ export default function RecurringScreen() {
     if (editingId === row.id) cancelEdit();
   }
 
-  async function generate() {
+  async function generateCurrentPeriod() {
     if (!uid) return;
-    const out = await generateForPeriod(uid, selectedPid, rows);
-    Alert.alert('Recurring Applied', `${selectedPid}\nExpenses: ${out.expenseWritten}\nIncome: ${out.incomeWritten}`);
+    const pid = periodIdFromDate();
+    const out = await generateForPeriod(uid, pid, rows);
+    Alert.alert('Recurring Applied', `${pid}\nExpenses: ${out.expenseWritten}\nIncome: ${out.incomeWritten}`);
   }
 
   async function importCsv() {
@@ -154,59 +136,50 @@ export default function RecurringScreen() {
     group: 'w-[190px]',
     amount: 'w-[130px]',
     status: 'w-[110px]',
-    actions: 'w-[130px]',
+    actions: 'w-[140px]',
   };
 
   return (
     <ScrollView className="flex-1" contentContainerClassName="gap-4 pb-8">
       <View className="gap-1">
-        <Text className="text-3xl font-bold text-foreground dark:text-slate-100">Recurring Items</Text>
+        <Text className="text-3xl font-bold text-foreground dark:text-zinc-50">Recurring Items</Text>
         <Text className="text-sm text-muted-foreground">Manage recurring templates and generate them into budgets.</Text>
       </View>
 
-      <AppCard className="gap-3">
-        <Text className="text-sm font-semibold text-foreground dark:text-slate-100">Generate Into Period</Text>
-        <DropdownField
-          value={selectedPid}
-          options={periodOptions.map((id) => ({ label: id, value: id }))}
-          onChange={setSelectedPid}
-          placeholder="Select period"
-        />
-        <View className="flex-row flex-wrap gap-2">
-          <AppButton onPress={generate} variant="outline">
-            <View className="flex-row items-center gap-2">
-              <MaterialCommunityIcons name="refresh" size={18} color="#64748B" />
-              <Text className="text-sm font-semibold text-foreground dark:text-slate-100">Generate for {selectedPid}</Text>
-            </View>
-          </AppButton>
-          <AppButton onPress={createNextBudgetFromRecurring}>
-            <View className="flex-row items-center gap-2">
-              <MaterialCommunityIcons name="repeat" size={18} color="#FFFFFF" />
-              <Text className="text-sm font-semibold text-primary-foreground dark:text-slate-900">Create Next Budget</Text>
-            </View>
-          </AppButton>
-        </View>
-      </AppCard>
+      <View className="flex-row flex-wrap gap-2">
+        <AppButton onPress={generateCurrentPeriod} variant="outline">
+          <View className="flex-row items-center gap-2">
+            <MaterialCommunityIcons name="refresh" size={18} color="#717182" />
+            <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Generate Current Month</Text>
+          </View>
+        </AppButton>
+        <AppButton onPress={createNextBudgetFromRecurring}>
+          <View className="flex-row items-center gap-2">
+            <MaterialCommunityIcons name="repeat" size={18} color="#FFFFFF" />
+            <Text className="text-sm font-semibold text-primary-foreground">Create Next Budget</Text>
+          </View>
+        </AppButton>
+      </View>
 
       <View className="grid grid-cols-1 gap-3 md:grid-cols-3">
         <AppCard>
           <Text className="text-xs uppercase tracking-wide text-muted-foreground">Active templates</Text>
-          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-slate-100">{activeRows.length}</Text>
+          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">{activeRows.length}</Text>
         </AppCard>
         <AppCard>
           <Text className="text-xs uppercase tracking-wide text-muted-foreground">Expense templates</Text>
-          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-slate-100">
+          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">
             {activeRows.filter((row) => (row.flow ?? 'EXPENSE') === 'EXPENSE').length}
           </Text>
         </AppCard>
         <AppCard>
           <Text className="text-xs uppercase tracking-wide text-muted-foreground">Active amount total</Text>
-          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-slate-100">{fmtMoney(activeTotal)}</Text>
+          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">{fmtMoney(activeTotal)}</Text>
         </AppCard>
       </View>
 
       <AppCard className="gap-3">
-        <Text className="text-sm font-semibold text-foreground dark:text-slate-100">CSV Import</Text>
+        <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">CSV Import</Text>
         <Text className="text-xs text-muted-foreground">Header: {recurringCsvHeader}</Text>
         <AppInput
           value={csvText}
@@ -218,30 +191,30 @@ export default function RecurringScreen() {
         />
         <AppButton onPress={importCsv} variant="outline">
           <View className="flex-row items-center gap-2">
-            <MaterialCommunityIcons name="file-delimited-outline" size={18} color="#64748B" />
-            <Text className="text-sm font-semibold text-foreground dark:text-slate-100">Import CSV</Text>
+            <MaterialCommunityIcons name="file-delimited-outline" size={18} color="#717182" />
+            <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Import CSV</Text>
           </View>
         </AppButton>
       </AppCard>
 
       <AppCard className="gap-3">
         <View>
-          <Text className="text-sm font-semibold text-foreground dark:text-slate-100">Templates</Text>
+          <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Templates</Text>
           <Text className="text-xs text-muted-foreground">Aligned list view from redesign baseline.</Text>
         </View>
 
         <ScrollView horizontal showsHorizontalScrollIndicator>
           <View className="min-w-[940px] flex-1">
-            <View className="flex-row border-b border-border pb-2 dark:border-slate-700">
+            <View className="flex-row border-b border-border pb-2 dark:border-zinc-800">
               <Text className={`${col.name} text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Name</Text>
               <Text className={`${col.flow} text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Type</Text>
               <Text className={`${col.group} text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Category</Text>
-              <Text className={`${col.amount} text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Amount</Text>
-              <Text className={`${col.status} text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Status</Text>
-              <Text className={`${col.actions} text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Actions</Text>
+              <Text className={`${col.amount} text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Amount</Text>
+              <Text className={`${col.status} text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Status</Text>
+              <Text className={`${col.actions} text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Actions</Text>
             </View>
 
-            <View className="flex-row items-center border-b border-border py-2 dark:border-slate-700">
+            <View className="flex-row items-center border-b border-border py-2 dark:border-zinc-800">
               <View className={`${col.name} pr-2`}>
                 <AppInput
                   value={draft.name}
@@ -270,7 +243,7 @@ export default function RecurringScreen() {
                     options={PLAN_GROUP_OPTIONS.map((option) => ({ label: option.label, value: option.value }))}
                   />
                 ) : (
-                  <View className="h-9 items-start justify-center rounded-lg border border-border bg-muted px-3 dark:border-slate-700 dark:bg-slate-800">
+                  <View className="h-9 items-start justify-center rounded-lg border border-border bg-muted px-3 dark:border-zinc-800 dark:bg-zinc-800">
                     <Text className="text-xs text-muted-foreground">Income</Text>
                   </View>
                 )}
@@ -281,13 +254,13 @@ export default function RecurringScreen() {
                   onChangeText={(value) => setDraft((prev) => ({ ...prev, amount: parseMoney(value) }))}
                   keyboardType="decimal-pad"
                   placeholder="0.00"
-                  className="h-9"
+                  className="h-9 text-right"
                 />
               </View>
-              <View className={`${col.status} pr-2`}>
+              <View className={`${col.status} items-center pr-2`}>
                 <Switch value={draft.active !== false} onValueChange={(value) => setDraft((prev) => ({ ...prev, active: value }))} />
               </View>
-              <View className={col.actions}>
+              <View className={`${col.actions} items-center`}>
                 <IconActionButton icon="plus" label="Add template" onPress={addRow} />
               </View>
             </View>
@@ -295,7 +268,7 @@ export default function RecurringScreen() {
             {rows.map((row) => {
               const isEditing = editingId === row.id && editingDraft;
               return (
-                <View key={row.id} className="flex-row items-center border-b border-border py-2 dark:border-slate-700">
+                <View key={row.id} className="flex-row items-center border-b border-border py-2 dark:border-zinc-800">
                   <View className={`${col.name} pr-2`}>
                     {isEditing ? (
                       <AppInput
@@ -304,7 +277,7 @@ export default function RecurringScreen() {
                         className="h-9"
                       />
                     ) : (
-                      <Text className="text-sm font-medium text-foreground dark:text-slate-100">{row.name}</Text>
+                      <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{row.name}</Text>
                     )}
                   </View>
 
@@ -334,7 +307,7 @@ export default function RecurringScreen() {
                           options={PLAN_GROUP_OPTIONS.map((option) => ({ label: option.label, value: option.value }))}
                         />
                       ) : (
-                        <View className="h-9 items-start justify-center rounded-lg border border-border bg-muted px-3 dark:border-slate-700 dark:bg-slate-800">
+                        <View className="h-9 items-start justify-center rounded-lg border border-border bg-muted px-3 dark:border-zinc-800 dark:bg-zinc-800">
                           <Text className="text-xs text-muted-foreground">Income</Text>
                         </View>
                       )
@@ -349,14 +322,14 @@ export default function RecurringScreen() {
                         value={String(editingDraft.amount || '')}
                         onChangeText={(value) => setEditingDraft((prev) => (prev ? { ...prev, amount: parseMoney(value) } : prev))}
                         keyboardType="decimal-pad"
-                        className="h-9"
+                        className="h-9 text-right"
                       />
                     ) : (
-                      <Text className="text-sm font-medium text-foreground dark:text-slate-100">{fmtMoney(row.amount || 0)}</Text>
+                      <Text className="text-right text-sm font-medium text-foreground dark:text-zinc-50">{fmtMoney(row.amount || 0)}</Text>
                     )}
                   </View>
 
-                  <View className={`${col.status} pr-2`}>
+                  <View className={`${col.status} items-center pr-2`}>
                     {isEditing ? (
                       <Switch
                         value={editingDraft.active !== false}
@@ -372,7 +345,7 @@ export default function RecurringScreen() {
                     )}
                   </View>
 
-                  <View className={`${col.actions} flex-row gap-2`}>
+                  <View className={`${col.actions} flex-row items-center justify-center gap-2`}>
                     {isEditing ? (
                       <>
                         <IconActionButton icon="content-save-outline" label="Save template" onPress={saveEditingRow} />

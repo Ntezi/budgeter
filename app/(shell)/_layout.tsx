@@ -22,10 +22,10 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <View className="flex-1 gap-5 px-3 pb-4 pt-5">
       <View className="flex-row items-center gap-3 px-3">
-        <View className="h-9 w-9 items-center justify-center rounded-xl bg-primary dark:bg-slate-100">
-          <Text className="text-lg font-bold text-primary-foreground dark:text-slate-900">B</Text>
+        <View className="h-9 w-9 items-center justify-center rounded-xl bg-primary dark:bg-zinc-50">
+          <Text className="text-lg font-bold text-primary-foreground dark:text-zinc-900">B</Text>
         </View>
-        <Text className="text-xl font-bold text-foreground dark:text-slate-100">Budgeter</Text>
+        <Text className="text-xl font-bold text-foreground dark:text-zinc-50">Budgeter</Text>
       </View>
 
       <ScrollView className="flex-1" contentContainerClassName="gap-1 pb-4">
@@ -36,15 +36,15 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
               key={item.href}
               className={cn(
                 'h-11 flex-row items-center gap-3 rounded-lg px-3',
-                active ? 'bg-primary/10 dark:bg-slate-800' : 'bg-transparent'
+                active ? 'bg-primary/10 dark:bg-zinc-800' : 'bg-transparent'
               )}
               onPress={() => {
                 router.push(item.href);
                 if (onNavigate) onNavigate();
               }}
             >
-              <MaterialCommunityIcons name={item.icon} size={20} color={active ? '#4338CA' : '#64748B'} />
-              <Text className={cn('text-sm font-medium', active ? 'text-primary dark:text-slate-100' : 'text-muted-foreground')}>
+              <MaterialCommunityIcons name={item.icon} size={20} color={active ? '#030213' : '#717182'} />
+              <Text className={cn('text-sm font-medium', active ? 'text-primary dark:text-zinc-50' : 'text-muted-foreground')}>
                 {item.label}
               </Text>
             </Pressable>
@@ -70,34 +70,36 @@ export default function ShellLayout() {
   }, [pathname]);
 
   return (
-    <View className="flex-1 bg-background dark:bg-slate-950">
+    <View className="flex-1 bg-background dark:bg-zinc-950">
       <SafeAreaView edges={[isDesktop ? 'left' : 'top', 'right']} className="flex-1">
         <View className="flex-1 flex-row">
           {isDesktop ? (
-            <View className="w-72 border-r border-border bg-sidebar dark:border-slate-800 dark:bg-slate-900">
+            <View className="w-72 border-r border-border bg-sidebar dark:border-zinc-800 dark:bg-zinc-900">
               <SidebarNav />
             </View>
           ) : null}
 
           <View className="flex-1">
             {!isDesktop ? (
-              <View className="h-14 flex-row items-center gap-3 border-b border-border bg-card px-4 dark:border-slate-800 dark:bg-slate-900">
-                <Pressable className="h-9 w-9 items-center justify-center rounded-md bg-muted dark:bg-slate-800" onPress={() => setMenuOpen(true)}>
-                  <MaterialCommunityIcons name="menu" size={20} color="#64748B" />
+              <View className="h-14 flex-row items-center gap-3 border-b border-border bg-card px-4 dark:border-zinc-800 dark:bg-zinc-900">
+                <Pressable className="h-9 w-9 items-center justify-center rounded-md bg-muted dark:bg-zinc-800" onPress={() => setMenuOpen(true)}>
+                  <MaterialCommunityIcons name="menu" size={20} color="#717182" />
                 </Pressable>
-                <Text className="text-base font-semibold text-foreground dark:text-slate-100">{pageTitle}</Text>
+                <Text className="text-base font-semibold text-foreground dark:text-zinc-50">{pageTitle}</Text>
               </View>
             ) : null}
 
             <View className="flex-1 px-4 pb-6 pt-4 md:px-8 md:pt-6">
-              <Slot />
+              <View className="mx-auto w-full max-w-5xl flex-1">
+                <Slot />
+              </View>
             </View>
           </View>
         </View>
 
         {!isDesktop && menuOpen ? (
           <View className="absolute inset-0 z-50 flex-row">
-            <View className="w-72 border-r border-border bg-sidebar dark:border-slate-800 dark:bg-slate-900">
+            <View className="w-72 border-r border-border bg-sidebar dark:border-zinc-800 dark:bg-zinc-900">
               <SidebarNav onNavigate={() => setMenuOpen(false)} />
             </View>
             <Pressable className="flex-1 bg-black/45" onPress={() => setMenuOpen(false)} />

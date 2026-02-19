@@ -100,18 +100,25 @@ export default function TransactionsScreen() {
   return (
     <ScrollView className="flex-1" contentContainerClassName="gap-4 pb-8">
       <View className="gap-1">
-        <Text className="text-3xl font-bold text-foreground dark:text-slate-100">Transactions</Text>
+        <Text className="text-3xl font-bold text-foreground dark:text-zinc-50">Transactions</Text>
         <Text className="text-sm text-muted-foreground">Record actual spending and income for any period.</Text>
       </View>
 
       <View className="flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <View className="w-full md:w-72">
-          <DropdownField value={selectedPid} options={periodOptions} onChange={setSelectedPid} placeholder="Select period" />
+          <DropdownField
+            value={selectedPid}
+            options={periodOptions}
+            onChange={setSelectedPid}
+            placeholder="Select period"
+            menuStrategy="inline"
+            menuClassName="max-h-44"
+          />
         </View>
         <AppButton onPress={generateRecurring} variant="outline">
           <View className="flex-row items-center gap-2">
-            <MaterialCommunityIcons name="refresh" size={18} color="#64748B" />
-            <Text className="text-sm font-semibold text-foreground dark:text-slate-100">Generate recurring ({selectedPid})</Text>
+            <MaterialCommunityIcons name="refresh" size={18} color="#717182" />
+            <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Generate recurring ({selectedPid})</Text>
           </View>
         </AppButton>
       </View>
@@ -119,24 +126,24 @@ export default function TransactionsScreen() {
       <View className="grid grid-cols-1 gap-3 md:grid-cols-4">
         <AppCard>
           <Text className="text-xs uppercase tracking-wide text-muted-foreground">Needs</Text>
-          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-slate-100">{fmtMoney(totals.needs)}</Text>
+          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">{fmtMoney(totals.needs)}</Text>
         </AppCard>
         <AppCard>
           <Text className="text-xs uppercase tracking-wide text-muted-foreground">Wants</Text>
-          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-slate-100">{fmtMoney(totals.wants)}</Text>
+          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">{fmtMoney(totals.wants)}</Text>
         </AppCard>
         <AppCard>
           <Text className="text-xs uppercase tracking-wide text-muted-foreground">Savings-Debt</Text>
-          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-slate-100">{fmtMoney(totals.sd)}</Text>
+          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">{fmtMoney(totals.sd)}</Text>
         </AppCard>
         <AppCard>
           <Text className="text-xs uppercase tracking-wide text-muted-foreground">Total Spent</Text>
-          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-slate-100">{fmtMoney(totals.total)}</Text>
+          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">{fmtMoney(totals.total)}</Text>
         </AppCard>
       </View>
 
       <AppCard className="gap-3">
-        <Text className="text-sm font-semibold text-foreground dark:text-slate-100">Filter</Text>
+        <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Filter</Text>
         <AppSegmented
           value={filter}
           onChange={(value) => setFilter(value as Filter)}
@@ -152,21 +159,21 @@ export default function TransactionsScreen() {
 
       <AppCard className="gap-3">
         <View>
-          <Text className="text-sm font-semibold text-foreground dark:text-slate-100">Transaction List</Text>
+          <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Transaction List</Text>
           <Text className="text-xs text-muted-foreground">Aligned list view matching redesign structure.</Text>
         </View>
 
         <ScrollView horizontal showsHorizontalScrollIndicator>
           <View className="min-w-[900px] flex-1">
-            <View className="flex-row border-b border-border pb-2 dark:border-slate-700">
+            <View className="flex-row border-b border-border pb-2 dark:border-zinc-800">
               <Text className="w-[140px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Date</Text>
               <Text className="w-[300px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Description</Text>
               <Text className="w-[190px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Group</Text>
-              <Text className="w-[130px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Amount</Text>
-              <Text className="w-[130px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Actions</Text>
+              <Text className="w-[130px] text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Amount</Text>
+              <Text className="w-[130px] text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Actions</Text>
             </View>
 
-            <View className="flex-row items-center border-b border-border py-2 dark:border-slate-700">
+            <View className="flex-row items-center border-b border-border py-2 dark:border-zinc-800">
               <View className="w-[140px] pr-2">
                 <AppInput
                   value={draft.date ?? ''}
@@ -202,16 +209,16 @@ export default function TransactionsScreen() {
                   onChangeText={(value) => setDraft((prev) => ({ ...prev, amount: parseMoney(value) }))}
                   keyboardType="decimal-pad"
                   placeholder="0.00"
-                  className="h-9"
+                  className="h-9 text-right"
                 />
               </View>
-              <View className="w-[130px] flex-row items-center gap-2">
+              <View className="w-[130px] flex-row items-center justify-center gap-2">
                 <IconActionButton icon="plus" label="Add transaction" onPress={addRow} />
               </View>
             </View>
 
             {filteredTransactions.map((row) => (
-              <View key={row.id} className="flex-row items-center border-b border-border py-2 dark:border-slate-700">
+              <View key={row.id} className="flex-row items-center border-b border-border py-2 dark:border-zinc-800">
                 <View className="w-[140px] pr-2">
                   <AppInput
                     value={row.date ?? ''}
@@ -254,10 +261,10 @@ export default function TransactionsScreen() {
                     }
                     keyboardType="decimal-pad"
                     placeholder="Amount"
-                    className="h-9"
+                    className="h-9 text-right"
                   />
                 </View>
-                <View className="w-[130px] flex-row items-center gap-2">
+                <View className="w-[130px] flex-row items-center justify-center gap-2">
                   <IconActionButton icon="content-save-outline" label="Save transaction" onPress={() => saveRow(row)} />
                   <IconActionButton icon="trash-can-outline" label="Delete transaction" variant="danger" onPress={() => removeRow(row.id)} />
                 </View>

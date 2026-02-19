@@ -10,10 +10,10 @@ export const AppInput = forwardRef<TextInput, TextInputProps & { className?: str
     <TextInput
       ref={ref}
       className={cn(
-        'h-11 rounded-lg border border-border bg-input px-3 text-sm text-foreground dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100',
+        'h-9 rounded-md border border-border bg-input px-3 py-1 text-sm text-foreground dark:border-zinc-800 dark:bg-zinc-800/60 dark:text-zinc-50',
         className
       )}
-      placeholderTextColor="#94A3B8"
+      placeholderTextColor="#717182"
       {...props}
     />
   );

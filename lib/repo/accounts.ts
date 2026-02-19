@@ -18,6 +18,7 @@ export type Account = {
   type?: WalletType;
   currencyCode?: string;
   openingBalance: number;
+  dailyReminderEnabled?: boolean;
   archived?: boolean;
   createdAt?: unknown;
   updatedAt?: unknown;
@@ -48,6 +49,7 @@ export function watchAccounts(
 export async function addAccount(uid: string, input: Omit<Account, 'id' | 'createdAt' | 'updatedAt'>) {
   return addDoc(accountsCol(uid), {
     ...input,
+    dailyReminderEnabled: input.dailyReminderEnabled ?? false,
     archived: input.archived ?? false,
     currencyCode: input.currencyCode ?? 'GHS',
     createdAt: serverTimestamp(),

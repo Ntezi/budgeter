@@ -56,8 +56,8 @@ function AppGate() {
 
   if (loading) {
     return (
-      <View className="flex-1 items-center justify-center bg-background dark:bg-slate-950">
-        <ActivityIndicator size="large" color="#4F46E5" />
+      <View className="flex-1 items-center justify-center bg-background dark:bg-zinc-950">
+        <ActivityIndicator size="large" color="#030213" />
       </View>
     );
   }

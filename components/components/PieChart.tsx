@@ -7,10 +7,12 @@ export function PieChart({
                              data,
                              total,
                              colors,
+                             labelColor,
                          }: {
     data: { x: string; y: number }[];
     total: number;
     colors: string[];
+    labelColor?: string;
 }) {
     const {width} = useWindowDimensions();
     const chartWidth = Math.min(width - 32, 520);
@@ -33,10 +35,9 @@ export function PieChart({
                     labels={({datum}: any) =>
                         `${datum.x}\n${((datum.y / Math.max(total, 1)) * 100).toFixed(1)}%`
                     }
-                    style={{labels: {fontSize: 11}}}
+                    style={{labels: {fontSize: 11, fill: labelColor ?? '#09090B'}}}
                 />
             </Svg>
         </View>
     );
 }
-

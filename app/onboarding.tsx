@@ -44,13 +44,13 @@ export default function OnboardingScreen() {
   }
 
   return (
-    <View className="flex-1 items-center justify-center bg-background px-5 dark:bg-slate-950">
-      <AppCard className="w-full max-w-md items-center gap-6 px-6 py-8 md:px-8">
+    <View className="flex-1 items-center justify-center bg-background px-5 dark:bg-zinc-950">
+      <AppCard className="w-full max-w-md items-center gap-6 border-0 bg-card/50 px-6 py-8 md:px-8">
         <View className="flex-row gap-2">
           {STEPS.map((item, index) => (
             <View
               key={item.title}
-              className={cn('h-1.5 w-9 rounded-full', index === step ? 'bg-primary dark:bg-slate-100' : 'bg-muted dark:bg-slate-800')}
+              className={cn('h-1.5 w-9 rounded-full', index === step ? 'bg-primary dark:bg-zinc-50' : 'bg-muted dark:bg-zinc-800')}
             />
           ))}
         </View>
@@ -60,11 +60,11 @@ export default function OnboardingScreen() {
         </View>
 
         <View className="gap-2">
-          <Text className="text-center text-2xl font-bold text-foreground dark:text-slate-100">{current.title}</Text>
+          <Text className="text-center text-2xl font-bold text-foreground dark:text-zinc-50">{current.title}</Text>
           <Text className="text-center text-base text-muted-foreground">{current.description}</Text>
         </View>
 
-        <AppButton label={step === STEPS.length - 1 ? 'Get Started' : 'Next'} onPress={next} className="w-full" />
+        <AppButton label={step === STEPS.length - 1 ? 'Get Started' : 'Next'} onPress={next} className="mt-2 w-full" />
       </AppCard>
     </View>
   );

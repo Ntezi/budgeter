@@ -31,6 +31,7 @@ import {
 } from '@/lib/repo/allocations';
 import { fmtMoney, parseMoney, parsePct100 } from '@/lib/format';
 import { planGroupLabel, PLAN_GROUP_OPTIONS, planGroupToTag } from '@/lib/groups';
+import { cn } from '@/lib/cn';
 
 const SECTION_OPTIONS = [
   { label: 'Income', value: 'INCOME' },
@@ -119,16 +120,6 @@ export default function BudgetDetailScreen() {
       sd: incomeTotal * pct.sd,
     }),
     [incomeTotal, pct]
-  );
-
-  const realPlanTotal = planTotals.needs + planTotals.wants + planTotals.sd;
-  const realPlanPct = useMemo(
-    () => ({
-      needs: realPlanTotal > 0 ? (planTotals.needs / realPlanTotal) * 100 : 0,
-      wants: realPlanTotal > 0 ? (planTotals.wants / realPlanTotal) * 100 : 0,
-      sd: realPlanTotal > 0 ? (planTotals.sd / realPlanTotal) * 100 : 0,
-    }),
-    [planTotals, realPlanTotal]
   );
 
   const allocationByItemId = useMemo(() => {
@@ -257,39 +248,6 @@ export default function BudgetDetailScreen() {
     if (existingAllocation?.id) await deleteAllocation(uid, pid, existingAllocation.id);
   }
 
-  async function applyAutoRule() {
-    if (!uid || !pid || readOnly) return;
-
-    const recommended: Omit<PlanWithId, 'id'>[] = [
-      {
-        name: 'General Needs',
-        amount: Number((incomeTotal * 0.5).toFixed(2)),
-        group: 'NEED',
-        priority: 1,
-      },
-      {
-        name: 'General Wants',
-        amount: Number((incomeTotal * 0.3).toFixed(2)),
-        group: 'WANT',
-        priority: 2,
-      },
-      {
-        name: 'Savings Goal',
-        amount: Number((incomeTotal * 0.2).toFixed(2)),
-        group: 'SAVINGS_DEBT',
-        priority: 3,
-      },
-    ];
-
-    for (const row of planWithPriority) {
-      await deletePlanItem(uid, pid, row.id);
-    }
-
-    for (const row of recommended) {
-      await addPlanItem(uid, pid, row as any);
-    }
-  }
-
   async function reorderPriority(itemId: string, direction: -1 | 1) {
     if (!uid || !pid || readOnly) return;
     const index = planWithPriority.findIndex((row) => row.id === itemId);
@@ -344,48 +302,97 @@ export default function BudgetDetailScreen() {
     [accounts]
   );
 
+  const incomeCol = {
+    name: 'w-[320px]',
+    amount: 'w-[150px]',
+    actions: 'w-[120px]',
+  };
+
+  const planCol = {
+    name: 'w-[320px]',
+    amount: 'w-[150px]',
+    actions: 'w-[120px]',
+  };
+
+  const plannedTotal = planTotals.needs + planTotals.wants + planTotals.sd;
+  const unallocatedTotal = incomeTotal - plannedTotal;
+
+  const groupDotColor: Record<PlanGroup, string> = {
+    NEED: 'bg-needs',
+    WANT: 'bg-wants',
+    SAVINGS_DEBT: 'bg-savings',
+  };
+
   return (
     <ScrollView className="flex-1" contentContainerClassName="gap-4 pb-8">
-      <View className="gap-2">
-        <View className="flex-row items-center justify-between gap-3">
-          <Text className="text-2xl font-bold text-foreground dark:text-slate-100">{title || pid}</Text>
-          <AppBadge label={status} variant={readOnly ? 'secondary' : 'success'} />
-        </View>
-        <Text className="text-sm text-muted-foreground">
-          {readOnly
-            ? 'DECIDED locks Income and Plan editing. Transactions and Allocations remain editable.'
-            : 'DRAFT mode allows editing all planning sections.'}
-        </Text>
-      </View>
+      <View className="gap-2 border-b border-border pb-4 dark:border-zinc-800">
+        <View className="flex-row items-start justify-between gap-3">
+          <View className="flex-1 gap-1">
+            <View className="flex-row items-center gap-2">
+              <Text className="text-2xl font-bold text-foreground dark:text-zinc-50">{title || pid}</Text>
+              <View className="flex-row items-center gap-1">
+                <MaterialCommunityIcons
+                  name={readOnly ? 'lock-outline' : 'lock-open-outline'}
+                  size={14}
+                  color={readOnly ? '#717182' : '#16A34A'}
+                />
+                <AppBadge label={status} variant={readOnly ? 'secondary' : 'success'} className="px-2.5" />
+              </View>
+            </View>
+            <Text className="text-sm text-muted-foreground">
+              {readOnly
+                ? 'DECIDED locks Income and Plan editing. Transactions and Allocations remain editable.'
+                : 'DRAFT mode allows editing all planning sections.'}
+            </Text>
+          </View>
 
-      <View className="flex-row flex-wrap gap-2">
-        <AppButton label={readOnly ? 'Reopen Draft' : 'Finalize'} onPress={toggleFinalize} variant={readOnly ? 'secondary' : 'primary'} />
-        <AppButton label="Delete" onPress={removeBudget} variant="destructive" />
+          <View className="flex-row items-center gap-2">
+            <AppButton
+              label={readOnly ? 'Reopen Draft' : 'Finalize'}
+              onPress={toggleFinalize}
+              variant={readOnly ? 'outline' : 'primary'}
+              size="sm"
+            />
+            <IconActionButton icon="trash-can-outline" label="Delete budget" variant="danger" onPress={removeBudget} />
+          </View>
+        </View>
       </View>
 
       <View className="grid grid-cols-1 gap-3 md:grid-cols-3">
-        <AppCard>
-          <Text className="text-xs uppercase tracking-wide text-muted-foreground">Income</Text>
-          <Text className="mt-1 text-xl font-bold text-foreground dark:text-slate-100">{fmtMoney(incomeTotal)}</Text>
+        <AppCard className="gap-1">
+          <View className="flex-row items-center justify-between">
+            <Text className="text-xs uppercase tracking-wide text-muted-foreground">Income</Text>
+            <MaterialCommunityIcons name="cash-plus" size={16} color="#16A34A" />
+          </View>
+          <Text className="text-xl font-bold text-foreground dark:text-zinc-50">{fmtMoney(incomeTotal)}</Text>
         </AppCard>
-        <AppCard>
-          <Text className="text-xs uppercase tracking-wide text-muted-foreground">Planned</Text>
-          <Text className="mt-1 text-xl font-bold text-foreground dark:text-slate-100">
-            {fmtMoney(planTotals.needs + planTotals.wants + planTotals.sd)}
-          </Text>
+        <AppCard className="gap-1">
+          <View className="flex-row items-center justify-between">
+            <Text className="text-xs uppercase tracking-wide text-muted-foreground">Planned</Text>
+            <MaterialCommunityIcons name="target" size={16} color="#717182" />
+          </View>
+          <Text className="text-xl font-bold text-foreground dark:text-zinc-50">{fmtMoney(plannedTotal)}</Text>
         </AppCard>
-        <AppCard>
-          <Text className="text-xs uppercase tracking-wide text-muted-foreground">Unallocated</Text>
-          <Text
-            className={`mt-1 text-xl font-bold ${(incomeTotal - (planTotals.needs + planTotals.wants + planTotals.sd)) >= 0 ? 'text-emerald-600 dark:text-emerald-300' : 'text-red-600 dark:text-red-300'}`}
-          >
-            {fmtMoney(incomeTotal - (planTotals.needs + planTotals.wants + planTotals.sd))}
+        <AppCard
+          className={cn(
+            'gap-1',
+            unallocatedTotal >= 0
+              ? 'border-emerald-300 bg-emerald-50/60 dark:border-emerald-900 dark:bg-emerald-950/20'
+              : 'border-red-300 bg-red-50/60 dark:border-red-900 dark:bg-red-950/20'
+          )}
+        >
+          <View className="flex-row items-center justify-between">
+            <Text className="text-xs uppercase tracking-wide text-muted-foreground">Unallocated</Text>
+            <MaterialCommunityIcons name={unallocatedTotal >= 0 ? 'check-circle-outline' : 'alert-circle-outline'} size={16} color={unallocatedTotal >= 0 ? '#16A34A' : '#D4183D'} />
+          </View>
+          <Text className={cn('text-xl font-bold', unallocatedTotal >= 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-700 dark:text-red-300')}>
+            {fmtMoney(unallocatedTotal)}
           </Text>
         </AppCard>
       </View>
 
       <AppCard className="gap-3">
-        <Text className="text-sm font-semibold text-foreground dark:text-slate-100">Budget Meta</Text>
+        <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Budget Meta</Text>
         <View className="gap-2">
           <Text className="text-xs uppercase tracking-wide text-muted-foreground">Title</Text>
           <AppInput value={title} onChangeText={setTitle} editable={!readOnly} />
@@ -415,124 +422,192 @@ export default function BudgetDetailScreen() {
         ) : null}
       </AppCard>
 
-      <AppCard className="gap-3">
+      <AppCard className="gap-2 p-3">
         <AppSegmented value={section} onChange={setSection} options={SECTION_OPTIONS as any} />
+      </AppCard>
 
-        {section === 'INCOME' ? (
-          <View className="gap-3">
-            {incomeItems.map((row) => (
-              <View key={row.id} className="rounded-lg border border-border p-3 dark:border-slate-700">
-                <View className="gap-2">
-                  <AppInput value={row.name} onChangeText={(value) => setIncomeItems((prev) => prev.map((it) => (it.id === row.id ? { ...it, name: value } : it)))} editable={!readOnly} placeholder="Income source" />
-                  <AppInput
-                    value={String(row.amount || '')}
-                    onChangeText={(value) =>
-                      setIncomeItems((prev) => prev.map((it) => (it.id === row.id ? { ...it, amount: parseMoney(value) } : it)))
-                    }
-                    editable={!readOnly}
-                    keyboardType="decimal-pad"
-                    placeholder="0"
-                  />
-                </View>
-                {!readOnly ? (
-                  <View className="mt-2 flex-row gap-2">
-                    <IconActionButton icon="content-save-outline" label="Save income row" onPress={() => saveIncomeRow(row)} />
-                    <IconActionButton icon="trash-can-outline" label="Delete income row" variant="danger" onPress={() => deleteIncomeRow(row.id)} />
-                  </View>
-                ) : null}
-              </View>
-            ))}
-
-            {!readOnly ? (
-              <View className="rounded-lg border border-dashed border-border p-3 dark:border-slate-700">
-                <Text className="mb-2 text-sm font-semibold text-foreground dark:text-slate-100">Add Income Source</Text>
-                <View className="gap-2">
-                  <AppInput value={incomeDraft.name} onChangeText={(value) => setIncomeDraft((prev) => ({ ...prev, name: value }))} placeholder="Name" />
-                  <AppInput
-                    value={String(incomeDraft.amount || '')}
-                    onChangeText={(value) => setIncomeDraft((prev) => ({ ...prev, amount: parseMoney(value) }))}
-                    placeholder="Amount"
-                    keyboardType="decimal-pad"
-                  />
-                </View>
-                <View className="mt-2">
-                  <AppButton onPress={addIncomeRow} size="sm">
-                    <View className="flex-row items-center gap-1.5">
-                      <MaterialCommunityIcons name="plus" size={16} color="#FFFFFF" />
-                      <Text className="text-xs font-semibold text-primary-foreground dark:text-slate-900">Add Income</Text>
-                    </View>
-                  </AppButton>
-                </View>
-              </View>
-            ) : null}
+      {section === 'INCOME' ? (
+        <AppCard className="gap-3">
+          <View className="flex-row items-center justify-between">
+            <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Income Sources</Text>
+            {readOnly ? <Text className="text-xs italic text-muted-foreground">Locked in DECIDED mode</Text> : null}
           </View>
-        ) : null}
 
-        {section === 'PLAN' ? (
-          <View className="gap-4">
-            <View className="rounded-lg border border-border bg-muted/50 p-3 dark:border-slate-700 dark:bg-slate-800/40">
-              <Text className="text-sm font-semibold text-foreground dark:text-slate-100">Manual Real Percent (from current plan)</Text>
-              <Text className="mt-1 text-xs text-muted-foreground">
-                Needs {Math.round(realPlanPct.needs)}% · Wants {Math.round(realPlanPct.wants)}% · Savings {Math.round(realPlanPct.sd)}%
-              </Text>
-            </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator>
+            <View className="min-w-[620px] flex-1">
+              <View className="flex-row border-b border-border pb-2 dark:border-zinc-800">
+                <Text className={`${incomeCol.name} text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Source Name</Text>
+                <Text className={`${incomeCol.amount} text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Amount</Text>
+                <Text className={`${incomeCol.actions} text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Actions</Text>
+              </View>
 
-            {!readOnly ? (
-              <AppButton label="Auto-fill 50/30/20" onPress={applyAutoRule} variant="outline" />
-            ) : null}
+              {incomeItems.map((row) => (
+                <View key={row.id} className="flex-row items-center border-b border-border py-2 dark:border-zinc-800">
+                  <View className={`${incomeCol.name} pr-2`}>
+                    {readOnly ? (
+                      <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{row.name}</Text>
+                    ) : (
+                      <AppInput
+                        value={row.name}
+                        onChangeText={(value) =>
+                          setIncomeItems((prev) => prev.map((it) => (it.id === row.id ? { ...it, name: value } : it)))
+                        }
+                        placeholder="Income source"
+                        className="h-9"
+                      />
+                    )}
+                  </View>
 
-            {PLAN_GROUP_OPTIONS.map((group) => {
-              const rows = planWithPriority.filter((item) => item.group === group.value);
-              const subtotal = rows.reduce((sum, row) => sum + (row.amount || 0), 0);
-              return (
-                <View key={group.value} className="gap-2">
-                  <Text className="text-sm font-semibold text-foreground dark:text-slate-100">
-                    {group.label} · {fmtMoney(subtotal)}
-                  </Text>
-                  {rows.map((row) => (
-                    <View key={row.id} className="rounded-lg border border-border p-3 dark:border-slate-700">
-                      <View className="gap-2">
-                        <AppInput
-                          value={row.name}
-                          onChangeText={(value) =>
-                            setPlanItems((prev) => prev.map((it) => (it.id === row.id ? { ...it, name: value } : it)))
-                          }
-                          editable={!readOnly}
-                          placeholder="Plan item"
-                        />
-                        <AppInput
-                          value={String(row.amount || '')}
-                          onChangeText={(value) =>
-                            setPlanItems((prev) => prev.map((it) => (it.id === row.id ? { ...it, amount: parseMoney(value) } : it)))
-                          }
-                          editable={!readOnly}
-                          keyboardType="decimal-pad"
-                          placeholder="0"
-                        />
-                      </View>
-                      {!readOnly ? (
-                        <View className="mt-2 flex-row gap-2">
-                          <IconActionButton icon="content-save-outline" label="Save plan row" onPress={() => savePlanRow(row)} />
-                          <IconActionButton icon="trash-can-outline" label="Delete plan row" variant="danger" onPress={() => deletePlanRow(row.id)} />
-                        </View>
-                      ) : null}
-                    </View>
-                  ))}
+                  <View className={`${incomeCol.amount} pr-2`}>
+                    {readOnly ? (
+                      <Text className="text-right text-sm font-medium text-foreground dark:text-zinc-50">{fmtMoney(row.amount || 0)}</Text>
+                    ) : (
+                      <AppInput
+                        value={String(row.amount || '')}
+                        onChangeText={(value) =>
+                          setIncomeItems((prev) => prev.map((it) => (it.id === row.id ? { ...it, amount: parseMoney(value) } : it)))
+                        }
+                        keyboardType="decimal-pad"
+                        placeholder="0.00"
+                        className="h-9 text-right"
+                      />
+                    )}
+                  </View>
+
+                  <View className={`${incomeCol.actions} flex-row items-center justify-center gap-2`}>
+                    {!readOnly ? (
+                      <>
+                        <IconActionButton icon="content-save-outline" label="Save income row" onPress={() => saveIncomeRow(row)} />
+                        <IconActionButton icon="trash-can-outline" label="Delete income row" variant="danger" onPress={() => deleteIncomeRow(row.id)} />
+                      </>
+                    ) : null}
+                  </View>
                 </View>
-              );
-            })}
+              ))}
 
-            {!readOnly ? (
-              <View className="rounded-lg border border-dashed border-border p-3 dark:border-slate-700">
-                <Text className="mb-2 text-sm font-semibold text-foreground dark:text-slate-100">Add Plan Item</Text>
-                <View className="gap-2">
-                  <AppInput value={planDraft.name} onChangeText={(value) => setPlanDraft((prev) => ({ ...prev, name: value }))} placeholder="Name" />
-                  <AppInput
-                    value={String(planDraft.amount || '')}
-                    onChangeText={(value) => setPlanDraft((prev) => ({ ...prev, amount: parseMoney(value) }))}
-                    placeholder="Amount"
-                    keyboardType="decimal-pad"
-                  />
+              {!readOnly ? (
+                <View className="flex-row items-center border-b border-border bg-muted/40 py-2 dark:border-zinc-800 dark:bg-zinc-800/40">
+                  <View className={`${incomeCol.name} pr-2`}>
+                    <AppInput
+                      value={incomeDraft.name}
+                      onChangeText={(value) => setIncomeDraft((prev) => ({ ...prev, name: value }))}
+                      placeholder="New source..."
+                      className="h-9"
+                    />
+                  </View>
+                  <View className={`${incomeCol.amount} pr-2`}>
+                    <AppInput
+                      value={String(incomeDraft.amount || '')}
+                      onChangeText={(value) => setIncomeDraft((prev) => ({ ...prev, amount: parseMoney(value) }))}
+                      placeholder="0.00"
+                      keyboardType="decimal-pad"
+                      className="h-9 text-right"
+                    />
+                  </View>
+                  <View className={`${incomeCol.actions} items-center`}>
+                    <IconActionButton icon="plus" label="Add income row" onPress={addIncomeRow} />
+                  </View>
+                </View>
+              ) : null}
+
+              <View className="flex-row items-center bg-muted/60 py-2 dark:bg-zinc-800/50">
+                <Text className={`${incomeCol.name} text-sm font-semibold text-foreground dark:text-zinc-50`}>Total Income</Text>
+                <Text className={`${incomeCol.amount} text-right text-sm font-semibold text-foreground dark:text-zinc-50`}>{fmtMoney(incomeTotal)}</Text>
+                <View className={incomeCol.actions} />
+              </View>
+            </View>
+          </ScrollView>
+        </AppCard>
+      ) : null}
+
+      {section === 'PLAN' ? (
+        <View className="gap-3">
+          {PLAN_GROUP_OPTIONS.map((group) => {
+            const rows = planWithPriority.filter((item) => item.group === group.value);
+            const subtotal = rows.reduce((sum, row) => sum + (row.amount || 0), 0);
+            return (
+              <AppCard key={group.value} className="gap-2">
+                <View className="flex-row items-center justify-between rounded-md bg-muted/40 px-2 py-1.5 dark:bg-zinc-800/40">
+                  <View className="flex-row items-center gap-2">
+                    <View className={cn('h-2.5 w-2.5 rounded-full', groupDotColor[group.value])} />
+                    <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">{group.label}</Text>
+                  </View>
+                  <AppBadge label={fmtMoney(subtotal)} variant="outline" />
+                </View>
+
+                <ScrollView horizontal showsHorizontalScrollIndicator>
+                  <View className="min-w-[620px] flex-1">
+                    <View className="flex-row border-b border-border pb-2 dark:border-zinc-800">
+                      <Text className={`${planCol.name} text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Item Name</Text>
+                      <Text className={`${planCol.amount} text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Amount</Text>
+                      <Text className={`${planCol.actions} text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Actions</Text>
+                    </View>
+
+                    {rows.map((row) => (
+                      <View key={row.id} className="flex-row items-center border-b border-border py-2 dark:border-zinc-800">
+                        <View className={`${planCol.name} pr-2`}>
+                          {readOnly ? (
+                            <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{row.name}</Text>
+                          ) : (
+                            <AppInput
+                              value={row.name}
+                              onChangeText={(value) =>
+                                setPlanItems((prev) => prev.map((it) => (it.id === row.id ? { ...it, name: value } : it)))
+                              }
+                              placeholder="Plan item"
+                              className="h-9"
+                            />
+                          )}
+                        </View>
+
+                        <View className={`${planCol.amount} pr-2`}>
+                          {readOnly ? (
+                            <Text className="text-right text-sm font-medium text-foreground dark:text-zinc-50">{fmtMoney(row.amount || 0)}</Text>
+                          ) : (
+                            <AppInput
+                              value={String(row.amount || '')}
+                              onChangeText={(value) =>
+                                setPlanItems((prev) => prev.map((it) => (it.id === row.id ? { ...it, amount: parseMoney(value) } : it)))
+                              }
+                              keyboardType="decimal-pad"
+                              placeholder="0.00"
+                              className="h-9 text-right"
+                            />
+                          )}
+                        </View>
+
+                        <View className={`${planCol.actions} flex-row items-center justify-center gap-2`}>
+                          {!readOnly ? (
+                            <>
+                              <IconActionButton icon="content-save-outline" label="Save plan row" onPress={() => savePlanRow(row)} />
+                              <IconActionButton icon="trash-can-outline" label="Delete plan row" variant="danger" onPress={() => deletePlanRow(row.id)} />
+                            </>
+                          ) : null}
+                        </View>
+                      </View>
+                    ))}
+
+                    {!rows.length ? (
+                      <View className="py-3">
+                        <Text className="text-sm text-muted-foreground">No items planned in this category.</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                </ScrollView>
+              </AppCard>
+            );
+          })}
+
+          {!readOnly ? (
+            <AppCard className="gap-2">
+              <Text className="mb-2 text-sm font-semibold text-foreground dark:text-zinc-50">Add Plan Item</Text>
+              <View className="flex-row flex-wrap items-end gap-2">
+                <View className="min-w-[220px] flex-1 gap-1">
+                  <Text className="text-xs text-muted-foreground">Name</Text>
+                  <AppInput value={planDraft.name} onChangeText={(value) => setPlanDraft((prev) => ({ ...prev, name: value }))} placeholder="e.g. Rent" className="h-9" />
+                </View>
+                <View className="min-w-[200px] gap-1">
+                  <Text className="text-xs text-muted-foreground">Category</Text>
                   <AppSegmented
                     value={planDraft.group}
                     onChange={(value) => setPlanDraft((prev) => ({ ...prev, group: value as PlanGroup }))}
@@ -540,97 +615,116 @@ export default function BudgetDetailScreen() {
                     options={PLAN_GROUP_OPTIONS}
                   />
                 </View>
-                <View className="mt-2">
-                  <AppButton size="sm" onPress={addPlanRow}>
-                    <View className="flex-row items-center gap-1.5">
-                      <MaterialCommunityIcons name="plus" size={16} color="#FFFFFF" />
-                      <Text className="text-xs font-semibold text-primary-foreground dark:text-slate-900">Add Item</Text>
-                    </View>
-                  </AppButton>
+                <View className="w-[130px] gap-1">
+                  <Text className="text-xs text-muted-foreground">Amount</Text>
+                  <AppInput
+                    value={String(planDraft.amount || '')}
+                    onChangeText={(value) => setPlanDraft((prev) => ({ ...prev, amount: parseMoney(value) }))}
+                    placeholder="0.00"
+                    keyboardType="decimal-pad"
+                    className="h-9 text-right"
+                  />
                 </View>
+                <IconActionButton icon="plus" label="Add plan item" onPress={addPlanRow} />
               </View>
-            ) : null}
-          </View>
-        ) : null}
+            </AppCard>
+          ) : null}
+        </View>
+      ) : null}
 
-        {section === 'RECONCILE' ? (
-          <View className="gap-3">
-            <View className="grid grid-cols-2 gap-2 md:grid-cols-4">
-              <AppCard className="p-3">
-                <Text className="text-xxs uppercase tracking-wide text-muted-foreground">Total Income</Text>
-                <Text className="text-base font-semibold text-foreground dark:text-slate-100">{fmtMoney(incomeTotal)}</Text>
-              </AppCard>
-              <AppCard className="p-3">
-                <Text className="text-xxs uppercase tracking-wide text-muted-foreground">Funded</Text>
-                <Text className="text-base font-semibold text-blue-700 dark:text-blue-300">
-                  {fmtMoney(reconcileRows.reduce((sum, row) => sum + row.funded, 0))}
-                </Text>
-              </AppCard>
-              <AppCard className="p-3">
-                <Text className="text-xxs uppercase tracking-wide text-muted-foreground">Remaining</Text>
-                <Text className="text-base font-semibold text-emerald-700 dark:text-emerald-300">{fmtMoney(remainingIncome)}</Text>
-              </AppCard>
-              <AppCard className="p-3">
-                <Text className="text-xxs uppercase tracking-wide text-muted-foreground">Unfunded</Text>
-                <Text className="text-base font-semibold text-red-700 dark:text-red-300">{fmtMoney(totalUnfunded)}</Text>
-              </AppCard>
+      {section === 'RECONCILE' ? (
+        <AppCard className="gap-3">
+          <View className="grid grid-cols-2 gap-2 md:grid-cols-4">
+            <View className="rounded-lg border border-border bg-muted/20 p-3 dark:border-zinc-800 dark:bg-zinc-800/30">
+              <Text className="text-xxs uppercase tracking-wide text-muted-foreground">Total Income</Text>
+              <Text className="text-base font-semibold text-foreground dark:text-zinc-50">{fmtMoney(incomeTotal)}</Text>
             </View>
+            <View className="rounded-lg border border-border bg-muted/20 p-3 dark:border-zinc-800 dark:bg-zinc-800/30">
+              <Text className="text-xxs uppercase tracking-wide text-muted-foreground">Funded</Text>
+              <Text className="text-base font-semibold text-blue-700 dark:text-blue-300">
+                {fmtMoney(reconcileRows.reduce((sum, row) => sum + row.funded, 0))}
+              </Text>
+            </View>
+            <View className="rounded-lg border border-border bg-muted/20 p-3 dark:border-zinc-800 dark:bg-zinc-800/30">
+              <Text className="text-xxs uppercase tracking-wide text-muted-foreground">Remaining</Text>
+              <Text className="text-base font-semibold text-emerald-700 dark:text-emerald-300">{fmtMoney(remainingIncome)}</Text>
+            </View>
+            <View className="rounded-lg border border-border bg-muted/20 p-3 dark:border-zinc-800 dark:bg-zinc-800/30">
+              <Text className="text-xxs uppercase tracking-wide text-muted-foreground">Unfunded</Text>
+              <Text className="text-base font-semibold text-red-700 dark:text-red-300">{fmtMoney(totalUnfunded)}</Text>
+            </View>
+          </View>
 
-            <Text className="text-xs text-muted-foreground">
-              Priority order controls funding sequence. Partial funding is allowed when available income runs out.
-            </Text>
+          <Text className="text-xs text-muted-foreground">
+            Priority order controls funding sequence. Partial funding is allowed when available income runs out.
+          </Text>
 
-            {reconcileRows.map((row, index) => {
-              const allocation = allocationByItemId[row.id];
-              const statusLabel = row.unfunded <= 0 ? 'Funded' : row.funded > 0 ? 'Partial' : 'Unfunded';
-              const statusVariant = row.unfunded <= 0 ? 'success' : row.funded > 0 ? 'warning' : 'danger';
-              return (
-                <AppCard key={row.id} className="gap-2 p-3">
-                  <View className="flex-row items-center justify-between">
-                    <Text className="text-sm font-semibold text-foreground dark:text-slate-100">
-                      #{index + 1} · {row.name}
-                    </Text>
-                    <AppBadge label={statusLabel} variant={statusVariant as any} />
-                  </View>
-                  <Text className="text-xs text-muted-foreground">{planGroupLabel(row.group)}</Text>
-                  <View className="flex-row flex-wrap gap-2">
-                    <AppBadge label={`Planned ${fmtMoney(row.amount)}`} variant="outline" />
-                    <AppBadge label={`Funded ${fmtMoney(row.funded)}`} variant="outline" />
-                    <AppBadge label={`Unfunded ${fmtMoney(row.unfunded)}`} variant="outline" />
-                  </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator>
+            <View className="min-w-[1040px] flex-1">
+              <View className="flex-row border-b border-border pb-2 dark:border-zinc-800">
+                <Text className="w-[50px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">#</Text>
+                <Text className="w-[250px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Item</Text>
+                <Text className="w-[120px] text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Planned</Text>
+                <Text className="w-[120px] text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Funded</Text>
+                <Text className="w-[120px] text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Unfunded</Text>
+                <Text className="w-[110px] text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</Text>
+                <Text className="w-[270px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Account</Text>
+                <Text className="w-[120px] text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Priority</Text>
+              </View>
 
-                  <View className="gap-1">
-                    <Text className="text-xs text-muted-foreground">Account Mapping</Text>
-                    <DropdownField
-                      value={allocation?.accountId ?? ''}
-                      options={accountOptions}
-                      onChange={(value) => assignAccount(row, value)}
-                      placeholder="Select account"
-                    />
-                  </View>
+              {reconcileRows.map((row, index) => {
+                const allocation = allocationByItemId[row.id];
+                const statusLabel = row.unfunded <= 0 ? 'Funded' : row.funded > 0 ? 'Partial' : 'Unfunded';
+                const statusVariant = row.unfunded <= 0 ? 'success' : row.funded > 0 ? 'warning' : 'danger';
+                return (
+                  <View key={row.id} className="flex-row items-center border-b border-border py-2 dark:border-zinc-800">
+                    <Text className="w-[50px] text-sm text-foreground dark:text-zinc-50">{index + 1}</Text>
 
-                  {!readOnly ? (
-                    <View className="flex-row gap-2">
-                      <IconActionButton
-                        icon="arrow-up"
-                        label="Move up"
-                        disabled={index === 0}
-                        onPress={() => reorderPriority(row.id, -1)}
-                      />
-                      <IconActionButton
-                        icon="arrow-down"
-                        label="Move down"
-                        disabled={index === reconcileRows.length - 1}
-                        onPress={() => reorderPriority(row.id, 1)}
+                    <View className="w-[250px] pr-2">
+                      <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{row.name}</Text>
+                      <Text className="text-xs text-muted-foreground">{planGroupLabel(row.group)}</Text>
+                    </View>
+
+                    <Text className="w-[120px] text-right text-sm text-foreground dark:text-zinc-50">{fmtMoney(row.amount)}</Text>
+                    <Text className="w-[120px] text-right text-sm font-semibold text-blue-700 dark:text-blue-300">{fmtMoney(row.funded)}</Text>
+                    <Text className="w-[120px] text-right text-sm text-muted-foreground">{fmtMoney(row.unfunded)}</Text>
+
+                    <View className="w-[110px] items-center">
+                      <AppBadge label={statusLabel} variant={statusVariant as any} />
+                    </View>
+
+                    <View className="w-[270px] pr-2">
+                      <DropdownField
+                        value={allocation?.accountId ?? ''}
+                        options={accountOptions}
+                        onChange={(value) => assignAccount(row, value)}
+                        placeholder="Select account"
+                        className="w-full"
+                        menuStrategy="inline"
+                        menuClassName="min-w-[270px] max-h-44"
                       />
                     </View>
-                  ) : null}
-                </AppCard>
-              );
-            })}
-          </View>
-        ) : null}
-      </AppCard>
+
+                    <View className="w-[120px] flex-row items-center justify-center gap-2">
+                      {!readOnly ? (
+                        <>
+                          <IconActionButton icon="arrow-up" label="Move up" disabled={index === 0} onPress={() => reorderPriority(row.id, -1)} />
+                          <IconActionButton
+                            icon="arrow-down"
+                            label="Move down"
+                            disabled={index === reconcileRows.length - 1}
+                            onPress={() => reorderPriority(row.id, 1)}
+                          />
+                        </>
+                      ) : null}
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          </ScrollView>
+        </AppCard>
+      ) : null}
     </ScrollView>
   );
 }

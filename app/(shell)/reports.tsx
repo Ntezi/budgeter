@@ -11,6 +11,7 @@ import { fmtMoney } from '@/lib/format';
 import { PieChart } from '@/components/components/PieChart';
 import { Colors } from '@/lib/budget';
 import { walletTagLabel } from '@/lib/domain';
+import { useThemeMode } from '@/providers/ThemeProvider';
 
 const CHART_COLORS = [Colors.needs, Colors.wants, Colors.sd];
 
@@ -125,6 +126,7 @@ function buildAccountsWorkbook(report: AccountReport) {
 
 export default function ReportsScreen() {
   const uid = useAuthUser()?.uid;
+  const { theme } = useThemeMode();
 
   const [periods, setPeriods] = useState<(PeriodDoc & { id: string })[]>([]);
   const [reportsById, setReportsById] = useState<Record<string, PeriodReport>>({});
@@ -210,14 +212,14 @@ export default function ReportsScreen() {
   return (
     <ScrollView className="flex-1" contentContainerClassName="gap-4 pb-8">
       <View className="gap-1">
-        <Text className="text-3xl font-bold text-foreground dark:text-slate-100">Reports</Text>
+        <Text className="text-3xl font-bold text-foreground dark:text-zinc-50">Reports</Text>
         <Text className="text-sm text-muted-foreground">Export budgets to Excel and inspect allocations/account summaries.</Text>
       </View>
 
       <AppCard className="gap-4">
         <View className="flex-row flex-wrap items-center justify-between gap-2">
           <View>
-            <Text className="text-base font-semibold text-foreground dark:text-slate-100">Accounts Summary</Text>
+            <Text className="text-base font-semibold text-foreground dark:text-zinc-50">Accounts Summary</Text>
             <Text className="text-xs text-muted-foreground">All-time totals by account and allocation tag.</Text>
           </View>
           <AppButton
@@ -235,27 +237,32 @@ export default function ReportsScreen() {
             <View className="grid grid-cols-1 gap-3 md:grid-cols-3">
               <AppCard className="p-3">
                 <Text className="text-xs uppercase tracking-wide text-muted-foreground">Opening</Text>
-                <Text className="text-lg font-semibold text-foreground dark:text-slate-100">
+                <Text className="text-lg font-semibold text-foreground dark:text-zinc-50">
                   {fmtMoney(accountReport.totals.openingBalance)}
                 </Text>
               </AppCard>
               <AppCard className="p-3">
                 <Text className="text-xs uppercase tracking-wide text-muted-foreground">Allocated</Text>
-                <Text className="text-lg font-semibold text-foreground dark:text-slate-100">
+                <Text className="text-lg font-semibold text-foreground dark:text-zinc-50">
                   {fmtMoney(accountReport.totals.allocated)}
                 </Text>
               </AppCard>
               <AppCard className="p-3">
                 <Text className="text-xs uppercase tracking-wide text-muted-foreground">Computed</Text>
-                <Text className="text-lg font-semibold text-foreground dark:text-slate-100">
+                <Text className="text-lg font-semibold text-foreground dark:text-zinc-50">
                   {fmtMoney(accountReport.totals.computed)}
                 </Text>
               </AppCard>
             </View>
 
             <View>
-              <Text className="mb-2 text-sm font-semibold text-foreground dark:text-slate-100">Allocation mix by tag</Text>
-              <PieChart data={allocationTagChart} total={Math.max(accountReport.totals.allocated, 1)} colors={CHART_COLORS} />
+              <Text className="mb-2 text-sm font-semibold text-foreground dark:text-zinc-50">Allocation mix by tag</Text>
+              <PieChart
+                data={allocationTagChart}
+                total={Math.max(accountReport.totals.allocated, 1)}
+                colors={CHART_COLORS}
+                labelColor={theme === 'dark' ? '#FAFAFA' : '#09090B'}
+              />
             </View>
           </View>
         ) : (
@@ -275,7 +282,7 @@ export default function ReportsScreen() {
             <AppCard key={period.id} className="gap-3">
               <View className="flex-row flex-wrap items-center justify-between gap-2">
                 <View>
-                  <Text className="text-base font-semibold text-foreground dark:text-slate-100">{title}</Text>
+                  <Text className="text-base font-semibold text-foreground dark:text-zinc-50">{title}</Text>
                   <View className="mt-1 flex-row items-center gap-2">
                     <Text className="text-xs text-muted-foreground">{period.id}</Text>
                     <AppBadge label={period.status ?? 'DRAFT'} variant={period.status === 'DECIDED' ? 'secondary' : 'success'} />
@@ -303,15 +310,15 @@ export default function ReportsScreen() {
                 <View className="grid grid-cols-1 gap-2 md:grid-cols-4">
                   <AppCard className="p-3">
                     <Text className="text-xxs uppercase tracking-wide text-muted-foreground">Income</Text>
-                    <Text className="text-base font-semibold text-foreground dark:text-slate-100">{fmtMoney(report.totals.incomeTotal)}</Text>
+                    <Text className="text-base font-semibold text-foreground dark:text-zinc-50">{fmtMoney(report.totals.incomeTotal)}</Text>
                   </AppCard>
                   <AppCard className="p-3">
                     <Text className="text-xxs uppercase tracking-wide text-muted-foreground">Planned</Text>
-                    <Text className="text-base font-semibold text-foreground dark:text-slate-100">{fmtMoney(report.totals.plan.total)}</Text>
+                    <Text className="text-base font-semibold text-foreground dark:text-zinc-50">{fmtMoney(report.totals.plan.total)}</Text>
                   </AppCard>
                   <AppCard className="p-3">
                     <Text className="text-xxs uppercase tracking-wide text-muted-foreground">Spent</Text>
-                    <Text className="text-base font-semibold text-foreground dark:text-slate-100">{fmtMoney(report.totals.transactions.total)}</Text>
+                    <Text className="text-base font-semibold text-foreground dark:text-zinc-50">{fmtMoney(report.totals.transactions.total)}</Text>
                   </AppCard>
                   <AppCard className="p-3">
                     <Text className="text-xxs uppercase tracking-wide text-muted-foreground">Remaining</Text>

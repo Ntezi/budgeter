@@ -17,7 +17,7 @@ type Props<T extends string> = {
 
 export function AppSegmented<T extends string>({ value, options, onChange, className, compact }: Props<T>) {
   return (
-    <View className={cn('rounded-lg border border-border bg-muted p-1 dark:border-slate-700 dark:bg-slate-800', className)}>
+    <View className={cn('rounded-md border border-border bg-muted p-0.5 dark:border-zinc-800 dark:bg-zinc-800/70', className)}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerClassName="gap-1">
         {options.map((option) => {
           const active = option.value === value;
@@ -25,9 +25,9 @@ export function AppSegmented<T extends string>({ value, options, onChange, class
             <Pressable
               key={option.value}
               className={cn(
-                'rounded-md px-3 py-2',
-                compact && 'px-2.5 py-1.5',
-                active ? 'bg-card dark:bg-slate-900' : 'bg-transparent'
+                'h-8 items-center justify-center rounded-md px-3',
+                compact && 'h-7 px-2.5',
+                active ? 'border border-border bg-card dark:border-zinc-800 dark:bg-zinc-900' : 'bg-transparent'
               )}
               onPress={() => onChange(option.value)}
             >
@@ -35,7 +35,7 @@ export function AppSegmented<T extends string>({ value, options, onChange, class
                 className={cn(
                   compact ? 'text-xs' : 'text-sm',
                   'font-medium',
-                  active ? 'text-foreground dark:text-slate-100' : 'text-muted-foreground'
+                  active ? 'text-foreground dark:text-zinc-50' : 'text-muted-foreground'
                 )}
               >
                 {option.label}

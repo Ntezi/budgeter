@@ -11,7 +11,7 @@ export function AppCard({ children, className, ...props }: Props) {
   return (
     <View
       className={cn(
-        'rounded-xl border border-border bg-card p-4 shadow-soft dark:border-slate-800 dark:bg-slate-900',
+        'rounded-xl border border-border bg-card p-4 dark:border-zinc-800 dark:bg-zinc-900',
         className
       )}
       {...props}

@@ -11,8 +11,8 @@ type Props = {
 export function AppProgressBar({ value, className, indicatorClassName }: Props) {
   const width = Math.max(0, Math.min(100, value));
   return (
-    <View className={cn('h-2 overflow-hidden rounded-full bg-muted dark:bg-slate-700', className)}>
-      <View className={cn('h-full rounded-full bg-primary dark:bg-slate-100', indicatorClassName)} style={{ width: `${width}%` }} />
+    <View className={cn('h-2 overflow-hidden rounded-full bg-muted dark:bg-zinc-800', className)}>
+      <View className={cn('h-full rounded-full bg-primary dark:bg-zinc-50', indicatorClassName)} style={{ width: `${width}%` }} />
     </View>
   );
 }

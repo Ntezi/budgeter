@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, ScrollView, Switch, Text, View } from 'react-native';
+import { ScrollView, Switch, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { AppCard } from '@/components/ui/AppCard';
 import { AppInput } from '@/components/ui/AppInput';
@@ -13,14 +13,12 @@ import { periodIdFromDate } from '@/lib/repo/periods';
 import { walletTypeOptions, type WalletType } from '@/lib/domain';
 import {
   addAccount,
-  archiveAccount,
   deleteAccount,
   type Account,
   updateAccount,
   watchAccounts,
 } from '@/lib/repo/accounts';
 import { listAllAllocations, type Allocation, watchAllocations } from '@/lib/repo/allocations';
-import { setReminderSettings, watchReminderSettings } from '@/lib/repo/settings';
 import { cn } from '@/lib/cn';
 
 type AccountDraft = {
@@ -33,42 +31,26 @@ type EditingAccount = {
   name: string;
   type: WalletType;
   openingBalance: number;
+  archived: boolean;
+  dailyReminderEnabled: boolean;
 };
 
 export default function AccountsScreen() {
-  const user = useAuthUser();
-  const uid = user?.uid;
+  const uid = useAuthUser()?.uid;
 
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedPid] = useState(periodIdFromDate());
   const [allocations, setAllocations] = useState<Allocation[]>([]);
   const [allTimeAllocations, setAllTimeAllocations] = useState<(Allocation & { periodId: string })[]>([]);
 
-  const [dailyReminderEnabled, setDailyReminderEnabled] = useState(false);
-  const [dailyReminderEmail, setDailyReminderEmail] = useState('');
-  const [dailyReminderHourUtc, setDailyReminderHourUtc] = useState('07');
-
   const [showCreate, setShowCreate] = useState(false);
-  const [draft, setDraft] = useState<AccountDraft>({
-    name: '',
-    type: 'BANK',
-  });
+  const [draft, setDraft] = useState<AccountDraft>({ name: '', type: 'BANK' });
   const [editing, setEditing] = useState<EditingAccount | null>(null);
 
   useEffect(() => {
     if (!uid) return;
-    const unAccounts = watchAccounts(uid, setAccounts, { includeArchived: true });
-    const unReminders = watchReminderSettings(uid, (settings) => {
-      setDailyReminderEnabled(settings.dailyBalanceReminderEnabled === true);
-      setDailyReminderEmail(settings.dailyBalanceReminderEmail ?? user?.email ?? '');
-      setDailyReminderHourUtc(String(settings.dailyBalanceReminderHourUtc ?? 7).padStart(2, '0'));
-    });
-
-    return () => {
-      unAccounts();
-      unReminders();
-    };
-  }, [uid, user?.email]);
+    return watchAccounts(uid, setAccounts, { includeArchived: true });
+  }, [uid]);
 
   useEffect(() => {
     if (!uid || !selectedPid) return;
@@ -102,7 +84,7 @@ export default function AccountsScreen() {
     if (type === 'BANK') return 'bg-blue-500';
     if (type === 'MOMO') return 'bg-emerald-500';
     if (type === 'CASH') return 'bg-amber-500';
-    return 'bg-slate-500';
+    return 'bg-zinc-500';
   }
 
   async function createAccount() {
@@ -111,6 +93,7 @@ export default function AccountsScreen() {
       name: draft.name.trim(),
       type: draft.type,
       openingBalance: 0,
+      dailyReminderEnabled: false,
       archived: false,
       currencyCode: 'GHS',
     });
@@ -123,49 +106,42 @@ export default function AccountsScreen() {
     await deleteAccount(uid, row.id);
   }
 
+  async function toggleReminder(row: Account, enabled: boolean) {
+    if (!uid || !row.id) return;
+    await updateAccount(uid, row.id, { dailyReminderEnabled: enabled });
+  }
+
   async function saveEditingAccount() {
     if (!uid || !editing) return;
     await updateAccount(uid, editing.id, {
       name: editing.name.trim(),
       type: editing.type,
       openingBalance: editing.openingBalance || 0,
+      dailyReminderEnabled: editing.dailyReminderEnabled,
+      archived: editing.archived,
     });
     setEditing(null);
-  }
-
-  async function saveReminders() {
-    if (!uid) return;
-    await setReminderSettings(uid, {
-      dailyBalanceReminderEnabled: dailyReminderEnabled,
-      dailyBalanceReminderEmail: dailyReminderEmail.trim() || user?.email || '',
-      dailyBalanceReminderHourUtc: Number(dailyReminderHourUtc) || 7,
-    });
-    Alert.alert('Saved', 'Reminder settings are saved to Firestore.');
   }
 
   return (
     <ScrollView className="flex-1" contentContainerClassName="gap-4 pb-8">
       <View className="gap-1">
-        <Text className="text-3xl font-bold text-foreground dark:text-slate-100">Accounts</Text>
-        <Text className="text-sm text-muted-foreground">
-          Remaining balance updates when account details change.
-        </Text>
+        <Text className="text-3xl font-bold text-foreground dark:text-zinc-50">Accounts</Text>
+        <Text className="text-sm text-muted-foreground">Manage your wallets and reminder preferences.</Text>
       </View>
 
       <View className="flex-row items-center justify-end">
         <AppButton onPress={() => setShowCreate((prev) => !prev)}>
           <View className="flex-row items-center gap-2">
             <MaterialCommunityIcons name={showCreate ? 'close' : 'plus'} size={18} color="#FFFFFF" />
-            <Text className="text-sm font-semibold text-primary-foreground dark:text-slate-900">
-              {showCreate ? 'Close' : 'Add Account'}
-            </Text>
+            <Text className="text-sm font-medium text-primary-foreground">{showCreate ? 'Close' : 'Add Account'}</Text>
           </View>
         </AppButton>
       </View>
 
       {showCreate ? (
         <AppCard className="gap-3">
-          <Text className="text-sm font-semibold text-foreground dark:text-slate-100">Add New Account</Text>
+          <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Add New Account</Text>
           <AppInput value={draft.name} onChangeText={(value) => setDraft((prev) => ({ ...prev, name: value }))} placeholder="Wallet name" />
           <AppSegmented
             value={draft.type}
@@ -177,14 +153,11 @@ export default function AccountsScreen() {
             <AppButton onPress={createAccount}>
               <View className="flex-row items-center gap-2">
                 <MaterialCommunityIcons name="plus" size={18} color="#FFFFFF" />
-                <Text className="text-sm font-semibold text-primary-foreground dark:text-slate-900">Create</Text>
+                <Text className="text-sm font-medium text-primary-foreground">Create</Text>
               </View>
             </AppButton>
             <AppButton variant="outline" onPress={() => setShowCreate(false)}>
-              <View className="flex-row items-center gap-2">
-                <MaterialCommunityIcons name="close" size={18} color="#64748B" />
-                <Text className="text-sm font-semibold text-foreground dark:text-slate-100">Cancel</Text>
-              </View>
+              <Text className="text-sm font-medium text-foreground dark:text-zinc-50">Cancel</Text>
             </AppButton>
           </View>
         </AppCard>
@@ -192,7 +165,7 @@ export default function AccountsScreen() {
 
       {editing ? (
         <AppCard className="gap-3">
-          <Text className="text-sm font-semibold text-foreground dark:text-slate-100">Edit Account</Text>
+          <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Edit Account</Text>
           <AppInput
             value={editing.name}
             onChangeText={(value) => setEditing((prev) => (prev ? { ...prev, name: value } : prev))}
@@ -217,18 +190,33 @@ export default function AccountsScreen() {
             <AppBadge label={`Allocated ${fmtMoney(editingAllocated)}`} variant="outline" />
             <AppBadge label={`Remaining ${fmtMoney(editingRemaining)}`} variant="outline" />
           </View>
+
+          <View className="flex-row items-center justify-between rounded-lg border border-border bg-muted/30 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/40">
+            <View className="flex-row items-center gap-2">
+              <MaterialCommunityIcons name="bell-outline" size={16} color="#717182" />
+              <Text className="text-sm text-muted-foreground">Daily reminder</Text>
+            </View>
+            <Switch
+              value={editing.dailyReminderEnabled}
+              onValueChange={(value) => setEditing((prev) => (prev ? { ...prev, dailyReminderEnabled: value } : prev))}
+            />
+          </View>
+
           <View className="flex-row gap-2">
             <AppButton onPress={saveEditingAccount}>
               <View className="flex-row items-center gap-2">
                 <MaterialCommunityIcons name="content-save-outline" size={18} color="#FFFFFF" />
-                <Text className="text-sm font-semibold text-primary-foreground dark:text-slate-900">Save</Text>
+                <Text className="text-sm font-medium text-primary-foreground">Save</Text>
               </View>
             </AppButton>
+            <AppButton
+              variant="outline"
+              onPress={() => setEditing((prev) => (prev ? { ...prev, archived: !prev.archived } : prev))}
+            >
+              <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{editing.archived ? 'Unarchive' : 'Archive'}</Text>
+            </AppButton>
             <AppButton variant="outline" onPress={() => setEditing(null)}>
-              <View className="flex-row items-center gap-2">
-                <MaterialCommunityIcons name="close" size={18} color="#64748B" />
-                <Text className="text-sm font-semibold text-foreground dark:text-slate-100">Cancel</Text>
-              </View>
+              <Text className="text-sm font-medium text-foreground dark:text-zinc-50">Cancel</Text>
             </AppButton>
           </View>
         </AppCard>
@@ -239,18 +227,22 @@ export default function AccountsScreen() {
           const id = row.id ?? '';
           const allocated = totalByAccount.get(id) ?? 0;
           const computed = (row.openingBalance || 0) + allocated;
+          const reminderEnabled = row.dailyReminderEnabled === true;
 
           return (
             <AppCard key={id || row.name} className="overflow-hidden p-0">
               <View className="flex-row">
                 <View className={cn('w-1', railColor(row.type))} />
-                <View className="flex-1 gap-3 p-4">
+                <View className="flex-1 gap-2 px-4 py-4">
                   <View className="flex-row items-start justify-between gap-2">
                     <View className="flex-1">
-                      <Text className="text-base font-semibold text-foreground dark:text-slate-100">{row.name}</Text>
-                      <Text className="text-xs uppercase tracking-wider text-muted-foreground">{row.type ?? 'OTHER'}</Text>
+                      <Text className="text-base font-semibold text-foreground dark:text-zinc-50">{row.name}</Text>
+                      <View className="mt-0.5 flex-row items-center gap-2">
+                        <Text className="text-xs uppercase tracking-wider text-muted-foreground">{row.type ?? 'OTHER'}</Text>
+                        {row.archived ? <AppBadge label="Archived" variant="secondary" /> : null}
+                      </View>
                     </View>
-                    <View className="flex-row items-center gap-2">
+                    <View className="flex-row items-center gap-1">
                       <IconActionButton
                         icon="pencil-outline"
                         label="Edit account"
@@ -261,33 +253,28 @@ export default function AccountsScreen() {
                             name: row.name,
                             type: (row.type ?? 'OTHER') as WalletType,
                             openingBalance: row.openingBalance || 0,
+                            archived: row.archived === true,
+                            dailyReminderEnabled: reminderEnabled,
                           })
                         }
-                      />
-                      <IconActionButton
-                        icon={row.archived ? 'archive-arrow-up-outline' : 'archive-arrow-down-outline'}
-                        label={row.archived ? 'Unarchive account' : 'Archive account'}
-                        variant="muted"
-                        onPress={() => row.id && uid && archiveAccount(uid, row.id, !row.archived)}
                       />
                       <IconActionButton icon="trash-can-outline" label="Delete account" variant="danger" onPress={() => removeAccount(row)} />
                     </View>
                   </View>
 
-                  <Text className={cn('text-3xl font-bold', computed < 0 ? 'text-red-600 dark:text-red-300' : 'text-foreground dark:text-slate-100')}>
+                  <Text className={cn('mt-2 text-3xl font-bold', computed < 0 ? 'text-red-600 dark:text-red-300' : 'text-foreground dark:text-zinc-50')}>
                     {fmtMoney(computed)}
                   </Text>
-
-                  <View className="gap-1">
-                    <Text className="text-xs text-muted-foreground">Opening: {fmtMoney(row.openingBalance || 0)}</Text>
-                    <Text className="text-xs text-muted-foreground">Allocated: {fmtMoney(allocated)}</Text>
-                  </View>
-
-                  <View className="flex-row items-center justify-between rounded-lg border border-border bg-muted/30 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/40">
-                    <Text className="text-xs text-muted-foreground">{row.archived ? 'Archived' : 'Active'}</Text>
-                    <AppBadge label={row.archived ? 'Paused' : 'Live'} variant={row.archived ? 'secondary' : 'success'} />
-                  </View>
+                  <Text className="text-xs text-muted-foreground">Opening: {fmtMoney(row.openingBalance || 0)}</Text>
                 </View>
+              </View>
+
+              <View className="flex-row items-center justify-between border-t border-border bg-muted/30 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-800/40">
+                <View className="flex-row items-center gap-2">
+                  <MaterialCommunityIcons name="bell-outline" size={16} color="#717182" />
+                  <Text className="text-sm text-muted-foreground">{reminderEnabled ? 'Reminders on' : 'Reminders off'}</Text>
+                </View>
+                <Switch value={reminderEnabled} onValueChange={(value) => toggleReminder(row, value)} />
               </View>
             </AppCard>
           );
@@ -299,28 +286,6 @@ export default function AccountsScreen() {
           </AppCard>
         ) : null}
       </View>
-
-      <AppCard className="gap-3">
-        <Text className="text-sm font-semibold text-foreground dark:text-slate-100">Daily Balance Reminder</Text>
-        <View className="flex-row items-center justify-between rounded-lg border border-border bg-muted/40 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/40">
-          <Text className="text-sm text-foreground dark:text-slate-100">Enable reminder email</Text>
-          <Switch value={dailyReminderEnabled} onValueChange={setDailyReminderEnabled} />
-        </View>
-        <AppInput
-          value={dailyReminderEmail}
-          onChangeText={setDailyReminderEmail}
-          autoCapitalize="none"
-          keyboardType="email-address"
-          placeholder="Email"
-        />
-        <AppInput
-          value={dailyReminderHourUtc}
-          onChangeText={(value) => setDailyReminderHourUtc(String(parseMoney(value)).padStart(2, '0').slice(0, 2))}
-          keyboardType="number-pad"
-          placeholder="UTC hour (0-23)"
-        />
-        <AppButton label="Save Reminder Settings" onPress={saveReminders} />
-      </AppCard>
     </ScrollView>
   );
 }
