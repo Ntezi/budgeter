@@ -203,7 +203,7 @@ export default function TransactionsScreen() {
             </View>
 
             {!readOnly ? (
-              <View className="flex-row items-center border-b border-border py-2 dark:border-zinc-800">
+              <View className="flex-row items-center border-b border-border py-2 hover:bg-muted/35 dark:border-zinc-800 dark:hover:bg-zinc-800/55">
                 <View className="w-[140px] pr-2">
                   <AppInput
                     value={draft.date ?? ''}
@@ -254,7 +254,10 @@ export default function TransactionsScreen() {
             ) : null}
 
             {filteredTransactions.map((row) => (
-              <View key={row.id} className="flex-row items-center border-b border-border py-2 dark:border-zinc-800">
+              <View
+                key={row.id}
+                className="flex-row items-center border-b border-border py-2 hover:bg-muted/35 dark:border-zinc-800 dark:hover:bg-zinc-800/55"
+              >
                 <View className="w-[140px] pr-2">
                   <AppInput
                     value={row.date ?? ''}

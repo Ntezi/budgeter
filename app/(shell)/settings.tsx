@@ -217,7 +217,7 @@ export default function SettingsScreen() {
           {ownedMembers.map((member) => (
             <View
               key={member.id}
-              className="flex-row items-center justify-between rounded-lg border border-border bg-card px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900"
+              className="flex-row items-center justify-between rounded-lg border border-border bg-card px-3 py-2 hover:bg-muted/40 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800/55"
             >
               <View className="flex-1">
                 <Text className="text-sm font-medium text-foreground dark:text-zinc-50">

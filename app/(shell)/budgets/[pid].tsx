@@ -669,7 +669,10 @@ export default function BudgetDetailScreen() {
               </View>
 
               {incomeItems.map((row) => (
-                <View key={row.id} className="flex-row items-center border-b border-border py-2 dark:border-zinc-800">
+                <View
+                  key={row.id}
+                  className="flex-row items-center border-b border-border py-2 hover:bg-muted/35 dark:border-zinc-800 dark:hover:bg-zinc-800/55"
+                >
                   <View className={`${incomeCol.name} pr-2`}>
                     {readOnly ? (
                       <Text className={cn('text-sm font-medium', row.active === false ? 'text-muted-foreground line-through' : 'text-foreground dark:text-zinc-50')}>
@@ -821,7 +824,10 @@ export default function BudgetDetailScreen() {
                     </View>
 
                     {rows.map((row) => (
-                      <View key={row.id} className="flex-row items-center border-b border-border py-2 dark:border-zinc-800">
+                      <View
+                        key={row.id}
+                        className="flex-row items-center border-b border-border py-2 hover:bg-muted/35 dark:border-zinc-800 dark:hover:bg-zinc-800/55"
+                      >
                         <View className={`${planCol.name} pr-2`}>
                           {readOnly ? (
                             <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{row.name}</Text>
@@ -1030,7 +1036,7 @@ export default function BudgetDetailScreen() {
                           <View
                             key={row.id}
                             className={cn(
-                              'flex-row items-center border-b border-border py-2 dark:border-zinc-800',
+                              'flex-row items-center border-b border-border py-2 hover:bg-muted/35 dark:border-zinc-800 dark:hover:bg-zinc-800/55',
                               draggingPlanId === row.id ? 'bg-muted/30 dark:bg-zinc-800/30' : ''
                             )}
                             {...(canDrag

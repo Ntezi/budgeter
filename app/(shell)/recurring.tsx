@@ -265,7 +265,7 @@ export default function RecurringScreen() {
               <Text className={`${col.actions} text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Actions</Text>
             </View>
 
-            <View className="flex-row items-center border-b border-border py-2 dark:border-zinc-800">
+            <View className="flex-row items-center border-b border-border py-2 hover:bg-muted/35 dark:border-zinc-800 dark:hover:bg-zinc-800/55">
               <View className={`${col.name} pr-2`}>
                 <AppInput
                   value={draft.name}
@@ -332,7 +332,10 @@ export default function RecurringScreen() {
             {displayRows.map((row) => {
               const isEditing = editingId === row.id && editingDraft;
               return (
-                <View key={row.id} className="flex-row items-center border-b border-border py-2 dark:border-zinc-800">
+                <View
+                  key={row.id}
+                  className="flex-row items-center border-b border-border py-2 hover:bg-muted/35 dark:border-zinc-800 dark:hover:bg-zinc-800/55"
+                >
                   <View className={`${col.name} pr-2`}>
                     {isEditing ? (
                       <AppInput

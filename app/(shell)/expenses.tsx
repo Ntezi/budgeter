@@ -211,7 +211,7 @@ export default function ExpensesScreen() {
               <Text className="w-[320px] text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Actions</Text>
             </View>
 
-            <View className="flex-row items-center border-b border-border py-2 dark:border-zinc-800">
+            <View className="flex-row items-center border-b border-border py-2 hover:bg-muted/35 dark:border-zinc-800 dark:hover:bg-zinc-800/55">
               <View className="w-[260px] pr-2">
                 <AppInput
                   value={draft.name}
@@ -259,7 +259,10 @@ export default function ExpensesScreen() {
             ) : null}
 
             {displayRows.map((row) => (
-              <View key={row.id} className="flex-row items-center border-b border-border py-2 dark:border-zinc-800">
+              <View
+                key={row.id}
+                className="flex-row items-center border-b border-border py-2 hover:bg-muted/35 dark:border-zinc-800 dark:hover:bg-zinc-800/55"
+              >
                 <View className="w-[260px] pr-2">
                   <AppInput
                     value={row.name}

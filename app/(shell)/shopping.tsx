@@ -430,7 +430,10 @@ export default function ShoppingScreen() {
 
           <View className="gap-2">
             {lists.map((list) => (
-              <View key={list.id} className="rounded-lg border border-border bg-card px-3 py-3 dark:border-zinc-800 dark:bg-zinc-900">
+              <View
+                key={list.id}
+                className="rounded-lg border border-border bg-card px-3 py-3 hover:bg-muted/40 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800/55"
+              >
                 <View className="flex-row items-center gap-2">
                   <View className="flex-1 gap-1">
                     <AppInput

@@ -4,6 +4,7 @@ import { Slot, usePathname, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { cn } from '@/lib/cn';
+import { useThemeMode } from '@/providers/ThemeProvider';
 
 const NAV_ITEMS = [
   { label: 'Dashboard', href: '/dashboard', icon: 'view-dashboard-outline' as const },
@@ -20,18 +21,23 @@ const NAV_ITEMS = [
 function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { theme } = useThemeMode();
+  const iconSource =
+    theme === 'dark'
+      ? require('../../assets/images/budgeter_icon_white_square_36.png')
+      : require('../../assets/images/budgeter_icon_black_square_36.png');
+  const logoSource =
+    theme === 'dark'
+      ? require('../../assets/images/budgeter_logo_transparent_280x72.png')
+      : require('../../assets/images/budgeter_logo_black_280x72.png');
 
   return (
     <View className="flex-1 gap-5 px-3 pb-4 pt-5">
       <View className="flex-row items-center gap-3 px-3">
         <View className="h-9 w-9 items-center justify-center rounded-xl border border-border bg-card dark:border-zinc-700 dark:bg-zinc-900">
-          <Image
-            source={require('../../assets/images/budgeter_icon_white_square_36.png')}
-            className="h-7 w-7"
-            resizeMode="contain"
-          />
+          <Image source={iconSource} className="h-7 w-7" resizeMode="contain" />
         </View>
-        <Text className="text-xl font-bold text-foreground dark:text-zinc-50">Budgeter</Text>
+        <Image source={logoSource} className="h-7 w-[132px]" resizeMode="contain" />
       </View>
 
       <ScrollView className="flex-1" contentContainerClassName="gap-1 pb-4">
