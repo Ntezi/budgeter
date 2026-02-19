@@ -244,7 +244,7 @@ export default function DashboardScreen() {
           {periods.slice(0, 6).map((period) => (
             <Pressable
               key={period.id}
-              className="overflow-hidden rounded-lg border border-border bg-card dark:border-zinc-800 dark:bg-zinc-950"
+              className="overflow-hidden rounded-lg border border-border bg-card hover:bg-muted/40 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:bg-zinc-800/70"
               onPress={() => router.push(`/budgets/${period.id}`)}
             >
               <View className="flex-row">

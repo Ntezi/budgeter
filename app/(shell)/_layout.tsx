@@ -42,7 +42,7 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
               key={item.href}
               className={cn(
                 'h-11 flex-row items-center gap-3 rounded-lg px-3',
-                active ? 'bg-primary/10 dark:bg-zinc-800' : 'bg-transparent'
+                active ? 'bg-primary/10 dark:bg-zinc-800' : 'bg-transparent hover:bg-muted/50 dark:hover:bg-zinc-800/60'
               )}
               {...({ title: item.label } as any)}
               onPress={() => {

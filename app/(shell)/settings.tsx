@@ -23,6 +23,8 @@ export default function SettingsScreen() {
   const { signOut } = useAuth();
   const { theme, setTheme } = useThemeMode();
   const { workspaceUid, workspaceOptions, setWorkspaceUid, sharedMemberships } = useWorkspace();
+  const activeWorkspaceOwnerUid = workspaceUid ?? user?.uid ?? '';
+  const activeWorkspaceOwnedByMe = Boolean(user?.uid && activeWorkspaceOwnerUid === user.uid);
 
   const email = user?.email ?? '(Google user)';
   const initials = (email.split('@')[0] || 'BU').slice(0, 2).toUpperCase();
@@ -40,9 +42,12 @@ export default function SettingsScreen() {
   const [reminderSuccess, setReminderSuccess] = useState('');
 
   useEffect(() => {
-    if (!user?.uid) return;
-    return watchOwnedWorkspaceMembers(user.uid, setOwnedMembers);
-  }, [user?.uid]);
+    if (!activeWorkspaceOwnerUid || !activeWorkspaceOwnedByMe) {
+      setOwnedMembers([]);
+      return;
+    }
+    return watchOwnedWorkspaceMembers(activeWorkspaceOwnerUid, setOwnedMembers);
+  }, [activeWorkspaceOwnerUid, activeWorkspaceOwnedByMe]);
 
   useEffect(() => {
     if (!workspaceUid) return;
@@ -59,10 +64,14 @@ export default function SettingsScreen() {
   );
 
   async function addMember() {
-    if (!user?.uid) return;
+    if (!user?.uid || !activeWorkspaceOwnerUid) return;
     const memberUid = memberUidDraft.trim();
     setMemberError('');
     setMemberSuccess('');
+    if (!activeWorkspaceOwnedByMe) {
+      setMemberError('Only the workspace owner can invite members. Switch to your own workspace to invite.');
+      return;
+    }
     if (!memberUid) {
       setMemberError('Collaborator ID is required.');
       return;
@@ -71,12 +80,20 @@ export default function SettingsScreen() {
       setMemberError('Collaborator ID is invalid.');
       return;
     }
+    if (memberUid === activeWorkspaceOwnerUid) {
+      setMemberSuccess('That Collaborator ID belongs to the workspace owner. No invite needed.');
+      return;
+    }
+    if (ownedMembers.some((row) => row.memberUid === memberUid && row.status !== 'REMOVED')) {
+      setMemberSuccess('This member already has access to the workspace.');
+      return;
+    }
     try {
-      await inviteWorkspaceMember(user.uid, {
+      await inviteWorkspaceMember(activeWorkspaceOwnerUid, {
         ownerEmail: user.email ?? '',
         ownerName: email.split('@')[0] || '',
         memberUid,
-        memberEmail: memberEmailDraft.trim(),
+        memberEmail: memberEmailDraft.trim().toLowerCase(),
       });
       setMemberUidDraft('');
       setMemberEmailDraft('');
@@ -89,8 +106,8 @@ export default function SettingsScreen() {
   }
 
   async function removeMember(memberUid: string) {
-    if (!user?.uid) return;
-    await removeWorkspaceMember(user.uid, memberUid);
+    if (!activeWorkspaceOwnedByMe || !activeWorkspaceOwnerUid) return;
+    await removeWorkspaceMember(activeWorkspaceOwnerUid, memberUid);
   }
 
   async function saveReminder() {
@@ -166,19 +183,26 @@ export default function SettingsScreen() {
 
         <View className="gap-2 rounded-lg border border-border bg-muted/30 p-3 dark:border-zinc-800 dark:bg-zinc-800/40">
           <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Invite Member by Collaborator ID</Text>
+          {!activeWorkspaceOwnedByMe ? (
+            <Text className="text-xs text-muted-foreground">
+              You are viewing a shared workspace. Switch to your own workspace to invite members.
+            </Text>
+          ) : null}
           <AppInput
             value={memberUidDraft}
             onChangeText={setMemberUidDraft}
             placeholder="Member collaborator UID"
             autoCapitalize="none"
+            editable={activeWorkspaceOwnedByMe}
           />
           <AppInput
             value={memberEmailDraft}
             onChangeText={setMemberEmailDraft}
             placeholder="Member email (optional)"
             autoCapitalize="none"
+            editable={activeWorkspaceOwnedByMe}
           />
-          <AppButton onPress={addMember} className="self-start">
+          <AppButton onPress={addMember} className="self-start" disabled={!activeWorkspaceOwnedByMe}>
             <View className="flex-row items-center gap-2">
               <MaterialCommunityIcons name="account-plus-outline" size={16} color="#FFFFFF" />
               <Text className="text-sm font-medium text-primary-foreground">Add Member</Text>

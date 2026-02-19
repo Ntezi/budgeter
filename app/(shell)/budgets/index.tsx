@@ -113,7 +113,7 @@ export default function BudgetsScreen() {
           return (
             <Pressable
               key={period.id}
-              className="overflow-hidden rounded-xl border border-border bg-card dark:border-zinc-800 dark:bg-zinc-900"
+              className="overflow-hidden rounded-xl border border-border bg-card hover:bg-muted/40 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800/70"
               onPress={() => router.push(`/budgets/${period.id}`)}
             >
               <View className="flex-row">

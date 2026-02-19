@@ -83,17 +83,17 @@ export async function inviteWorkspaceMember(
   const memberUid = input.memberUid.trim();
   if (!memberUid) throw new Error('Member UID is required.');
   if (memberUid.includes('/')) throw new Error('Member UID is invalid.');
-  if (memberUid === ownerUid) throw new Error('You are already the owner of this workspace.');
+  if (memberUid === ownerUid) return;
 
   const id = workspaceMemberDocId(ownerUid, memberUid);
   return setDoc(
     doc(workspaceMembersCol(), id),
     {
       ownerUid,
-      ownerEmail: input.ownerEmail || '',
+      ownerEmail: (input.ownerEmail || '').toLowerCase(),
       ownerName: input.ownerName || '',
       memberUid,
-      memberEmail: input.memberEmail || '',
+      memberEmail: (input.memberEmail || '').toLowerCase(),
       memberName: input.memberName || '',
       role: 'MEMBER',
       status: 'ACTIVE',
