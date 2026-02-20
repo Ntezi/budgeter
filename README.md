@@ -282,7 +282,6 @@ npx eas-cli@latest workflow:run create-production-builds.yml
 The workflow creates production builds for:
 - Android
 - iOS
-- Web
 
 ## Daily Reminder Email Script
 

@@ -9,8 +9,3 @@ jobs:
     type: build # This job type creates a production build for iOS
     params:
       platform: ios
-
-  build_web:
-    type: build # This job type creates a production build for web
-    params:
-      platform: web
