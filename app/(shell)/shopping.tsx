@@ -48,8 +48,46 @@ type ItemEditState = {
   saving: boolean;
 };
 
+type ImportCandidate = {
+  key: string;
+  name: string;
+  category: string;
+  tags: string[];
+  suggestedQty: number;
+  suggestedPrice: number;
+  assignedPeriodId?: string;
+  assignedPlanItemId?: string;
+  assignedPlanItemName?: string;
+  assignedGroup?: PlanItem['group'];
+  latestAt: number;
+};
+
 function normalize(input: string) {
   return input.trim().toLowerCase();
+}
+
+function timestampMs(value: unknown) {
+  if (!value) return 0;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  if (typeof value === 'object') {
+    const raw = value as { toMillis?: () => number; seconds?: number; nanoseconds?: number };
+    if (typeof raw.toMillis === 'function') {
+      try {
+        return raw.toMillis();
+      } catch {
+        return 0;
+      }
+    }
+    if (typeof raw.seconds === 'number') {
+      return raw.seconds * 1000 + Math.floor((raw.nanoseconds || 0) / 1_000_000);
+    }
+  }
+  return 0;
 }
 
 export default function ShoppingScreen() {
@@ -77,6 +115,12 @@ export default function ShoppingScreen() {
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [actionDialogItemId, setActionDialogItemId] = useState<string | null>(null);
   const [editDialogItemId, setEditDialogItemId] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importSearch, setImportSearch] = useState('');
+  const [importCategoryFilter, setImportCategoryFilter] = useState('ALL');
+  const [importSelection, setImportSelection] = useState<Record<string, boolean>>({});
+  const [importError, setImportError] = useState('');
+  const [importingItems, setImportingItems] = useState(false);
 
   const [completeOpen, setCompleteOpen] = useState(false);
   const [completeItemId, setCompleteItemId] = useState('');
@@ -122,6 +166,11 @@ export default function ShoppingScreen() {
     setActionDialogItemId(null);
     setEditDialogItemId(null);
     setEditingItemId(null);
+    setImportOpen(false);
+    setImportSearch('');
+    setImportCategoryFilter('ALL');
+    setImportSelection({});
+    setImportError('');
   }, [itemsOpen]);
 
   useEffect(() => {
@@ -252,6 +301,10 @@ export default function ShoppingScreen() {
     () => items.filter((row) => row.completed === true).length,
     [items]
   );
+  const existingItemKeys = useMemo(
+    () => new Set(items.map((row) => normalize(row.name || '')).filter(Boolean)),
+    [items]
+  );
 
   useEffect(() => {
     if (!actionDialogItemId) return;
@@ -346,6 +399,87 @@ export default function ShoppingScreen() {
     return suggestionPool.filter((row) => row.name.toLowerCase().includes(q) && row.name.toLowerCase() !== q).slice(0, 8);
   }, [itemDraftName, suggestionPool]);
 
+  const importCandidates = useMemo<ImportCandidate[]>(() => {
+    const byName = new Map<string, ImportCandidate>();
+
+    allItems.forEach((row) => {
+      const key = normalize(row.name || '');
+      if (!key) return;
+      const ts = Math.max(timestampMs(row.updatedAt), timestampMs(row.createdAt));
+      const current = byName.get(key);
+      const candidate: ImportCandidate = {
+        key,
+        name: row.name || key,
+        category: row.category || '',
+        tags: row.tags || [],
+        suggestedQty: Math.max(1, Number(row.quantity || 1)),
+        suggestedPrice: Math.max(0, Number(row.price || 0)),
+        assignedPeriodId: row.assignedPeriodId,
+        assignedPlanItemId: row.assignedPlanItemId,
+        assignedPlanItemName: row.assignedPlanItemName,
+        assignedGroup: row.assignedGroup as PlanItem['group'] | undefined,
+        latestAt: ts,
+      };
+      if (!current || ts >= current.latestAt) {
+        byName.set(key, candidate);
+      } else if (current) {
+        byName.set(key, {
+          ...current,
+          category: current.category || candidate.category,
+          tags: [...new Set([...(current.tags || []), ...(candidate.tags || [])])],
+        });
+      }
+    });
+
+    catalogRows.forEach((row) => {
+      const key = normalize(row.name || '');
+      if (!key) return;
+      const existing = byName.get(key);
+      if (!existing) {
+        byName.set(key, {
+          key,
+          name: row.name || key,
+          category: row.category || '',
+          tags: row.tags || [],
+          suggestedQty: 1,
+          suggestedPrice: 0,
+          latestAt: Math.max(timestampMs(row.updatedAt), timestampMs(row.createdAt)),
+        });
+        return;
+      }
+      byName.set(key, {
+        ...existing,
+        name: existing.name || row.name || key,
+        category: existing.category || row.category || '',
+        tags: [...new Set([...(existing.tags || []), ...(row.tags || [])])],
+      });
+    });
+
+    return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [allItems, catalogRows]);
+
+  const importCategoryOptions = useMemo(() => {
+    const names = [...new Set(importCandidates.map((row) => row.category.trim()).filter(Boolean))].sort((a, b) =>
+      a.localeCompare(b)
+    );
+    return [{ label: 'All categories', value: 'ALL' }, ...names.map((name) => ({ label: name, value: name }))];
+  }, [importCandidates]);
+
+  const filteredImportCandidates = useMemo(() => {
+    const q = normalize(importSearch);
+    const rows = importCandidates.filter((row) => {
+      if (importCategoryFilter !== 'ALL' && row.category !== importCategoryFilter) return false;
+      if (!q) return true;
+      return normalize(row.name).includes(q) || normalize(row.category || '').includes(q);
+    });
+    return rows;
+  }, [importCandidates, importSearch, importCategoryFilter]);
+
+  const selectedImportCount = useMemo(
+    () => Object.values(importSelection).filter(Boolean).length,
+    [importSelection]
+  );
+
   const completingRow = useMemo(() => items.find((row) => row.id === completeItemId) || null, [items, completeItemId]);
 
   useEffect(() => {
@@ -435,6 +569,91 @@ export default function ShoppingScreen() {
     setItemDraftQuantity('1');
     setItemDraftPrice('');
     setItemError('');
+  }
+
+  function openImportModal() {
+    if (!selectedListId) return;
+    setImportOpen(true);
+    setImportSearch('');
+    setImportCategoryFilter('ALL');
+    setImportSelection({});
+    setImportError('');
+  }
+
+  function toggleImportSelection(key: string) {
+    setImportSelection((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
+
+  function selectAllFilteredImports() {
+    const next: Record<string, boolean> = {};
+    filteredImportCandidates.forEach((row) => {
+      if (existingItemKeys.has(row.key)) return;
+      next[row.key] = true;
+    });
+    setImportSelection((prev) => ({ ...prev, ...next }));
+  }
+
+  function clearImportSelection() {
+    setImportSelection({});
+  }
+
+  async function importSelectedItems() {
+    if (!uid || !selectedListId) return;
+    const picks = importCandidates.filter((row) => importSelection[row.key]);
+    if (!picks.length) {
+      setImportError('Select at least one item to import.');
+      return;
+    }
+
+    const existingNames = new Set(existingItemKeys);
+    let added = 0;
+    let skipped = 0;
+
+    setImportingItems(true);
+    setImportError('');
+    try {
+      for (const pick of picks) {
+        if (existingNames.has(pick.key)) {
+          skipped += 1;
+          continue;
+        }
+        await addShoppingListItem(uid, selectedListId, {
+          name: pick.name,
+          quantity: Math.max(1, Number(pick.suggestedQty || 1)),
+          price: Math.max(0, Number(pick.suggestedPrice || 0)),
+          category: pick.category || '',
+          tags: pick.tags || [],
+          bought: false,
+          completed: false,
+          cost: 0,
+          assignedPeriodId: pick.assignedPeriodId || selectedPid,
+          assignedPlanItemId: pick.assignedPlanItemId || '',
+          assignedPlanItemName: pick.assignedPlanItemName || '',
+          assignedGroup: (pick.assignedGroup || undefined) as any,
+        });
+        if (pick.category) await addShoppingCategory(uid, pick.category);
+        existingNames.add(pick.key);
+        added += 1;
+      }
+
+      if (!added) {
+        setImportError('Selected items already exist in this shopping list.');
+        return;
+      }
+
+      setImportOpen(false);
+      setImportSelection({});
+      setImportSearch('');
+      setImportCategoryFilter('ALL');
+      setItemError(
+        skipped ? `${added} items imported. ${skipped} duplicate item(s) were skipped.` : `${added} items imported.`
+      );
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      setImportError(message || 'Could not import items.');
+    } finally {
+      setImportingItems(false);
+    }
   }
 
   async function toggleBought(row: ShoppingListItem, bought: boolean) {
@@ -547,6 +766,11 @@ export default function ShoppingScreen() {
     setActionDialogItemId(null);
     setEditDialogItemId(null);
     setEditingItemId(null);
+    setImportOpen(false);
+    setImportSearch('');
+    setImportCategoryFilter('ALL');
+    setImportSelection({});
+    setImportError('');
     setItemsOpen(true);
   }
 
@@ -803,7 +1027,16 @@ export default function ShoppingScreen() {
                   />
                 </View>
                 <IconActionButton icon="plus" label="Add shopping item" onPress={addItem} />
+                <IconActionButton
+                  icon="database-import-outline"
+                  label="Import from shopping items"
+                  onPress={openImportModal}
+                  disabled={!importCandidates.length}
+                />
               </View>
+              <Text className="text-[11px] text-muted-foreground">
+                Import from your saved shopping items. Latest qty and price are suggested automatically.
+              </Text>
 
               {itemNameSuggestions.length && itemDraftName.trim() ? (
                 <View className="max-h-36 overflow-hidden rounded-md border border-border bg-card dark:border-zinc-800 dark:bg-zinc-900">
@@ -876,6 +1109,110 @@ export default function ShoppingScreen() {
             </View>
           </View>
         ) : null}
+      </AppModal>
+
+      <AppModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        title="Import Shopping Items"
+        contentClassName="max-w-2xl"
+      >
+        <View className="gap-3">
+          <Text className="text-xs text-muted-foreground">
+            Search by item name or category, select multiple items, then import into this shopping list.
+          </Text>
+
+          <View className="gap-2 md:flex-row md:items-center">
+            <View className="flex-1">
+              <AppInput
+                value={importSearch}
+                onChangeText={setImportSearch}
+                placeholder="Search items or categories"
+                className="h-9"
+              />
+            </View>
+            <View className="md:w-64">
+              <DropdownField
+                value={importCategoryFilter}
+                options={importCategoryOptions}
+                onChange={setImportCategoryFilter}
+                placeholder="All categories"
+                menuStrategy="inline"
+                menuClassName="max-h-52"
+              />
+            </View>
+          </View>
+
+          <View className="flex-row flex-wrap items-center gap-2">
+            <AppBadge label={`${filteredImportCandidates.length} found`} variant="outline" />
+            <AppBadge label={`${selectedImportCount} selected`} variant="secondary" />
+            <AppButton variant="outline" size="sm" label="Select all" onPress={selectAllFilteredImports} />
+            <AppButton variant="ghost" size="sm" label="Clear" onPress={clearImportSelection} />
+          </View>
+
+          <View className="max-h-80 gap-2 overflow-hidden rounded-lg border border-border bg-card p-2 dark:border-zinc-800 dark:bg-zinc-900">
+            <ScrollView nestedScrollEnabled>
+              <View className="gap-1">
+                {filteredImportCandidates.map((row) => {
+                  const selected = importSelection[row.key] === true;
+                  const existsInCurrent = existingItemKeys.has(row.key);
+                  return (
+                    <Pressable
+                      key={row.key}
+                      onPress={() => {
+                        if (existsInCurrent) return;
+                        toggleImportSelection(row.key);
+                      }}
+                      className={`rounded-md border px-3 py-2 ${
+                        existsInCurrent
+                          ? 'border-border/60 bg-muted/20 opacity-70 dark:border-zinc-800 dark:bg-zinc-800/20'
+                          : selected
+                            ? 'border-primary/50 bg-primary/5 dark:border-zinc-700 dark:bg-zinc-800/70'
+                            : 'border-border bg-card hover:bg-muted/35 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800/60'
+                      }`}
+                    >
+                      <View className="flex-row items-start gap-2">
+                        <MaterialCommunityIcons
+                          name={selected ? 'checkbox-marked' : 'checkbox-blank-outline'}
+                          size={18}
+                          color={existsInCurrent ? '#717182' : selected ? '#22C55E' : '#717182'}
+                        />
+                        <View className="min-w-0 flex-1">
+                          <Text className="text-sm font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>
+                            {row.name}
+                          </Text>
+                          <View className="mt-1 flex-row flex-wrap items-center gap-2">
+                            {row.category ? <AppBadge label={row.category} variant="outline" /> : null}
+                            <Text className="text-[11px] text-muted-foreground">Suggested qty {Math.max(1, Number(row.suggestedQty || 1))}</Text>
+                            <Text className="text-[11px] text-muted-foreground">Suggested price {fmtMoney(Math.max(0, Number(row.suggestedPrice || 0)))}</Text>
+                            {existsInCurrent ? <AppBadge label="Already in list" variant="secondary" /> : null}
+                          </View>
+                        </View>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+
+                {!filteredImportCandidates.length ? (
+                  <View className="py-4">
+                    <Text className="text-sm text-muted-foreground">No items match this search/filter.</Text>
+                  </View>
+                ) : null}
+              </View>
+            </ScrollView>
+          </View>
+
+          {importError ? <Text className="text-xs text-destructive">{importError}</Text> : null}
+
+          <View className="flex-row justify-end gap-2">
+            <AppButton variant="outline" label="Cancel" onPress={() => setImportOpen(false)} />
+            <AppButton
+              label={importingItems ? 'Importing...' : `Import Selected (${selectedImportCount})`}
+              onPress={importSelectedItems}
+              disabled={importingItems || selectedImportCount === 0}
+            />
+          </View>
+        </View>
       </AppModal>
 
       <AppModal
