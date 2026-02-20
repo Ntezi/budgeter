@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, PanResponder, Pressable, ScrollView, Text, View } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Pressable, ScrollView, Switch, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { AppCard } from '@/components/ui/AppCard';
@@ -48,113 +48,6 @@ type ItemEditState = {
   saving: boolean;
 };
 
-type SwipeActionVariant = 'default' | 'success' | 'danger' | 'muted';
-
-type SwipeRowProps = {
-  open: boolean;
-  onOpen: () => void;
-  onClose: () => void;
-  actionWidth: number;
-  children: React.ReactNode;
-  actions: React.ReactNode;
-};
-
-type SwipeActionButtonProps = {
-  icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
-  label: string;
-  variant?: SwipeActionVariant;
-  disabled?: boolean;
-  onPress: () => void;
-};
-
-function SwipeRow({ open, onOpen, onClose, actionWidth, children, actions }: SwipeRowProps) {
-  const translateX = useRef(new Animated.Value(0)).current;
-  const currentX = useRef(0);
-  const dragStart = useRef(0);
-
-  const snapTo = useCallback(
-    (next: number) => {
-      currentX.current = next;
-      Animated.timing(translateX, {
-        toValue: next,
-        duration: 160,
-        useNativeDriver: true,
-      }).start();
-    },
-    [translateX]
-  );
-
-  useEffect(() => {
-    snapTo(open ? -actionWidth : 0);
-  }, [actionWidth, open, snapTo]);
-
-  const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_evt, gestureState) =>
-          Math.abs(gestureState.dx) > 8 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy),
-        onPanResponderGrant: () => {
-          dragStart.current = currentX.current;
-        },
-        onPanResponderMove: (_evt, gestureState) => {
-          const next = Math.max(-actionWidth, Math.min(0, dragStart.current + gestureState.dx));
-          translateX.setValue(next);
-        },
-        onPanResponderRelease: (_evt, gestureState) => {
-          const next = dragStart.current + gestureState.dx;
-          const openByDistance = next <= -actionWidth * 0.4;
-          const openByVelocity = gestureState.vx < -0.35;
-          if (openByDistance || openByVelocity) {
-            onOpen();
-            return;
-          }
-          onClose();
-        },
-        onPanResponderTerminate: () => {
-          if (open) onOpen();
-          else onClose();
-        },
-      }),
-    [actionWidth, onClose, onOpen, open, translateX]
-  );
-
-  return (
-    <View className="relative overflow-hidden">
-      <View className="absolute inset-y-0 right-0 flex-row items-stretch" style={{ width: actionWidth }}>
-        {actions}
-      </View>
-      <Animated.View style={{ transform: [{ translateX }] }} {...panResponder.panHandlers}>
-        {children}
-      </Animated.View>
-    </View>
-  );
-}
-
-function SwipeActionButton({ icon, label, variant = 'default', disabled, onPress }: SwipeActionButtonProps) {
-  const variantClass =
-    variant === 'danger'
-      ? 'bg-destructive/90'
-      : variant === 'success'
-        ? 'bg-emerald-600/90'
-        : variant === 'muted'
-          ? 'bg-zinc-500/90'
-          : 'bg-slate-600/90';
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      {...({ title: label } as any)}
-      onPress={onPress}
-      disabled={disabled}
-      className={`w-12 items-center justify-center border-l border-black/10 active:opacity-80 ${variantClass} ${
-        disabled ? 'opacity-40' : ''
-      }`}
-    >
-      <MaterialCommunityIcons name={icon} size={18} color="#FFFFFF" />
-    </Pressable>
-  );
-}
-
 function normalize(input: string) {
   return input.trim().toLowerCase();
 }
@@ -182,7 +75,8 @@ export default function ShoppingScreen() {
   const [itemError, setItemError] = useState('');
   const [itemEdits, setItemEdits] = useState<Record<string, ItemEditState>>({});
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
-  const [openActionItemId, setOpenActionItemId] = useState<string | null>(null);
+  const [actionDialogItemId, setActionDialogItemId] = useState<string | null>(null);
+  const [editDialogItemId, setEditDialogItemId] = useState<string | null>(null);
 
   const [completeOpen, setCompleteOpen] = useState(false);
   const [completeItemId, setCompleteItemId] = useState('');
@@ -225,14 +119,10 @@ export default function ShoppingScreen() {
 
   useEffect(() => {
     if (itemsOpen) return;
-    setOpenActionItemId(null);
+    setActionDialogItemId(null);
+    setEditDialogItemId(null);
+    setEditingItemId(null);
   }, [itemsOpen]);
-
-  useEffect(() => {
-    if (!openActionItemId) return;
-    if (items.some((row) => row.id === openActionItemId)) return;
-    setOpenActionItemId(null);
-  }, [items, openActionItemId]);
 
   useEffect(() => {
     if (!uid || !lists.length) {
@@ -344,6 +234,14 @@ export default function ShoppingScreen() {
       ) as Record<string, ShoppingListItem & { id: string }>,
     [items]
   );
+  const actionRow = useMemo(
+    () => (actionDialogItemId ? rowById[actionDialogItemId] || null : null),
+    [actionDialogItemId, rowById]
+  );
+  const editRow = useMemo(
+    () => (editDialogItemId ? rowById[editDialogItemId] || null : null),
+    [editDialogItemId, rowById]
+  );
 
   const selectedListTotalPrice = useMemo(
     () => items.reduce((sum, row) => sum + (row.completed ? row.cost || 0 : effectiveLinePrice(row)), 0),
@@ -354,6 +252,19 @@ export default function ShoppingScreen() {
     () => items.filter((row) => row.completed === true).length,
     [items]
   );
+
+  useEffect(() => {
+    if (!actionDialogItemId) return;
+    if (rowById[actionDialogItemId]) return;
+    setActionDialogItemId(null);
+  }, [actionDialogItemId, rowById]);
+
+  useEffect(() => {
+    if (!editDialogItemId) return;
+    if (rowById[editDialogItemId]) return;
+    setEditDialogItemId(null);
+    setEditingItemId((prev) => (prev === editDialogItemId ? null : prev));
+  }, [editDialogItemId, rowById]);
 
   useEffect(() => {
     setItemEdits((prev) => {
@@ -585,7 +496,8 @@ export default function ShoppingScreen() {
         [itemId]: { ...draft, quantity: String(qtyParsed), price: String(price || ''), dirty: false, saving: false },
       }));
       setEditingItemId((prev) => (prev === itemId ? null : prev));
-      setOpenActionItemId((prev) => (prev === itemId ? null : prev));
+      setEditDialogItemId((prev) => (prev === itemId ? null : prev));
+      setActionDialogItemId((prev) => (prev === itemId ? null : prev));
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
       setItemError(message || 'Could not save shopping item.');
@@ -615,23 +527,33 @@ export default function ShoppingScreen() {
         return;
       }
     }
+    resetItemEditFromSource(itemId);
     setEditingItemId(itemId);
-    setOpenActionItemId(itemId);
+    setEditDialogItemId(itemId);
+    setActionDialogItemId(null);
     setItemError('');
   }
 
   function cancelItemEdit(itemId: string) {
     resetItemEditFromSource(itemId);
     setEditingItemId((prev) => (prev === itemId ? null : prev));
-    setOpenActionItemId((prev) => (prev === itemId ? null : prev));
+    setEditDialogItemId((prev) => (prev === itemId ? null : prev));
     setItemError('');
   }
 
   function openItemsModal(listId: string) {
     setSelectedListId(listId);
     setItemError('');
-    setOpenActionItemId(null);
+    setActionDialogItemId(null);
+    setEditDialogItemId(null);
+    setEditingItemId(null);
     setItemsOpen(true);
+  }
+
+  function openItemActions(row: ShoppingListItem) {
+    if (!row.id) return;
+    setActionDialogItemId(row.id);
+    setItemError('');
   }
 
   function openCompleteModal(row: ShoppingListItem) {
@@ -683,7 +605,8 @@ export default function ShoppingScreen() {
     if (!uid || !selectedListId || !row.id) return;
     await deleteShoppingListItem(uid, selectedListId, row.id);
     setEditingItemId((prev) => (prev === row.id ? null : prev));
-    setOpenActionItemId((prev) => (prev === row.id ? null : prev));
+    setEditDialogItemId((prev) => (prev === row.id ? null : prev));
+    setActionDialogItemId((prev) => (prev === row.id ? null : prev));
   }
 
   async function finalizeShoppingList() {
@@ -906,142 +829,42 @@ export default function ShoppingScreen() {
 
             <View className="gap-2">
               {displayItems.map((row, index) => {
-                const edit = row.id ? itemEdits[row.id] : undefined;
-                const dirty = Boolean(edit?.dirty);
-                const isEditing = Boolean(row.id && editingItemId === row.id);
                 const completed = row.completed === true;
                 const rowId = row.id || `${normalize(row.name || 'item')}-${index}`;
-                const actionOpen = Boolean(row.id && openActionItemId === row.id);
-                const lineTotal = (() => {
-                  const quantity = Math.max(1, Number((isEditing ? edit?.quantity : row.quantity) || 1));
-                  const price = Math.max(0, parseMoney(isEditing ? edit?.price ?? '' : String(row.price || '')));
-                  return price * quantity;
-                })();
+                const quantity = Math.max(1, Number(row.quantity || 1));
+                const unitPrice = Math.max(0, Number(row.price || 0));
+                const lineTotal = quantity * unitPrice;
                 return (
-                  <SwipeRow
+                  <View
                     key={rowId}
-                    open={actionOpen}
-                    actionWidth={192}
-                    onOpen={() => row.id && setOpenActionItemId(row.id)}
-                    onClose={() => {
-                      if (!row.id) return;
-                      setOpenActionItemId((prev) => (prev === row.id ? null : prev));
-                    }}
-                    actions={
-                      <View className="h-full flex-row">
-                        <SwipeActionButton
-                          icon={row.bought === true ? 'cart-remove' : 'cart-check'}
-                          label={row.bought === true ? 'Mark not bought' : 'Mark bought'}
-                          variant="muted"
-                          disabled={completed}
-                          onPress={() => void toggleBought(row, row.bought !== true)}
-                        />
-                        {isEditing ? (
-                          <>
-                            <SwipeActionButton
-                              icon="content-save-outline"
-                              label="Save item"
-                              variant="success"
-                              disabled={completed || !dirty || Boolean(edit?.saving)}
-                              onPress={() => row.id && saveItemEdits(row.id)}
-                            />
-                            <SwipeActionButton
-                              icon="close"
-                              label="Cancel edit"
-                              variant="default"
-                              onPress={() => row.id && cancelItemEdit(row.id)}
-                            />
-                            <SwipeActionButton
-                              icon="trash-can-outline"
-                              label="Delete item"
-                              variant="danger"
-                              onPress={() => removeItem(row)}
-                            />
-                          </>
-                        ) : (
-                          <>
-                            <SwipeActionButton
-                              icon="pencil-outline"
-                              label="Edit item"
-                              variant="default"
-                              disabled={completed}
-                              onPress={() => row.id && beginItemEdit(row.id)}
-                            />
-                            <SwipeActionButton
-                              icon="check-circle-outline"
-                              label="Complete item"
-                              variant="success"
-                              disabled={completed}
-                              onPress={() => openCompleteModal(row)}
-                            />
-                            <SwipeActionButton
-                              icon="trash-can-outline"
-                              label="Delete item"
-                              variant="danger"
-                              onPress={() => removeItem(row)}
-                            />
-                          </>
-                        )}
-                      </View>
-                    }
+                    className="rounded-lg border border-border bg-card px-3 py-2 hover:bg-muted/35 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800/55"
                   >
-                    <View
-                      className={`rounded-lg border px-3 py-2 dark:border-zinc-800 ${
-                        dirty
-                          ? 'border-primary/40 bg-primary/5 dark:bg-zinc-800/70'
-                          : 'border-border bg-card hover:bg-muted/35 dark:bg-zinc-900 dark:hover:bg-zinc-800/55'
-                      }`}
-                    >
-                      <View className="flex-row items-center gap-2">
-                        <View className="min-w-0 flex-1 gap-1">
-                          <Text className="text-sm font-medium text-foreground dark:text-zinc-50" numberOfLines={2}>
-                            {row.name}
-                          </Text>
-                          <View className="flex-row flex-wrap items-center gap-2">
-                            <Text className="text-[11px] text-muted-foreground">Qty {Math.max(1, Number(row.quantity || 1))}</Text>
-                            {row.bought === true ? <AppBadge label="Bought" variant="secondary" /> : null}
-                            {completed ? <AppBadge label="Completed" variant="success" /> : null}
-                            {dirty ? <AppBadge label="Unsaved" variant="warning" /> : null}
-                          </View>
+                    <View className="flex-row items-start gap-3">
+                      <View className="min-w-0 flex-1 gap-1">
+                        <Text className="text-sm font-medium text-foreground dark:text-zinc-50" numberOfLines={2}>
+                          {row.name}
+                        </Text>
+                        <View className="flex-row flex-wrap items-center gap-2">
+                          <Text className="text-[11px] text-muted-foreground">Qty {quantity}</Text>
+                          <Text className="text-[11px] text-muted-foreground">Price {fmtMoney(unitPrice)}</Text>
+                          <Text className="text-[11px] font-semibold text-foreground dark:text-zinc-50">Total {fmtMoney(lineTotal)}</Text>
+                          {completed ? <AppBadge label="Completed" variant="success" /> : null}
                         </View>
+                      </View>
 
-                        {isEditing ? (
-                          <View className="flex-row items-center gap-2">
-                            <View className="w-14">
-                              <AppInput
-                                value={edit?.quantity ?? String(Math.max(1, Number(row.quantity || 1)))}
-                                onChangeText={(value) => row.id && setItemEditField(row.id, { quantity: value })}
-                                className="h-8 px-2 text-center text-xs"
-                                keyboardType="number-pad"
-                                placeholder="Qty"
-                                editable={!completed}
-                              />
-                            </View>
-                            <View className="w-20">
-                              <AppInput
-                                value={edit?.price ?? String(Number(row.price || 0) || '')}
-                                onChangeText={(value) => row.id && setItemEditField(row.id, { price: value })}
-                                className="h-8 px-2 text-right text-xs"
-                                keyboardType="decimal-pad"
-                                placeholder="Price"
-                                editable={!completed}
-                              />
-                            </View>
-                            <Text className="w-20 text-right text-xs font-semibold text-foreground dark:text-zinc-50">
-                              {fmtMoney(lineTotal)}
-                            </Text>
-                          </View>
-                        ) : (
-                          <View className="flex-row items-center gap-1">
-                            <Text className="w-12 text-right text-xs text-muted-foreground">x{Math.max(1, Number(row.quantity || 1))}</Text>
-                            <Text className="w-20 text-right text-xs font-semibold text-foreground dark:text-zinc-50">
-                              {fmtMoney(lineTotal)}
-                            </Text>
-                          </View>
-                        )}
+                      <View className="items-end gap-2">
+                        <View className="flex-row items-center gap-1">
+                          <Text className="text-[11px] text-muted-foreground">Bought</Text>
+                          <Switch value={row.bought === true} onValueChange={(value) => void toggleBought(row, value)} />
+                        </View>
+                        <IconActionButton
+                          icon="dots-horizontal-circle-outline"
+                          label="Item actions"
+                          onPress={() => openItemActions(row)}
+                        />
                       </View>
                     </View>
-                  </SwipeRow>
+                  </View>
                 );
               })}
 
@@ -1050,6 +873,108 @@ export default function ShoppingScreen() {
                   <Text className="text-sm text-muted-foreground">No pending items in this list.</Text>
                 </View>
               ) : null}
+            </View>
+          </View>
+        ) : null}
+      </AppModal>
+
+      <AppModal
+        open={Boolean(actionRow)}
+        onClose={() => setActionDialogItemId(null)}
+        title={actionRow ? actionRow.name : 'Item Actions'}
+        contentClassName="max-w-sm"
+      >
+        <View className="gap-3">
+          <Text className="text-xs text-muted-foreground">Choose what you want to do with this shopping item.</Text>
+          <AppButton
+            variant="outline"
+            label="Edit"
+            onPress={() => {
+              if (!actionRow?.id) return;
+              beginItemEdit(actionRow.id);
+            }}
+          />
+          <AppButton
+            variant="outline"
+            label={actionRow?.completed ? 'Already Completed' : 'Complete'}
+            disabled={actionRow?.completed === true}
+            onPress={() => {
+              if (!actionRow) return;
+              setActionDialogItemId(null);
+              openCompleteModal(actionRow);
+            }}
+          />
+          <AppButton
+            variant="destructive"
+            label="Delete"
+            onPress={() => {
+              if (!actionRow) return;
+              void removeItem(actionRow);
+            }}
+          />
+          <AppButton variant="ghost" label="Cancel" onPress={() => setActionDialogItemId(null)} />
+        </View>
+      </AppModal>
+
+      <AppModal
+        open={Boolean(editDialogItemId && editRow)}
+        onClose={() => {
+          if (!editDialogItemId) return;
+          cancelItemEdit(editDialogItemId);
+        }}
+        title={editRow ? `Edit ${editRow.name}` : 'Edit Item'}
+        contentClassName="max-w-md"
+      >
+        {editRow && editDialogItemId ? (
+          <View className="gap-3">
+            <View className="rounded-md border border-border bg-muted/25 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/35">
+              <Text className="text-xs uppercase tracking-wide text-muted-foreground">Name</Text>
+              <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{editRow.name}</Text>
+            </View>
+
+            <View className="flex-row items-center gap-2">
+              <View className="w-20">
+                <Text className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">Qty</Text>
+                <AppInput
+                  value={itemEdits[editDialogItemId]?.quantity ?? String(Math.max(1, Number(editRow.quantity || 1)))}
+                  onChangeText={(value) => setItemEditField(editDialogItemId, { quantity: value })}
+                  keyboardType="number-pad"
+                  className="h-9 text-center"
+                  placeholder="Qty"
+                />
+              </View>
+              <View className="w-28">
+                <Text className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">Price</Text>
+                <AppInput
+                  value={itemEdits[editDialogItemId]?.price ?? String(Number(editRow.price || 0) || '')}
+                  onChangeText={(value) => setItemEditField(editDialogItemId, { price: value })}
+                  keyboardType="decimal-pad"
+                  className="h-9 text-right"
+                  placeholder="Price"
+                />
+              </View>
+              <View className="flex-1 pt-5">
+                <Text className="text-right text-xs text-muted-foreground">
+                  Total {fmtMoney(Math.max(1, Number(itemEdits[editDialogItemId]?.quantity || editRow.quantity || 1)) * Math.max(0, parseMoney(itemEdits[editDialogItemId]?.price ?? String(editRow.price || 0))))}
+                </Text>
+              </View>
+            </View>
+
+            {itemError ? <Text className="text-xs text-destructive">{itemError}</Text> : null}
+
+            <View className="flex-row justify-end gap-2">
+              <AppButton
+                variant="outline"
+                label="Cancel"
+                onPress={() => {
+                  cancelItemEdit(editDialogItemId);
+                }}
+              />
+              <AppButton
+                label="Save"
+                onPress={() => void saveItemEdits(editDialogItemId)}
+                disabled={!itemEdits[editDialogItemId]?.dirty || Boolean(itemEdits[editDialogItemId]?.saving)}
+              />
             </View>
           </View>
         ) : null}
