@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, Switch, Text, View } from 'react-native';
+import { Pressable, ScrollView, Switch, Text, View, useWindowDimensions } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { AppCard } from '@/components/ui/AppCard';
@@ -94,6 +94,7 @@ export default function ShoppingScreen() {
   const uid = useWorkspaceUid();
   const router = useRouter();
   const { action } = useLocalSearchParams<{ action?: string }>();
+  const { height: viewportHeight } = useWindowDimensions();
 
   const [lists, setLists] = useState<ShoppingList[]>([]);
   const [selectedListId, setSelectedListId] = useState('');
@@ -984,9 +985,14 @@ export default function ShoppingScreen() {
         open={itemsOpen && Boolean(selectedList)}
         onClose={() => setItemsOpen(false)}
         title={selectedList ? selectedList.name : 'Shopping List'}
-        contentClassName="max-w-3xl"
+        contentClassName="max-w-3xl max-h-[90%]"
       >
         {selectedList ? (
+          <ScrollView
+            nestedScrollEnabled
+            style={{ maxHeight: Math.max(320, viewportHeight * 0.74) }}
+            contentContainerStyle={{ paddingBottom: 8 }}
+          >
           <View className="gap-3">
             <View className="flex-col gap-2 md:flex-row md:items-center md:justify-between">
               <Text className="text-xs text-muted-foreground">Pending checklist items for this shopping list.</Text>
@@ -1108,6 +1114,7 @@ export default function ShoppingScreen() {
               ) : null}
             </View>
           </View>
+          </ScrollView>
         ) : null}
       </AppModal>
 

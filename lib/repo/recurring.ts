@@ -6,8 +6,8 @@ import {
 import {db} from '../firebase';
 import {assertPeriodEditable, type Group} from './periods';
 import {putTransactionWithId} from './transactions';
-import {putIncomeWithId} from './income';
-import {putPlanWithId} from './plans';
+import {incomeCol, putIncomeWithId} from './income';
+import {planCol, putPlanWithId} from './plans';
 
 export type RecurringFlow = 'EXPENSE' | 'INCOME';
 
@@ -26,6 +26,8 @@ export type Recurring = {
 };
 
 export const recCol = (uid: string) => collection(db, 'users', uid, 'recurring');
+const RECURRING_BUDGET_PLAN_PREFIX = 'recbudget_plan_';
+const RECURRING_BUDGET_INCOME_PREFIX = 'recbudget_income_';
 
 function mapGroup(input?: string): Group | undefined {
     const upper = (input ?? '').trim().toUpperCase();
@@ -236,12 +238,65 @@ export async function importRecurringCsv(uid: string, csvText: string) {
 }
 
 /** Seed budget editor sections (plan + income) from recurring templates for a period. */
+export type BudgetSeedState = {
+    existingPlanRows: number;
+    existingIncomeRows: number;
+    recurringPlanRows: number;
+    recurringIncomeRows: number;
+};
+
+export async function inspectBudgetSeedState(uid: string, pid: string): Promise<BudgetSeedState> {
+    const [planSnap, incomeSnap] = await Promise.all([getDocs(planCol(uid, pid)), getDocs(incomeCol(uid, pid))]);
+    let recurringPlanRows = 0;
+    let recurringIncomeRows = 0;
+    planSnap.forEach((d) => {
+        if (d.id.startsWith(RECURRING_BUDGET_PLAN_PREFIX)) recurringPlanRows++;
+    });
+    incomeSnap.forEach((d) => {
+        if (d.id.startsWith(RECURRING_BUDGET_INCOME_PREFIX)) recurringIncomeRows++;
+    });
+    return {
+        existingPlanRows: planSnap.size,
+        existingIncomeRows: incomeSnap.size,
+        recurringPlanRows,
+        recurringIncomeRows,
+    };
+}
+
+async function clearRecurringBudgetRows(
+    uid: string,
+    pid: string
+): Promise<{ planRemoved: number; incomeRemoved: number }> {
+    const [planSnap, incomeSnap] = await Promise.all([getDocs(planCol(uid, pid)), getDocs(incomeCol(uid, pid))]);
+    let planRemoved = 0;
+    let incomeRemoved = 0;
+    for (const d of planSnap.docs) {
+        if (!d.id.startsWith(RECURRING_BUDGET_PLAN_PREFIX)) continue;
+        await deleteDoc(d.ref);
+        planRemoved++;
+    }
+    for (const d of incomeSnap.docs) {
+        if (!d.id.startsWith(RECURRING_BUDGET_INCOME_PREFIX)) continue;
+        await deleteDoc(d.ref);
+        incomeRemoved++;
+    }
+    return {planRemoved, incomeRemoved};
+}
+
 export async function seedBudgetFromRecurring(
     uid: string,
     pid: string,
-    rows: Recurring[]
-): Promise<{ planWritten: number; incomeWritten: number }> {
+    rows: Recurring[],
+    options?: { overwriteRecurring?: boolean }
+): Promise<{ planWritten: number; incomeWritten: number; planRemoved: number; incomeRemoved: number }> {
     await assertPeriodEditable(uid, pid);
+    let planRemoved = 0;
+    let incomeRemoved = 0;
+    if (options?.overwriteRecurring) {
+        const removed = await clearRecurringBudgetRows(uid, pid);
+        planRemoved = removed.planRemoved;
+        incomeRemoved = removed.incomeRemoved;
+    }
     let planWritten = 0;
     let incomeWritten = 0;
     const eligible = rows.filter((r) => {
@@ -275,7 +330,7 @@ export async function seedBudgetFromRecurring(
             nextPriority++;
         }
     }
-    return {planWritten, incomeWritten};
+    return {planWritten, incomeWritten, planRemoved, incomeRemoved};
 }
 
 /** Generate for period YYYY-MM. Returns counts. */

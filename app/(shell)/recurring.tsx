@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, ScrollView, Switch, Text, View } from 'react-native';
+import { Alert, Platform, ScrollView, Switch, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { AppCard } from '@/components/ui/AppCard';
@@ -13,7 +13,7 @@ import { useWorkspaceUid } from '@/providers/WorkspaceProvider';
 import {
   addRecurring,
   deleteRecurring,
-  generateForPeriod,
+  inspectBudgetSeedState,
   importRecurringCsv,
   recurringCsvHeader,
   seedBudgetFromRecurring,
@@ -22,7 +22,7 @@ import {
   updateRecurring,
   watchRecurring,
 } from '@/lib/repo/recurring';
-import { createPeriod, nextMonthMeta, periodIdFromDate } from '@/lib/repo/periods';
+import { createPeriod, nextMonthMeta, periodIdFromDate, periodTitleFromId } from '@/lib/repo/periods';
 import { applyAllocationDefaultsForPeriod } from '@/lib/repo/allocations';
 import { fmtMoney, parseMoney } from '@/lib/format';
 import { PLAN_GROUP_OPTIONS } from '@/lib/groups';
@@ -146,8 +146,43 @@ export default function RecurringScreen() {
   async function generateCurrentPeriod() {
     if (!uid) return;
     const pid = periodIdFromDate();
-    const out = await generateForPeriod(uid, pid, rows);
-    Alert.alert('Recurring Applied', `${pid}\nExpenses: ${out.expenseWritten}\nIncome: ${out.incomeWritten}`);
+    await createPeriod(uid, pid, periodTitleFromId(pid));
+
+    const state = await inspectBudgetSeedState(uid, pid);
+    let overwriteRecurring = false;
+    if (state.existingPlanRows > 0 || state.existingIncomeRows > 0) {
+      const message =
+        `${pid} already has budget rows.\n` +
+        `Plan rows: ${state.existingPlanRows}\n` +
+        `Income rows: ${state.existingIncomeRows}\n\n` +
+        'Overwrite will remove previously generated recurring rows only. Manual/non-recurring rows stay unchanged.';
+
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        overwriteRecurring = window.confirm(`${message}\n\nClick OK to overwrite recurring rows, or Cancel to keep existing rows.`);
+      } else {
+        const choice = await new Promise<'cancel' | 'keep' | 'overwrite'>((resolve) => {
+          Alert.alert(
+            'Current Budget Has Items',
+            message,
+            [
+              { text: 'Cancel', style: 'cancel', onPress: () => resolve('cancel') },
+              { text: 'Keep Existing', onPress: () => resolve('keep') },
+              { text: 'Overwrite Recurring', style: 'destructive', onPress: () => resolve('overwrite') },
+            ],
+            { cancelable: true, onDismiss: () => resolve('cancel') }
+          );
+        });
+        if (choice === 'cancel') return;
+        overwriteRecurring = choice === 'overwrite';
+      }
+    }
+
+    const out = await seedBudgetFromRecurring(uid, pid, rows, { overwriteRecurring });
+    Alert.alert(
+      'Current Budget Updated',
+      `${pid}\nPlan rows from recurring: ${out.planWritten}\nIncome rows from recurring: ${out.incomeWritten}\nRemoved recurring rows: Plan ${out.planRemoved}, Income ${out.incomeRemoved}`
+    );
+    router.push(`/budgets/${pid}`);
   }
 
   async function importCsv() {
