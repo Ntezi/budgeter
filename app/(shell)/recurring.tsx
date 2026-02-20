@@ -50,6 +50,8 @@ export default function RecurringScreen() {
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingDraft, setEditingDraft] = useState<Recurring | null>(null);
+  const [isGeneratingCurrent, setIsGeneratingCurrent] = useState(false);
+  const [isCreatingNextBudget, setIsCreatingNextBudget] = useState(false);
 
   useEffect(() => {
     if (!uid) return;
@@ -144,45 +146,53 @@ export default function RecurringScreen() {
   }
 
   async function generateCurrentPeriod() {
-    if (!uid) return;
-    const pid = periodIdFromDate();
-    await createPeriod(uid, pid, periodTitleFromId(pid));
+    if (!uid || isGeneratingCurrent || isCreatingNextBudget) return;
+    setIsGeneratingCurrent(true);
+    try {
+      const pid = periodIdFromDate();
+      await createPeriod(uid, pid, periodTitleFromId(pid));
 
-    const state = await inspectBudgetSeedState(uid, pid);
-    let overwriteRecurring = false;
-    if (state.existingPlanRows > 0 || state.existingIncomeRows > 0) {
-      const message =
-        `${pid} already has budget rows.\n` +
-        `Plan rows: ${state.existingPlanRows}\n` +
-        `Income rows: ${state.existingIncomeRows}\n\n` +
-        'Overwrite will remove previously generated recurring rows only. Manual/non-recurring rows stay unchanged.';
+      const state = await inspectBudgetSeedState(uid, pid);
+      let overwriteRecurring = false;
+      if (state.existingPlanRows > 0 || state.existingIncomeRows > 0) {
+        const message =
+          `${pid} already has budget rows.\n` +
+          `Plan rows: ${state.existingPlanRows}\n` +
+          `Income rows: ${state.existingIncomeRows}\n\n` +
+          'Overwrite will remove previously generated recurring rows only. Manual/non-recurring rows stay unchanged.';
 
-      if (Platform.OS === 'web' && typeof window !== 'undefined') {
-        overwriteRecurring = window.confirm(`${message}\n\nClick OK to overwrite recurring rows, or Cancel to keep existing rows.`);
-      } else {
-        const choice = await new Promise<'cancel' | 'keep' | 'overwrite'>((resolve) => {
-          Alert.alert(
-            'Current Budget Has Items',
-            message,
-            [
-              { text: 'Cancel', style: 'cancel', onPress: () => resolve('cancel') },
-              { text: 'Keep Existing', onPress: () => resolve('keep') },
-              { text: 'Overwrite Recurring', style: 'destructive', onPress: () => resolve('overwrite') },
-            ],
-            { cancelable: true, onDismiss: () => resolve('cancel') }
-          );
-        });
-        if (choice === 'cancel') return;
-        overwriteRecurring = choice === 'overwrite';
+        if (Platform.OS === 'web' && typeof window !== 'undefined') {
+          overwriteRecurring = window.confirm(`${message}\n\nClick OK to overwrite recurring rows, or Cancel to keep existing rows.`);
+        } else {
+          const choice = await new Promise<'cancel' | 'keep' | 'overwrite'>((resolve) => {
+            Alert.alert(
+              'Current Budget Has Items',
+              message,
+              [
+                { text: 'Cancel', style: 'cancel', onPress: () => resolve('cancel') },
+                { text: 'Keep Existing', onPress: () => resolve('keep') },
+                { text: 'Overwrite Recurring', style: 'destructive', onPress: () => resolve('overwrite') },
+              ],
+              { cancelable: true, onDismiss: () => resolve('cancel') }
+            );
+          });
+          if (choice === 'cancel') return;
+          overwriteRecurring = choice === 'overwrite';
+        }
       }
-    }
 
-    const out = await seedBudgetFromRecurring(uid, pid, rows, { overwriteRecurring });
-    Alert.alert(
-      'Current Budget Updated',
-      `${pid}\nPlan rows from recurring: ${out.planWritten}\nIncome rows from recurring: ${out.incomeWritten}\nRemoved recurring rows: Plan ${out.planRemoved}, Income ${out.incomeRemoved}`
-    );
-    router.push(`/budgets/${pid}`);
+      const out = await seedBudgetFromRecurring(uid, pid, rows, { overwriteRecurring });
+      Alert.alert(
+        'Current Budget Updated',
+        `${pid}\nPlan rows from recurring: ${out.planWritten}\nIncome rows from recurring: ${out.incomeWritten}\nRemoved recurring rows: Plan ${out.planRemoved}, Income ${out.incomeRemoved}`
+      );
+      router.push(`/budgets/${pid}`);
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      Alert.alert('Could Not Generate Current Budget', message || 'An unexpected error occurred.');
+    } finally {
+      setIsGeneratingCurrent(false);
+    }
   }
 
   async function importCsv() {
@@ -193,16 +203,24 @@ export default function RecurringScreen() {
   }
 
   async function createNextBudgetFromRecurring() {
-    if (!uid) return;
-    const next = nextMonthMeta();
-    await createPeriod(uid, next.id, next.title);
-    const seeded = await seedBudgetFromRecurring(uid, next.id, rows);
-    const defaults = await applyAllocationDefaultsForPeriod(uid, next.id);
-    Alert.alert(
-      'Next Budget Ready',
-      `${next.id}\nPlan rows: ${seeded.planWritten}\nIncome rows: ${seeded.incomeWritten}\nDefaults: ${defaults}`
-    );
-    router.push(`/budgets/${next.id}`);
+    if (!uid || isGeneratingCurrent || isCreatingNextBudget) return;
+    setIsCreatingNextBudget(true);
+    try {
+      const next = nextMonthMeta();
+      await createPeriod(uid, next.id, next.title);
+      const seeded = await seedBudgetFromRecurring(uid, next.id, rows);
+      const defaults = await applyAllocationDefaultsForPeriod(uid, next.id);
+      Alert.alert(
+        'Next Budget Ready',
+        `${next.id}\nPlan rows: ${seeded.planWritten}\nIncome rows: ${seeded.incomeWritten}\nDefaults: ${defaults}`
+      );
+      router.push(`/budgets/${next.id}`);
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      Alert.alert('Could Not Create Next Budget', message || 'An unexpected error occurred.');
+    } finally {
+      setIsCreatingNextBudget(false);
+    }
   }
 
   const col = {
@@ -214,6 +232,7 @@ export default function RecurringScreen() {
     status: 'w-[110px]',
     actions: 'w-[140px]',
   };
+  const recurringActionsBusy = isGeneratingCurrent || isCreatingNextBudget;
 
   return (
     <ScrollView className="flex-1" contentContainerClassName="gap-4 pb-8">
@@ -223,16 +242,16 @@ export default function RecurringScreen() {
       </View>
 
       <View className="flex-row flex-wrap gap-2">
-        <AppButton onPress={generateCurrentPeriod} variant="outline">
+        <AppButton onPress={generateCurrentPeriod} variant="outline" disabled={recurringActionsBusy}>
           <View className="flex-row items-center gap-2">
             <MaterialCommunityIcons name="refresh" size={18} color="#717182" />
-            <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Generate Current Month</Text>
+            <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">{isGeneratingCurrent ? 'Generating...' : 'Generate Current Month'}</Text>
           </View>
         </AppButton>
-        <AppButton onPress={createNextBudgetFromRecurring}>
+        <AppButton onPress={createNextBudgetFromRecurring} disabled={recurringActionsBusy}>
           <View className="flex-row items-center gap-2">
             <MaterialCommunityIcons name="repeat" size={18} color="#FFFFFF" />
-            <Text className="text-sm font-semibold text-primary-foreground">Create Next Budget</Text>
+            <Text className="text-sm font-semibold text-primary-foreground">{isCreatingNextBudget ? 'Creating...' : 'Create Next Budget'}</Text>
           </View>
         </AppButton>
       </View>

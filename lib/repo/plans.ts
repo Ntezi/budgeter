@@ -5,7 +5,15 @@ import {db} from '../firebase';
 import {assertPeriodEditable} from './periods';
 
 export type PlanGroup = 'NEED' | 'WANT' | 'SAVINGS_DEBT';
-export type PlanItem = { id?: string; group: PlanGroup; name: string; amount: number; priority?: number; tags?: string[] };
+export type PlanItem = {
+    id?: string;
+    group: PlanGroup;
+    name: string;
+    amount: number;
+    priority?: number;
+    tags?: string[];
+    reconcilePinned?: boolean;
+};
 
 export function planCol(userId: string, periodId: string) {
     return collection(db, 'users', userId, 'periods', periodId, 'planItems');

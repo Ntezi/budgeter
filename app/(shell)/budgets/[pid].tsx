@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Platform, Pressable, ScrollView, Switch, Text, View } from 'react-native';
+import { Alert, Platform, ScrollView, Switch, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { AppCard } from '@/components/ui/AppCard';
@@ -45,10 +45,10 @@ const SECTION_OPTIONS = [
   { label: 'Reconcile', value: 'RECONCILE' },
 ] as const;
 
-const GROUP_ORDER: Record<PlanGroup, number> = {
+const RECONCILE_PINNED_GROUP_ORDER: Record<PlanGroup, number> = {
   NEED: 0,
-  WANT: 1,
-  SAVINGS_DEBT: 2,
+  SAVINGS_DEBT: 1,
+  WANT: 2,
 };
 
 type SectionKey = (typeof SECTION_OPTIONS)[number]['value'];
@@ -103,7 +103,6 @@ export default function BudgetDetailScreen() {
 
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [allocations, setAllocations] = useState<Allocation[]>([]);
-  const [draggingPlanId, setDraggingPlanId] = useState<string | null>(null);
 
   const readOnly = status === 'DECIDED';
 
@@ -191,8 +190,6 @@ export default function BudgetDetailScreen() {
       .map((row, index) => ({ ...row, priority: Number((row as any).priority) || index + 1 }))
       .sort((a, b) => a.priority - b.priority);
   }, [planItems]);
-
-  const hasInactiveIncome = useMemo(() => incomeItems.some((row) => row.active === false), [incomeItems]);
 
   useEffect(() => {
     setIncomeEdits((prev) => {
@@ -345,17 +342,21 @@ export default function BudgetDetailScreen() {
 
   const fundingOrder = useMemo(() => {
     const rows = [...planWithPriority];
-    if (hasInactiveIncome) {
-      rows.sort((a, b) => {
-        const groupDiff = GROUP_ORDER[a.group] - GROUP_ORDER[b.group];
+    rows.sort((a, b) => {
+      const aPinned = a.reconcilePinned === true;
+      const bPinned = b.reconcilePinned === true;
+      if (aPinned !== bPinned) return aPinned ? -1 : 1;
+
+      if (aPinned && bPinned) {
+        const groupDiff = RECONCILE_PINNED_GROUP_ORDER[a.group] - RECONCILE_PINNED_GROUP_ORDER[b.group];
         if (groupDiff !== 0) return groupDiff;
-        return a.priority - b.priority;
-      });
-      return rows;
-    }
-    rows.sort((a, b) => a.priority - b.priority);
+      }
+
+      if (a.priority !== b.priority) return a.priority - b.priority;
+      return a.name.localeCompare(b.name);
+    });
     return rows;
-  }, [hasInactiveIncome, planWithPriority]);
+  }, [planWithPriority]);
 
   const reconcileRows = useMemo<ReconcileRow[]>(() => {
     let remaining = incomeTotal;
@@ -381,17 +382,6 @@ export default function BudgetDetailScreen() {
     reconcileRows.forEach((row) => grouped[row.group].push(row));
     return grouped;
   }, [reconcileRows]);
-
-  const priorityPositionByItemId = useMemo(() => {
-    const map: Record<string, { index: number; total: number }> = {};
-    PLAN_GROUP_OPTIONS.forEach((group) => {
-      const rows = planWithPriority.filter((row) => row.group === group.value).sort((a, b) => a.priority - b.priority);
-      rows.forEach((row, index) => {
-        map[row.id] = { index, total: rows.length };
-      });
-    });
-    return map;
-  }, [planWithPriority]);
 
   const reconcileTotalsByGroup = useMemo(() => {
     const totals: Record<PlanGroup, { planned: number; funded: number; unfunded: number }> = {
@@ -641,51 +631,9 @@ export default function BudgetDetailScreen() {
     setPlanEditingId((prev) => (prev === id ? null : prev));
   }
 
-  async function reorderPriorityWithinGroup(group: PlanGroup, itemId: string, direction: -1 | 1) {
+  async function toggleReconcilePinned(item: PlanWithId, enabled: boolean) {
     if (!uid || !pid || readOnly) return;
-    const rows = planWithPriority
-      .filter((row) => row.group === group)
-      .sort((a, b) => (a.priority !== b.priority ? a.priority - b.priority : a.name.localeCompare(b.name)));
-    const index = rows.findIndex((row) => row.id === itemId);
-    if (index < 0) return;
-    const swapIndex = index + direction;
-    if (swapIndex < 0 || swapIndex >= rows.length) return;
-
-    const reordered = [...rows];
-    const [moved] = reordered.splice(index, 1);
-    reordered.splice(swapIndex, 0, moved);
-
-    for (let i = 0; i < reordered.length; i += 1) {
-      const row = reordered[i];
-      const nextPriority = i + 1;
-      if (row.priority !== nextPriority) {
-        await updatePlanItem(uid, pid, row.id, { priority: nextPriority as any } as any);
-      }
-    }
-  }
-
-  async function reorderPriorityWithinGroupByDrop(group: PlanGroup, sourceItemId: string, targetItemId: string) {
-    if (!uid || !pid || readOnly) return;
-    if (sourceItemId === targetItemId) return;
-
-    const rows = planWithPriority
-      .filter((row) => row.group === group)
-      .sort((a, b) => (a.priority !== b.priority ? a.priority - b.priority : a.name.localeCompare(b.name)));
-    const fromIndex = rows.findIndex((row) => row.id === sourceItemId);
-    const toIndex = rows.findIndex((row) => row.id === targetItemId);
-    if (fromIndex < 0 || toIndex < 0) return;
-
-    const reordered = [...rows];
-    const [moved] = reordered.splice(fromIndex, 1);
-    reordered.splice(toIndex, 0, moved);
-
-    for (let i = 0; i < reordered.length; i += 1) {
-      const row = reordered[i];
-      const nextPriority = i + 1;
-      if (row.priority !== nextPriority) {
-        await updatePlanItem(uid, pid, row.id, { priority: nextPriority as any } as any);
-      }
-    }
+    await updatePlanItem(uid, pid, item.id, { reconcilePinned: enabled } as any);
   }
 
   async function assignAccount(item: PlanWithId, accountId: string) {
@@ -1264,15 +1212,9 @@ export default function BudgetDetailScreen() {
             </View>
 
             <Text className="text-xs text-muted-foreground">
-              {hasInactiveIncome
-                ? 'One or more income items are deactivated. Funding now runs Needs → Wants → Savings-Debt, then item priority inside each category.'
-                : 'Funding follows item priority. Deactivate an income item to enforce category-first allocation order.'}
+              Toggle any row as prioritized to fund it first. Prioritized rows are funded in this order: Needs → Savings-Debt → Wants, then by item priority.
             </Text>
-            {!readOnly ? (
-              <Text className="text-xs text-muted-foreground">
-                Drag rows by handle, or click a handle then click another row handle to drop.
-              </Text>
-            ) : null}
+            <Text className="text-xs text-muted-foreground">Rows not toggled continue after prioritized rows using item priority.</Text>
           </AppCard>
 
           {PLAN_GROUP_OPTIONS.map((group) => {
@@ -1294,101 +1236,33 @@ export default function BudgetDetailScreen() {
 
                 {rows.length ? (
                   <ScrollView horizontal showsHorizontalScrollIndicator>
-                    <View className="min-w-[1120px] flex-1">
+                    <View className="min-w-[1200px] flex-1">
                       <View className="flex-row border-b border-border pb-2 dark:border-zinc-800">
-                        <Text className="w-[52px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Drag</Text>
-                        <Text className="w-[56px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">#</Text>
-                        <Text className="w-[250px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Item</Text>
+                        <Text className="w-[70px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">#</Text>
+                        <Text className="w-[260px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Item</Text>
                         <Text className="w-[120px] text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Planned</Text>
                         <Text className="w-[120px] text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Funded</Text>
                         <Text className="w-[120px] text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Unfunded</Text>
                         <Text className="w-[110px] text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</Text>
                         <Text className="w-[300px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Account</Text>
-                        <Text className="w-[160px] text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Priority</Text>
+                        <Text className="w-[170px] text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Prioritize</Text>
                       </View>
 
                       {rows.map((row) => {
                         const allocation = allocationByItemId[row.id];
                         const statusLabel = row.unfunded <= 0 ? 'Funded' : row.funded > 0 ? 'Partial' : 'Unfunded';
                         const statusVariant = row.unfunded <= 0 ? 'success' : row.funded > 0 ? 'warning' : 'danger';
-                        const priorityMeta = priorityPositionByItemId[row.id];
-                        const canDrag = Platform.OS === 'web' && !readOnly;
-                        const canDropHere = !readOnly && Boolean(draggingPlanId) && draggingPlanId !== row.id;
                         return (
                           <View
                             key={row.id}
                             className={cn(
-                              'flex-row items-center border-b border-border py-2 hover:bg-muted/35 dark:border-zinc-800 dark:hover:bg-zinc-800/55',
-                              draggingPlanId === row.id ? 'bg-muted/30 dark:bg-zinc-800/30' : ''
+                              'flex-row items-center border-b border-border py-2 dark:border-zinc-800',
+                              row.reconcilePinned === true ? 'bg-primary/5 dark:bg-zinc-800/65' : 'hover:bg-muted/35 dark:hover:bg-zinc-800/55'
                             )}
-                            {...(canDrag
-                              ? ({
-                                  draggable: true,
-                                  onDragStart: (event: any) => {
-                                    setDraggingPlanId(row.id);
-                                    if (event?.dataTransfer) {
-                                      event.dataTransfer.effectAllowed = 'move';
-                                      event.dataTransfer.setData('text/plain', row.id);
-                                    }
-                                  },
-                                  onDragEnd: () => setDraggingPlanId(null),
-                                  onDragOver: (event: any) => {
-                                    event.preventDefault();
-                                    if (event?.dataTransfer) event.dataTransfer.dropEffect = 'move';
-                                  },
-                                  onDrop: (event: any) => {
-                                    event.preventDefault();
-                                    const sourceId =
-                                      event?.dataTransfer?.getData?.('text/plain') || draggingPlanId || '';
-                                    if (sourceId && sourceId !== row.id) {
-                                      void reorderPriorityWithinGroupByDrop(row.group, sourceId, row.id);
-                                    }
-                                    setDraggingPlanId(null);
-                                  },
-                                } as any)
-                              : {})}
                           >
-                            <View className="w-[52px] items-center">
-                              <Pressable
-                                {...(canDrag
-                                  ? ({
-                                      draggable: true,
-                                      onDragStart: (event: any) => {
-                                        setDraggingPlanId(row.id);
-                                        if (event?.dataTransfer) {
-                                          event.dataTransfer.effectAllowed = 'move';
-                                          event.dataTransfer.setData('text/plain', row.id);
-                                        }
-                                      },
-                                      onDragEnd: () => setDraggingPlanId(null),
-                                    } as any)
-                                  : {})}
-                                onPress={() => {
-                                  if (readOnly) return;
-                                  if (!draggingPlanId || draggingPlanId === row.id) {
-                                    setDraggingPlanId(draggingPlanId === row.id ? null : row.id);
-                                    return;
-                                  }
-                                  void reorderPriorityWithinGroupByDrop(row.group, draggingPlanId, row.id);
-                                  setDraggingPlanId(null);
-                                }}
-                                className={cn(
-                                  'h-8 w-8 items-center justify-center rounded-md',
-                                  canDrag ? 'cursor-grab bg-muted/40 dark:bg-zinc-800/50' : '',
-                                  !readOnly && draggingPlanId === row.id ? 'border border-primary/40 bg-primary/10 dark:bg-zinc-700/50' : ''
-                                )}
-                                {...({ title: canDropHere ? 'Drop here' : 'Pick row for drag' } as any)}
-                              >
-                                <MaterialCommunityIcons
-                                  name="drag-horizontal-variant"
-                                  size={18}
-                                  color={canDrag ? '#717182' : '#A1A1AA'}
-                                />
-                              </Pressable>
-                            </View>
-                            <Text className="w-[56px] text-sm text-foreground dark:text-zinc-50">{row.fundingOrder}</Text>
+                            <Text className="w-[70px] text-sm text-foreground dark:text-zinc-50">{row.fundingOrder}</Text>
 
-                            <View className="w-[250px] pr-2">
+                            <View className="w-[260px] pr-2">
                               <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{row.name}</Text>
                               <Text className="text-xs text-muted-foreground">Priority {row.priority}</Text>
                               {row.tags?.length ? <Text className="text-xs text-muted-foreground">{tagsLabel(row.tags)}</Text> : null}
@@ -1416,34 +1290,15 @@ export default function BudgetDetailScreen() {
                               />
                             </View>
 
-                            <View className="w-[160px] flex-row items-center justify-center gap-2">
-                              {!readOnly ? (
-                                <>
-                                  {canDropHere ? (
-                                    <IconActionButton
-                                      icon="arrow-collapse-down"
-                                      label="Drop here"
-                                      onPress={() => {
-                                        if (!draggingPlanId) return;
-                                        void reorderPriorityWithinGroupByDrop(row.group, draggingPlanId, row.id);
-                                        setDraggingPlanId(null);
-                                      }}
-                                    />
-                                  ) : null}
-                                  <IconActionButton
-                                    icon="arrow-up"
-                                    label="Move up"
-                                    disabled={!priorityMeta || priorityMeta.index === 0}
-                                    onPress={() => reorderPriorityWithinGroup(row.group, row.id, -1)}
-                                  />
-                                  <IconActionButton
-                                    icon="arrow-down"
-                                    label="Move down"
-                                    disabled={!priorityMeta || priorityMeta.index >= priorityMeta.total - 1}
-                                    onPress={() => reorderPriorityWithinGroup(row.group, row.id, 1)}
-                                  />
-                                </>
-                              ) : null}
+                            <View className="w-[170px] items-center">
+                              {readOnly ? (
+                                <AppBadge label={row.reconcilePinned ? 'Prioritized' : 'Normal'} variant={row.reconcilePinned ? 'success' : 'secondary'} />
+                              ) : (
+                                <View className="flex-row items-center gap-2">
+                                  <Switch value={row.reconcilePinned === true} onValueChange={(value) => void toggleReconcilePinned(row, value)} />
+                                  <Text className="text-xs text-muted-foreground">{row.reconcilePinned ? 'On' : 'Off'}</Text>
+                                </View>
+                              )}
                             </View>
                           </View>
                         );
