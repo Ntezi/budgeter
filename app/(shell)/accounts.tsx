@@ -20,7 +20,15 @@ import {
   watchAccounts,
 } from '@/lib/repo/accounts';
 import { listAllAllocations, type Allocation, watchAllocations } from '@/lib/repo/allocations';
+import { watchIncomeItems, type IncomeItem } from '@/lib/repo/income';
+import { type PlanItem, watchPlanTotals } from '@/lib/repo/plans';
 import { cn } from '@/lib/cn';
+
+const GROUP_ORDER: Record<PlanItem['group'], number> = {
+  NEED: 0,
+  WANT: 1,
+  SAVINGS_DEBT: 2,
+};
 
 type AccountDraft = {
   name: string;
@@ -33,7 +41,7 @@ type EditingAccount = {
   id: string;
   name: string;
   type: WalletType;
-  openingBalance: number;
+  currentAmount: number;
   archived: boolean;
   dailyReminderEnabled: boolean;
 };
@@ -45,6 +53,9 @@ export default function AccountsScreen() {
   const [selectedPid] = useState(periodIdFromDate());
   const [allocations, setAllocations] = useState<Allocation[]>([]);
   const [allTimeAllocations, setAllTimeAllocations] = useState<(Allocation & { periodId: string })[]>([]);
+  const [periodIncomeItems, setPeriodIncomeItems] = useState<IncomeItem[]>([]);
+  const [periodActiveIncomeTotal, setPeriodActiveIncomeTotal] = useState(0);
+  const [periodPlanItems, setPeriodPlanItems] = useState<PlanItem[]>([]);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [createError, setCreateError] = useState('');
@@ -57,6 +68,7 @@ export default function AccountsScreen() {
 
   const [editing, setEditing] = useState<EditingAccount | null>(null);
   const [editError, setEditError] = useState('');
+  const [assignedItemsViewer, setAssignedItemsViewer] = useState<{ accountId: string; accountName: string } | null>(null);
 
   useEffect(() => {
     if (!uid) return;
@@ -66,6 +78,19 @@ export default function AccountsScreen() {
   useEffect(() => {
     if (!uid || !selectedPid) return;
     return watchAllocations(uid, selectedPid, (rows) => setAllocations(rows));
+  }, [uid, selectedPid]);
+
+  useEffect(() => {
+    if (!uid || !selectedPid) return;
+    const unIncome = watchIncomeItems(uid, selectedPid, (rows, activeTotal) => {
+      setPeriodIncomeItems(rows);
+      setPeriodActiveIncomeTotal(activeTotal);
+    });
+    const unPlan = watchPlanTotals(uid, selectedPid, (_totals, rows) => setPeriodPlanItems(rows));
+    return () => {
+      unIncome();
+      unPlan();
+    };
   }, [uid, selectedPid]);
 
   useEffect(() => {
@@ -88,8 +113,93 @@ export default function AccountsScreen() {
 
   const editingRemaining = useMemo(() => {
     if (!editing) return 0;
-    return (editing.openingBalance || 0) + editingAllocated;
-  }, [editing, editingAllocated]);
+    return editing.currentAmount || 0;
+  }, [editing]);
+
+  const hasInactiveIncome = useMemo(() => periodIncomeItems.some((row) => row.active === false), [periodIncomeItems]);
+
+  const planWithPriority = useMemo(
+    () =>
+      [...periodPlanItems]
+        .filter((row): row is PlanItem & { id: string } => Boolean(row.id))
+        .map((row, index) => ({ ...row, priority: Number((row as any).priority) || index + 1 })),
+    [periodPlanItems]
+  );
+
+  const fundingOrder = useMemo(() => {
+    const rows = [...planWithPriority];
+    if (hasInactiveIncome) {
+      rows.sort((a, b) => {
+        const groupDiff = GROUP_ORDER[a.group] - GROUP_ORDER[b.group];
+        if (groupDiff !== 0) return groupDiff;
+        return a.priority - b.priority;
+      });
+      return rows;
+    }
+    rows.sort((a, b) => a.priority - b.priority);
+    return rows;
+  }, [hasInactiveIncome, planWithPriority]);
+
+  const unfundedByPlanId = useMemo(() => {
+    const map = new Map<string, number>();
+    let remaining = periodActiveIncomeTotal;
+    fundingOrder.forEach((row) => {
+      const amount = row.amount || 0;
+      const funded = Math.min(amount, Math.max(remaining, 0));
+      const unfunded = Math.max(0, amount - funded);
+      map.set(row.id, unfunded);
+      remaining = Math.max(0, remaining - amount);
+    });
+    return map;
+  }, [fundingOrder, periodActiveIncomeTotal]);
+
+  const periodAllocatedByAccount = useMemo(() => {
+    const map = new Map<string, number>();
+    allocations.forEach((row) => {
+      map.set(row.accountId, (map.get(row.accountId) ?? 0) + (row.amount || 0));
+    });
+    return map;
+  }, [allocations]);
+
+  const unfundedDeductionByAccount = useMemo(() => {
+    const map = new Map<string, number>();
+    allocations.forEach((row) => {
+      if (row.sourceType !== 'PLAN' || !row.sourceItemId) return;
+      const unfunded = unfundedByPlanId.get(row.sourceItemId) ?? 0;
+      if (unfunded <= 0) return;
+      const deduction = Math.min(unfunded, row.amount || 0);
+      map.set(row.accountId, (map.get(row.accountId) ?? 0) + deduction);
+    });
+    return map;
+  }, [allocations, unfundedByPlanId]);
+
+  const assignedPlanItemsByAccount = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; amount: number; unfunded: number }[]>();
+    allocations.forEach((row) => {
+      if (row.sourceType !== 'PLAN' || !row.accountId) return;
+      const itemId = row.sourceItemId || '';
+      const unfunded = itemId ? Math.min(unfundedByPlanId.get(itemId) ?? 0, row.amount || 0) : 0;
+      const entry = {
+        id: itemId || `allocation-${row.id || row.accountId}-${row.amount || 0}`,
+        name: row.sourceItemName || 'Budget item',
+        amount: row.amount || 0,
+        unfunded,
+      };
+      const current = map.get(row.accountId) ?? [];
+      current.push(entry);
+      map.set(row.accountId, current);
+    });
+    map.forEach((rows, accountId) => {
+      rows.sort((a, b) => a.name.localeCompare(b.name));
+      map.set(accountId, rows);
+    });
+    return map;
+  }, [allocations, unfundedByPlanId]);
+
+  const assignedItemsViewerRows = useMemo(() => {
+    if (!assignedItemsViewer) return [];
+    return assignedPlanItemsByAccount.get(assignedItemsViewer.accountId) ?? [];
+  }, [assignedItemsViewer, assignedPlanItemsByAccount]);
 
   function railColor(type?: WalletType) {
     if (type === 'BANK') return 'bg-blue-500';
@@ -145,7 +255,7 @@ export default function AccountsScreen() {
     await updateAccount(uid, editing.id, {
       name: editing.name.trim(),
       type: editing.type,
-      openingBalance: editing.openingBalance || 0,
+      openingBalance: (editing.currentAmount || 0) - editingAllocated,
       dailyReminderEnabled: editing.dailyReminderEnabled,
       archived: editing.archived,
     });
@@ -171,8 +281,11 @@ export default function AccountsScreen() {
       <View className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
         {accounts.map((row) => {
           const id = row.id ?? '';
-          const allocated = totalByAccount.get(id) ?? 0;
-          const computed = (row.openingBalance || 0) + allocated;
+          const allocatedAllTime = totalByAccount.get(id) ?? 0;
+          const currentBalance = (row.openingBalance || 0) + allocatedAllTime;
+          const periodAllocated = periodAllocatedByAccount.get(id) ?? 0;
+          const remainingUnfunded = hasInactiveIncome ? unfundedDeductionByAccount.get(id) ?? 0 : 0;
+          const assignedItems = assignedPlanItemsByAccount.get(id) ?? [];
           const reminderEnabled = row.dailyReminderEnabled === true;
 
           return (
@@ -198,7 +311,7 @@ export default function AccountsScreen() {
                             id: row.id,
                             name: row.name,
                             type: (row.type ?? 'OTHER') as WalletType,
-                            openingBalance: row.openingBalance || 0,
+                            currentAmount: currentBalance,
                             archived: row.archived === true,
                             dailyReminderEnabled: reminderEnabled,
                           })
@@ -208,12 +321,31 @@ export default function AccountsScreen() {
                     </View>
                   </View>
 
-                  <Text className={cn('mt-2 text-3xl font-bold', computed < 0 ? 'text-red-600 dark:text-red-300' : 'text-foreground dark:text-zinc-50')}>
-                    {fmtMoney(computed)}
+                  <Text className={cn('mt-2 text-3xl font-bold', currentBalance < 0 ? 'text-red-600 dark:text-red-300' : 'text-foreground dark:text-zinc-50')}>
+                    {fmtMoney(currentBalance)}
                   </Text>
                   <Text className="text-xs text-muted-foreground">
-                    Opening {fmtMoney(row.openingBalance || 0)} · Allocated {fmtMoney(allocated)}
+                    Current balance
                   </Text>
+                  <Text className="text-xs text-muted-foreground">Allocated this period {fmtMoney(periodAllocated)}</Text>
+                  {hasInactiveIncome && remainingUnfunded > 0 ? (
+                    <Text className="text-xs text-amber-700 dark:text-amber-300">
+                      Remaining to fund {fmtMoney(remainingUnfunded)}
+                    </Text>
+                  ) : null}
+                  <View className="mt-1 flex-row items-center justify-between rounded-md border border-border bg-muted/20 px-2 py-1.5 dark:border-zinc-800 dark:bg-zinc-800/30">
+                    <Text className="text-xs text-muted-foreground">
+                      Assigned items {assignedItems.length}
+                    </Text>
+                    <IconActionButton
+                      icon="eye-outline"
+                      label="View assigned items"
+                      onPress={() =>
+                        row.id && setAssignedItemsViewer({ accountId: row.id, accountName: row.name })
+                      }
+                      disabled={!row.id}
+                    />
+                  </View>
                 </View>
               </View>
 
@@ -311,20 +443,20 @@ export default function AccountsScreen() {
               />
             </View>
             <View className="gap-1">
-              <Text className="text-xs uppercase tracking-wide text-muted-foreground">Opening Balance</Text>
+              <Text className="text-xs uppercase tracking-wide text-muted-foreground">Current Amount</Text>
               <AppInput
-                value={String(editing.openingBalance || '')}
+                value={String(editing.currentAmount || '')}
                 onChangeText={(value) =>
-                  setEditing((prev) => (prev ? { ...prev, openingBalance: parseMoney(value) } : prev))
+                  setEditing((prev) => (prev ? { ...prev, currentAmount: parseMoney(value) } : prev))
                 }
                 keyboardType="decimal-pad"
                 placeholder="0.00"
               />
             </View>
             <View className="flex-row flex-wrap gap-2">
-              <AppBadge label={`Opening ${fmtMoney(editing.openingBalance || 0)}`} variant="outline" />
               <AppBadge label={`Allocated ${fmtMoney(editingAllocated)}`} variant="outline" />
-              <AppBadge label={`Remaining ${fmtMoney(editingRemaining)}`} variant="outline" />
+              <AppBadge label={`Current ${fmtMoney(editingRemaining)}`} variant="outline" />
+              <AppBadge label={`Opening (derived) ${fmtMoney((editing.currentAmount || 0) - editingAllocated)}`} variant="outline" />
             </View>
             <View className="flex-row items-center justify-between rounded-lg border border-border bg-muted/30 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/40">
               <Text className="text-sm text-muted-foreground">Daily reminder</Text>
@@ -347,6 +479,33 @@ export default function AccountsScreen() {
             </View>
           </View>
         ) : null}
+      </AppModal>
+
+      <AppModal
+        open={Boolean(assignedItemsViewer)}
+        onClose={() => setAssignedItemsViewer(null)}
+        title={`Assigned Items · ${assignedItemsViewer?.accountName || ''}`}
+      >
+        <View className="gap-2">
+          {assignedItemsViewerRows.length ? (
+            assignedItemsViewerRows.map((item) => (
+              <View key={item.id} className="flex-row items-center justify-between rounded-md border border-border bg-muted/20 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/30">
+                <Text className="flex-1 text-sm text-foreground dark:text-zinc-50" numberOfLines={1}>
+                  {item.name}
+                </Text>
+                <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{fmtMoney(item.amount)}</Text>
+                {item.unfunded > 0 ? (
+                  <Text className="text-xs text-amber-700 dark:text-amber-300">+{fmtMoney(item.unfunded)}</Text>
+                ) : null}
+              </View>
+            ))
+          ) : (
+            <Text className="text-sm text-muted-foreground">No assigned budget items for this account in the current period.</Text>
+          )}
+          <View className="flex-row justify-end">
+            <AppButton variant="outline" label="Close" onPress={() => setAssignedItemsViewer(null)} />
+          </View>
+        </View>
       </AppModal>
     </ScrollView>
   );

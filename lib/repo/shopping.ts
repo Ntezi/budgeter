@@ -8,6 +8,7 @@ import {
   orderBy,
   query,
   serverTimestamp,
+  setDoc,
   updateDoc,
 } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -24,6 +25,9 @@ export type ShoppingList = {
 export type ShoppingListItem = {
   id?: string;
   name: string;
+  quantity?: number;
+  price?: number;
+  category?: string;
   ownerUid?: string;
   tags?: string[];
   bought?: boolean;
@@ -39,6 +43,22 @@ export type ShoppingListItem = {
   updatedAt?: unknown;
 };
 
+export type ShoppingCatalogItem = {
+  id?: string;
+  name: string;
+  category?: string;
+  tags?: string[];
+  createdAt?: unknown;
+  updatedAt?: unknown;
+};
+
+export type ShoppingCategory = {
+  id?: string;
+  name: string;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+};
+
 export function shoppingListsCol(uid: string) {
   return collection(db, 'users', uid, 'shoppingLists');
 }
@@ -47,12 +67,59 @@ export function shoppingItemsCol(uid: string, listId: string) {
   return collection(db, 'users', uid, 'shoppingLists', listId, 'items');
 }
 
+export function shoppingCatalogCol(uid: string) {
+  return collection(db, 'users', uid, 'shoppingCatalog');
+}
+
+export function shoppingCategoriesCol(uid: string) {
+  return collection(db, 'users', uid, 'shoppingCategories');
+}
+
 function compactFields<T extends Record<string, unknown>>(input: T): Partial<T> {
   const out: Record<string, unknown> = {};
   Object.entries(input).forEach(([key, value]) => {
     if (value !== undefined) out[key] = value;
   });
   return out as Partial<T>;
+}
+
+function normalizeCategory(input?: string) {
+  const value = String(input || '').trim();
+  return value || '';
+}
+
+function normalizeTags(input?: string[]) {
+  return Array.isArray(input) ? input.map((tag) => String(tag).trim().toLowerCase()).filter(Boolean) : [];
+}
+
+function catalogDocId(name: string) {
+  return encodeURIComponent(name.trim().toLowerCase()).replace(/%/g, '_').slice(0, 180);
+}
+
+function parseCsvRecord(line: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        cur += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (ch === ',' && !inQuotes) {
+      out.push(cur);
+      cur = '';
+      continue;
+    }
+    cur += ch;
+  }
+  out.push(cur);
+  return out.map((s) => s.trim());
 }
 
 export function watchShoppingLists(uid: string, cb: (rows: ShoppingList[]) => void) {
@@ -97,16 +164,34 @@ export async function deleteShoppingList(uid: string, id: string) {
   return deleteDoc(doc(shoppingListsCol(uid), id));
 }
 
+export async function listShoppingLists(uid: string) {
+  const snap = await getDocs(shoppingListsCol(uid));
+  const rows: ShoppingList[] = [];
+  snap.forEach((d) => rows.push({ id: d.id, ...(d.data() as Omit<ShoppingList, 'id'>) }));
+  return rows;
+}
+
+export async function listShoppingListItems(uid: string, listId: string) {
+  const snap = await getDocs(shoppingItemsCol(uid, listId));
+  const rows: ShoppingListItem[] = [];
+  snap.forEach((d) => rows.push({ id: d.id, ...(d.data() as Omit<ShoppingListItem, 'id'>) }));
+  return rows;
+}
+
 export async function addShoppingListItem(
   uid: string,
   listId: string,
   input: Omit<ShoppingListItem, 'id' | 'createdAt' | 'updatedAt'>
 ) {
+  const price = Math.max(0, Number(input.price || 0));
   return addDoc(shoppingItemsCol(uid, listId), compactFields({
     ...input,
     ownerUid: uid,
     name: input.name.trim(),
-    tags: Array.isArray(input.tags) ? input.tags.map((tag) => String(tag).trim().toLowerCase()).filter(Boolean) : [],
+    quantity: Math.max(1, Number(input.quantity || 1)),
+    price,
+    category: normalizeCategory(input.category),
+    tags: normalizeTags(input.tags),
     bought: input.bought === true,
     completed: input.completed === true,
     createdAt: serverTimestamp(),
@@ -115,9 +200,18 @@ export async function addShoppingListItem(
 }
 
 export async function updateShoppingListItem(uid: string, listId: string, id: string, patch: Partial<ShoppingListItem>) {
-  const tags = Array.isArray(patch.tags) ? patch.tags.map((tag) => String(tag).trim().toLowerCase()).filter(Boolean) : patch.tags;
+  const tags = Array.isArray(patch.tags) ? normalizeTags(patch.tags) : patch.tags;
+  const quantity =
+    patch.quantity === undefined ? undefined : Math.max(1, Number(patch.quantity || 1));
+  const price =
+    patch.price === undefined ? undefined : Math.max(0, Number(patch.price || 0));
+  const category =
+    patch.category === undefined ? undefined : normalizeCategory(patch.category);
   return updateDoc(doc(shoppingItemsCol(uid, listId), id), compactFields({
     ...patch,
+    ...(quantity !== undefined ? { quantity } : {}),
+    ...(price !== undefined ? { price } : {}),
+    ...(category !== undefined ? { category } : {}),
     ...(tags ? { tags } : {}),
     updatedAt: serverTimestamp(),
   }) as any);
@@ -125,4 +219,139 @@ export async function updateShoppingListItem(uid: string, listId: string, id: st
 
 export async function deleteShoppingListItem(uid: string, listId: string, id: string) {
   return deleteDoc(doc(shoppingItemsCol(uid, listId), id));
+}
+
+export function watchShoppingCatalog(uid: string, cb: (rows: ShoppingCatalogItem[]) => void) {
+  const q = query(shoppingCatalogCol(uid), orderBy('name', 'asc'));
+  return onSnapshot(q, (snap) => {
+    const rows: ShoppingCatalogItem[] = [];
+    snap.forEach((d) => rows.push({ id: d.id, ...(d.data() as Omit<ShoppingCatalogItem, 'id'>) }));
+    cb(rows);
+  });
+}
+
+export async function upsertShoppingCatalogItem(
+  uid: string,
+  input: Omit<ShoppingCatalogItem, 'id' | 'createdAt' | 'updatedAt'>
+) {
+  const name = String(input.name || '').trim();
+  if (!name) throw new Error('Shopping item name is required.');
+  const id = catalogDocId(name);
+  const category = normalizeCategory(input.category);
+  const tags = normalizeTags(input.tags);
+  await setDoc(
+    doc(shoppingCatalogCol(uid), id),
+    compactFields({
+      name,
+      category,
+      tags,
+      updatedAt: serverTimestamp(),
+      createdAt: serverTimestamp(),
+    }),
+    { merge: true }
+  );
+  return id;
+}
+
+export async function updateShoppingCatalogItem(uid: string, id: string, patch: Partial<ShoppingCatalogItem>) {
+  const tags = patch.tags ? normalizeTags(patch.tags) : patch.tags;
+  const category = patch.category !== undefined ? normalizeCategory(patch.category) : undefined;
+  return updateDoc(doc(shoppingCatalogCol(uid), id), compactFields({
+    ...patch,
+    ...(tags ? { tags } : {}),
+    ...(category !== undefined ? { category } : {}),
+    updatedAt: serverTimestamp(),
+  }) as any);
+}
+
+export async function deleteShoppingCatalogItem(uid: string, id: string) {
+  return deleteDoc(doc(shoppingCatalogCol(uid), id));
+}
+
+export function watchShoppingCategories(uid: string, cb: (rows: ShoppingCategory[]) => void) {
+  const q = query(shoppingCategoriesCol(uid), orderBy('name', 'asc'));
+  return onSnapshot(q, (snap) => {
+    const rows: ShoppingCategory[] = [];
+    snap.forEach((d) => rows.push({ id: d.id, ...(d.data() as Omit<ShoppingCategory, 'id'>) }));
+    cb(rows);
+  });
+}
+
+export async function addShoppingCategory(uid: string, name: string) {
+  const clean = normalizeCategory(name);
+  if (!clean) throw new Error('Category name is required.');
+  const id = catalogDocId(clean);
+  await setDoc(
+    doc(shoppingCategoriesCol(uid), id),
+    {
+      name: clean,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
+  return id;
+}
+
+export async function deleteShoppingCategory(uid: string, id: string) {
+  return deleteDoc(doc(shoppingCategoriesCol(uid), id));
+}
+
+export const shoppingCatalogCsvHeader = 'name,category,tags';
+
+export function parseShoppingCatalogCsv(csvText: string): Omit<ShoppingCatalogItem, 'id' | 'createdAt' | 'updatedAt'>[] {
+  const rawLines = csvText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (!rawLines.length) return [];
+  const [headerRaw, ...lines] = rawLines;
+  const header = headerRaw.replace(/^\uFEFF/, '');
+  if (header.toLowerCase() !== shoppingCatalogCsvHeader.toLowerCase()) {
+    throw new Error(`Invalid CSV header. Expected:\n${shoppingCatalogCsvHeader}`);
+  }
+
+  return lines.map((line, idx) => {
+    const [nameRaw, categoryRaw, tagsRaw] = parseCsvRecord(line);
+    const name = String(nameRaw || '').trim();
+    if (!name) throw new Error(`Line ${idx + 2}: name is required`);
+    const tags = String(tagsRaw || '')
+      .split('|')
+      .map((tag) => tag.trim().toLowerCase())
+      .filter(Boolean);
+    return {
+      name,
+      category: normalizeCategory(categoryRaw),
+      tags,
+    };
+  });
+}
+
+export async function importShoppingCatalogCsv(uid: string, csvText: string) {
+  const rows = parseShoppingCatalogCsv(csvText);
+  for (const row of rows) {
+    await upsertShoppingCatalogItem(uid, row);
+    if (row.category) await addShoppingCategory(uid, row.category);
+  }
+  return rows.length;
+}
+
+export async function backfillShoppingCatalogFromLists(uid: string) {
+  const lists = await listShoppingLists(uid);
+  let count = 0;
+  for (const list of lists) {
+    if (!list.id) continue;
+    const rows = await listShoppingListItems(uid, list.id);
+    for (const row of rows) {
+      if (!row.name?.trim()) continue;
+      await upsertShoppingCatalogItem(uid, {
+        name: row.name,
+        category: row.category || '',
+        tags: row.tags || [],
+      });
+      if (row.category?.trim()) await addShoppingCategory(uid, row.category);
+      count += 1;
+    }
+  }
+  return count;
 }

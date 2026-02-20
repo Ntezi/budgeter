@@ -15,6 +15,15 @@ import { generateForPeriod, type Recurring, watchRecurring } from '@/lib/repo/re
 import { fmtMoney, parseMoney } from '@/lib/format';
 
 type Filter = 'ALL' | Group;
+type TxEditState = {
+  date: string;
+  name: string;
+  group: Group;
+  amount: string;
+  note: string;
+  dirty: boolean;
+  saving: boolean;
+};
 
 export default function TransactionsScreen() {
   const uid = useWorkspaceUid();
@@ -23,6 +32,8 @@ export default function TransactionsScreen() {
   const [periodStatus, setPeriodStatus] = useState<PeriodStatus>('DRAFT');
 
   const [transactions, setTransactions] = useState<Tx[]>([]);
+  const [txEdits, setTxEdits] = useState<Record<string, TxEditState>>({});
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [templates, setTemplates] = useState<Recurring[]>([]);
   const [filter, setFilter] = useState<Filter>('ALL');
   const [formError, setFormError] = useState('');
@@ -78,6 +89,91 @@ export default function TransactionsScreen() {
     return next;
   }, [transactions]);
 
+  useEffect(() => {
+    setTxEdits((prev) => {
+      const next: Record<string, TxEditState> = {};
+      transactions.forEach((row) => {
+        if (!row.id) return;
+        const existing = prev[row.id];
+        if (existing?.dirty || existing?.saving) {
+          next[row.id] = existing;
+          return;
+        }
+        next[row.id] = {
+          date: row.date || '',
+          name: row.name || '',
+          group: row.group,
+          amount: String(Number(row.amount || 0) || ''),
+          note: row.note || '',
+          dirty: false,
+          saving: false,
+        };
+      });
+      return next;
+    });
+  }, [transactions]);
+
+  function setEditField(id: string, patch: Partial<TxEditState>) {
+    const source = transactions.find((row) => row.id === id);
+    if (!source) return;
+    setTxEdits((prev) => {
+      const existing =
+        prev[id] ||
+        ({
+          date: source.date || '',
+          name: source.name || '',
+          group: source.group,
+          amount: String(Number(source.amount || 0) || ''),
+          note: source.note || '',
+          dirty: false,
+          saving: false,
+        } as TxEditState);
+      const next = { ...existing, ...patch };
+      next.dirty =
+        next.date.trim() !== String(source.date || '').trim() ||
+        next.name.trim() !== String(source.name || '').trim() ||
+        next.group !== source.group ||
+        Math.max(0, parseMoney(next.amount)) !== Math.max(0, Number(source.amount || 0)) ||
+        next.note.trim() !== String(source.note || '').trim();
+      return { ...prev, [id]: next };
+    });
+  }
+
+  function resetEditFromSource(id: string) {
+    const source = transactions.find((row) => row.id === id);
+    if (!source) return;
+    setTxEdits((prev) => ({
+      ...prev,
+      [id]: {
+        date: source.date || '',
+        name: source.name || '',
+        group: source.group,
+        amount: String(Number(source.amount || 0) || ''),
+        note: source.note || '',
+        dirty: false,
+        saving: false,
+      },
+    }));
+  }
+
+  function beginEdit(id: string) {
+    if (editingId && editingId !== id) {
+      const current = txEdits[editingId];
+      if (current?.dirty) {
+        setFormError('Save or cancel the current edited row first.');
+        return;
+      }
+    }
+    setEditingId(id);
+    setFormError('');
+  }
+
+  function cancelEdit(id: string) {
+    resetEditFromSource(id);
+    setEditingId((prev) => (prev === id ? null : prev));
+    setFormError('');
+  }
+
   async function addRow() {
     if (!uid || !selectedPid) return;
     if (readOnly) {
@@ -99,18 +195,56 @@ export default function TransactionsScreen() {
 
   async function saveRow(row: Tx) {
     if (!uid || !selectedPid || !row.id || readOnly) return;
-    await setTransaction(uid, selectedPid, row.id, {
-      name: row.name,
-      amount: row.amount,
-      group: row.group,
-      date: row.date,
-      note: row.note,
-    });
+    const edit = txEdits[row.id];
+    if (!edit) return;
+    const name = edit.name.trim();
+    const amount = Math.max(0, parseMoney(edit.amount));
+    const date = edit.date.trim();
+    const note = edit.note.trim();
+
+    if (!name) {
+      setFormError('Description is required.');
+      return;
+    }
+    if (!amount || amount <= 0) {
+      setFormError('Amount must be greater than 0.');
+      return;
+    }
+
+    setTxEdits((prev) => ({ ...prev, [row.id!]: { ...edit, saving: true } }));
+    try {
+      await setTransaction(uid, selectedPid, row.id, {
+        name,
+        amount,
+        group: edit.group,
+        date,
+        note,
+      });
+      setTxEdits((prev) => ({
+        ...prev,
+        [row.id!]: {
+          ...edit,
+          name,
+          amount: String(amount || ''),
+          date,
+          note,
+          dirty: false,
+          saving: false,
+        },
+      }));
+      setEditingId((prev) => (prev === row.id ? null : prev));
+      setFormError('');
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      setFormError(message || 'Could not save transaction.');
+      setTxEdits((prev) => ({ ...prev, [row.id!]: { ...edit, saving: false } }));
+    }
   }
 
   async function removeRow(id?: string) {
     if (!uid || !selectedPid || !id || readOnly) return;
     await delTransaction(uid, selectedPid, id);
+    setEditingId((prev) => (prev === id ? null : prev));
   }
 
   async function generateRecurring() {
@@ -134,7 +268,7 @@ export default function TransactionsScreen() {
             options={periodOptions}
             onChange={setSelectedPid}
             placeholder="Select period"
-            menuStrategy="overlay"
+            menuStrategy="inline"
             menuClassName="max-h-44"
           />
         </View>
@@ -253,33 +387,46 @@ export default function TransactionsScreen() {
               </View>
             ) : null}
 
-            {filteredTransactions.map((row) => (
+            {filteredTransactions.map((row) => {
+              const edit = row.id ? txEdits[row.id] : null;
+              if (!row.id || !edit) return null;
+              const isEditing = editingId === row.id;
+              const dirty = edit.dirty;
+              return (
               <View
                 key={row.id}
-                className="flex-row items-center border-b border-border py-2 hover:bg-muted/35 dark:border-zinc-800 dark:hover:bg-zinc-800/55"
+                className={`flex-row items-center border-b py-2 dark:border-zinc-800 ${
+                  dirty
+                    ? 'border-primary/40 bg-primary/5 dark:bg-zinc-800/70'
+                    : 'border-border hover:bg-muted/35 dark:hover:bg-zinc-800/55'
+                }`}
               >
                 <View className="w-[140px] pr-2">
-                  <AppInput
-                    value={row.date ?? ''}
-                    onChangeText={(value) =>
-                      setTransactions((prev) => prev.map((it) => (it.id === row.id ? { ...it, date: value } : it)))
-                    }
-                    placeholder="YYYY-MM-DD"
-                    className="h-9"
-                    editable={!readOnly}
-                  />
-                </View>
-                <View className="w-[360px] pr-2">
-                  <View className="gap-1">
+                  {isEditing ? (
                     <AppInput
-                      value={row.name ?? ''}
-                      onChangeText={(value) =>
-                        setTransactions((prev) => prev.map((it) => (it.id === row.id ? { ...it, name: value } : it)))
-                      }
-                      placeholder="Description"
+                      value={edit.date}
+                      onChangeText={(value) => setEditField(row.id!, { date: value })}
+                      placeholder="YYYY-MM-DD"
                       className="h-9"
                       editable={!readOnly}
                     />
+                  ) : (
+                    <Text className="text-xs text-foreground dark:text-zinc-50">{row.date || '-'}</Text>
+                  )}
+                </View>
+                <View className="w-[360px] pr-2">
+                  <View className="gap-1">
+                    {isEditing ? (
+                      <AppInput
+                        value={edit.name}
+                        onChangeText={(value) => setEditField(row.id!, { name: value })}
+                        placeholder="Description"
+                        className="h-9"
+                        editable={!readOnly}
+                      />
+                    ) : (
+                      <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{row.name || '-'}</Text>
+                    )}
                     {row.shoppingItemName ? (
                       <Text className="text-xs text-muted-foreground">
                         Shopping: {row.shoppingListName || 'List'} / {row.shoppingItemName}
@@ -292,45 +439,55 @@ export default function TransactionsScreen() {
                     <View className="h-9 items-start justify-center px-2">
                       <Text className="text-xs text-foreground dark:text-zinc-50">{row.group}</Text>
                     </View>
-                  ) : (
+                  ) : isEditing ? (
                     <AppSegmented
-                      value={row.group}
+                      value={edit.group}
                       compact
-                      onChange={(value) =>
-                        setTransactions((prev) => prev.map((it) => (it.id === row.id ? { ...it, group: value as Group } : it)))
-                      }
+                      onChange={(value) => setEditField(row.id!, { group: value as Group })}
                       options={[
                         { label: 'Need', value: 'NEED' },
                         { label: 'Want', value: 'WANT' },
                         { label: 'S&D', value: 'SAVINGS_DEBT' },
                       ]}
                     />
+                  ) : (
+                    <Text className="text-xs text-muted-foreground">{row.group}</Text>
                   )}
                 </View>
                 <View className="w-[130px] pr-2">
-                  <AppInput
-                    value={String(row.amount || '')}
-                    onChangeText={(value) =>
-                      setTransactions((prev) => prev.map((it) => (it.id === row.id ? { ...it, amount: parseMoney(value) } : it)))
-                    }
-                    keyboardType="decimal-pad"
-                    placeholder="Amount"
-                    className="h-9 text-right"
-                    editable={!readOnly}
-                  />
+                  {isEditing ? (
+                    <AppInput
+                      value={edit.amount}
+                      onChangeText={(value) => setEditField(row.id!, { amount: value })}
+                      keyboardType="decimal-pad"
+                      placeholder="Amount"
+                      className="h-9 text-right"
+                      editable={!readOnly}
+                    />
+                  ) : (
+                    <Text className="text-right text-sm font-medium text-foreground dark:text-zinc-50">{fmtMoney(row.amount || 0)}</Text>
+                  )}
                 </View>
                 <View className="w-[130px] flex-row items-center justify-center gap-2">
                   {!readOnly ? (
-                    <>
-                      <IconActionButton icon="content-save-outline" label="Save transaction" onPress={() => saveRow(row)} />
-                      <IconActionButton icon="trash-can-outline" label="Delete transaction" variant="danger" onPress={() => removeRow(row.id)} />
-                    </>
+                    isEditing ? (
+                      <>
+                        {dirty ? <AppBadge label="Unsaved" variant="warning" /> : null}
+                        <IconActionButton icon="content-save-outline" label="Save transaction" onPress={() => saveRow(row)} disabled={!dirty || edit.saving} />
+                        <IconActionButton icon="close" label="Cancel edit" variant="muted" onPress={() => cancelEdit(row.id!)} />
+                      </>
+                    ) : (
+                      <>
+                        <IconActionButton icon="pencil-outline" label="Edit transaction" onPress={() => beginEdit(row.id!)} />
+                        <IconActionButton icon="trash-can-outline" label="Delete transaction" variant="danger" onPress={() => removeRow(row.id)} />
+                      </>
+                    )
                   ) : (
                     <AppBadge label="View only" variant="secondary" />
                   )}
                 </View>
               </View>
-            ))}
+            )})}
 
             {!filteredTransactions.length ? (
               <View className="py-4">

@@ -56,15 +56,21 @@ export default function RecurringScreen() {
     return watchRecurring(uid, setRows);
   }, [uid]);
 
+  useEffect(() => {
+    if (sortMode !== 'TAG' && tagFilter !== 'ALL') {
+      setTagFilter('ALL');
+    }
+  }, [sortMode, tagFilter]);
+
   const activeRows = useMemo(() => rows.filter((row) => row.active !== false), [rows]);
   const activeTotal = useMemo(() => activeRows.reduce((sum, row) => sum + (row.amount || 0), 0), [activeRows]);
   const tagOptions = useMemo(() => {
-    const tags = [...new Set(rows.flatMap((row) => row.tags || []))].sort((a, b) => a.localeCompare(b));
+    const tags = [...new Set(rows.flatMap((row) => row.tags || []).map((tag) => String(tag).trim().toLowerCase()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
     return [{ label: 'All tags', value: 'ALL' }, ...tags.map((tag) => ({ label: `#${tag}`, value: tag }))];
   }, [rows]);
   const displayRows = useMemo(() => {
     let out = [...rows];
-    if (tagFilter !== 'ALL') out = out.filter((row) => (row.tags || []).includes(tagFilter));
+    if (sortMode === 'TAG' && tagFilter !== 'ALL') out = out.filter((row) => (row.tags || []).includes(tagFilter));
     if (sortMode === 'TAG') {
       out.sort((a, b) => {
         const ta = firstTag(a.tags);
@@ -234,9 +240,11 @@ export default function RecurringScreen() {
 
       <AppCard className="gap-3">
         <View className="flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <View className="w-full md:w-64">
-            <DropdownField value={tagFilter} options={tagOptions} onChange={setTagFilter} placeholder="Filter by tag" menuStrategy="inline" />
-          </View>
+          {sortMode === 'TAG' ? (
+            <View className="w-full md:w-64">
+              <DropdownField value={tagFilter} options={tagOptions} onChange={setTagFilter} placeholder="Filter by tag" menuStrategy="inline" />
+            </View>
+          ) : <View />}
           <AppSegmented
             value={sortMode}
             onChange={(value) => setSortMode(value as 'CREATED' | 'TAG')}
@@ -330,16 +338,35 @@ export default function RecurringScreen() {
             ) : null}
 
             {displayRows.map((row) => {
-              const isEditing = editingId === row.id && editingDraft;
+              const isEditing = editingId === row.id && Boolean(editingDraft);
+              const editingRow = isEditing && editingDraft ? editingDraft : null;
+              const normalizeTags = (input?: string[]) =>
+                (input || []).map((tag) => String(tag).trim().toLowerCase()).filter(Boolean).join(',');
+              const isDirty = Boolean(
+                isEditing &&
+                  editingRow &&
+                  (
+                    String(editingRow.name || '').trim() !== String(row.name || '').trim() ||
+                    (editingRow.flow ?? 'EXPENSE') !== (row.flow ?? 'EXPENSE') ||
+                    (editingRow.group ?? 'NEED') !== (row.group ?? 'NEED') ||
+                    normalizeTags(editingRow.tags) !== normalizeTags(row.tags) ||
+                    Number(editingRow.amount || 0) !== Number(row.amount || 0) ||
+                    (editingRow.active !== false) !== (row.active !== false)
+                  )
+              );
               return (
                 <View
                   key={row.id}
-                  className="flex-row items-center border-b border-border py-2 hover:bg-muted/35 dark:border-zinc-800 dark:hover:bg-zinc-800/55"
+                  className={`flex-row items-center border-b py-2 dark:border-zinc-800 ${
+                    isDirty
+                      ? 'border-primary/40 bg-primary/5 dark:bg-zinc-800/70'
+                      : 'border-border hover:bg-muted/35 dark:hover:bg-zinc-800/55'
+                  }`}
                 >
                   <View className={`${col.name} pr-2`}>
-                    {isEditing ? (
+                    {isEditing && editingRow ? (
                       <AppInput
-                        value={editingDraft.name}
+                        value={editingRow.name}
                         onChangeText={(value) => setEditingDraft((prev) => (prev ? { ...prev, name: value } : prev))}
                         className="h-9"
                       />
@@ -349,9 +376,9 @@ export default function RecurringScreen() {
                   </View>
 
                   <View className={`${col.flow} pr-2`}>
-                    {isEditing ? (
+                    {isEditing && editingRow ? (
                       <AppSegmented
-                        value={(editingDraft.flow ?? 'EXPENSE') as RecurringFlow}
+                        value={(editingRow.flow ?? 'EXPENSE') as RecurringFlow}
                         compact
                         onChange={(value) => setEditingDraft((prev) => (prev ? { ...prev, flow: value as RecurringFlow } : prev))}
                         options={[
@@ -365,10 +392,10 @@ export default function RecurringScreen() {
                   </View>
 
                   <View className={`${col.group} pr-2`}>
-                    {isEditing ? (
-                      (editingDraft.flow ?? 'EXPENSE') === 'EXPENSE' ? (
+                    {isEditing && editingRow ? (
+                      (editingRow.flow ?? 'EXPENSE') === 'EXPENSE' ? (
                         <AppSegmented
-                          value={editingDraft.group ?? 'NEED'}
+                          value={editingRow.group ?? 'NEED'}
                           compact
                           onChange={(value) => setEditingDraft((prev) => (prev ? { ...prev, group: value as any } : prev))}
                           options={PLAN_GROUP_OPTIONS.map((option) => ({ label: option.label, value: option.value }))}
@@ -384,9 +411,9 @@ export default function RecurringScreen() {
                   </View>
 
                   <View className={`${col.tags} pr-2`}>
-                    {isEditing ? (
+                    {isEditing && editingRow ? (
                       <AppInput
-                        value={tagsToInput(editingDraft.tags)}
+                        value={tagsToInput(editingRow.tags)}
                         onChangeText={(value) => setEditingDraft((prev) => (prev ? { ...prev, tags: parseTagsInput(value) } : prev))}
                         className="h-9"
                         placeholder="tags"
@@ -397,9 +424,9 @@ export default function RecurringScreen() {
                   </View>
 
                   <View className={`${col.amount} pr-2`}>
-                    {isEditing ? (
+                    {isEditing && editingRow ? (
                       <AppInput
-                        value={String(editingDraft.amount || '')}
+                        value={String(editingRow.amount || '')}
                         onChangeText={(value) => setEditingDraft((prev) => (prev ? { ...prev, amount: parseMoney(value) } : prev))}
                         keyboardType="decimal-pad"
                         className="h-9 text-right"
@@ -410,9 +437,9 @@ export default function RecurringScreen() {
                   </View>
 
                   <View className={`${col.status} items-center pr-2`}>
-                    {isEditing ? (
+                    {isEditing && editingRow ? (
                       <Switch
-                        value={editingDraft.active !== false}
+                        value={editingRow.active !== false}
                         onValueChange={(value) => setEditingDraft((prev) => (prev ? { ...prev, active: value } : prev))}
                       />
                     ) : (
@@ -428,7 +455,8 @@ export default function RecurringScreen() {
                   <View className={`${col.actions} flex-row items-center justify-center gap-2`}>
                     {isEditing ? (
                       <>
-                        <IconActionButton icon="content-save-outline" label="Save template" onPress={saveEditingRow} />
+                        {isDirty ? <AppBadge label="Unsaved" variant="warning" /> : null}
+                        <IconActionButton icon="content-save-outline" label="Save template" onPress={saveEditingRow} disabled={!isDirty} />
                         <IconActionButton icon="close" label="Cancel edit" variant="muted" onPress={cancelEdit} />
                       </>
                     ) : (

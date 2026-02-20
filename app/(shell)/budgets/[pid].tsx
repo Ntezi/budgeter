@@ -54,6 +54,19 @@ const GROUP_ORDER: Record<PlanGroup, number> = {
 type SectionKey = (typeof SECTION_OPTIONS)[number]['value'];
 type PlanWithId = PlanItem & { id: string; priority: number };
 type ReconcileRow = PlanWithId & { funded: number; unfunded: number; fundingOrder: number };
+type IncomeEditState = {
+  name: string;
+  amount: string;
+  dirty: boolean;
+  saving: boolean;
+};
+type PlanEditState = {
+  name: string;
+  tagsInput: string;
+  amount: string;
+  dirty: boolean;
+  saving: boolean;
+};
 
 export default function BudgetDetailScreen() {
   const { pid } = useLocalSearchParams<{ pid: string }>();
@@ -69,12 +82,16 @@ export default function BudgetDetailScreen() {
   const [section, setSection] = useState<SectionKey>('PLAN');
 
   const [incomeItems, setIncomeItems] = useState<IncomeItem[]>([]);
+  const [incomeEdits, setIncomeEdits] = useState<Record<string, IncomeEditState>>({});
+  const [incomeEditingId, setIncomeEditingId] = useState<string | null>(null);
   const [incomeDraft, setIncomeDraft] = useState<IncomeItem>({ name: '', amount: 0, active: true });
   const [incomeTotal, setIncomeTotal] = useState(0);
   const [incomeGrossTotal, setIncomeGrossTotal] = useState(0);
   const [incomeFormError, setIncomeFormError] = useState('');
 
   const [planItems, setPlanItems] = useState<PlanItem[]>([]);
+  const [planEdits, setPlanEdits] = useState<Record<string, PlanEditState>>({});
+  const [planEditingId, setPlanEditingId] = useState<string | null>(null);
   const [planTotals, setPlanTotals] = useState({ needs: 0, wants: 0, sd: 0 });
   const [planDraft, setPlanDraft] = useState<PlanItem>({ name: '', amount: 0, group: 'NEED' });
   const [planFormError, setPlanFormError] = useState('');
@@ -135,6 +152,12 @@ export default function BudgetDetailScreen() {
     };
   }, [uid, pid]);
 
+  useEffect(() => {
+    if (planSortMode !== 'TAG' && planTagFilter !== 'ALL') {
+      setPlanTagFilter('ALL');
+    }
+  }, [planSortMode, planTagFilter]);
+
   const pct = useMemo(
     () => ({
       needs: parsePct100(pNeeds),
@@ -170,6 +193,155 @@ export default function BudgetDetailScreen() {
   }, [planItems]);
 
   const hasInactiveIncome = useMemo(() => incomeItems.some((row) => row.active === false), [incomeItems]);
+
+  useEffect(() => {
+    setIncomeEdits((prev) => {
+      const next: Record<string, IncomeEditState> = {};
+      incomeItems.forEach((row) => {
+        if (!row.id) return;
+        const existing = prev[row.id];
+        if (existing?.dirty || existing?.saving) {
+          next[row.id] = existing;
+          return;
+        }
+        next[row.id] = {
+          name: row.name || '',
+          amount: String(Number(row.amount || 0) || ''),
+          dirty: false,
+          saving: false,
+        };
+      });
+      return next;
+    });
+  }, [incomeItems]);
+
+  useEffect(() => {
+    setPlanEdits((prev) => {
+      const next: Record<string, PlanEditState> = {};
+      planWithPriority.forEach((row) => {
+        const existing = prev[row.id];
+        if (existing?.dirty || existing?.saving) {
+          next[row.id] = existing;
+          return;
+        }
+        next[row.id] = {
+          name: row.name || '',
+          tagsInput: tagsToInput(row.tags),
+          amount: String(Number(row.amount || 0) || ''),
+          dirty: false,
+          saving: false,
+        };
+      });
+      return next;
+    });
+  }, [planWithPriority]);
+
+  function setIncomeEditField(id: string, patch: Partial<IncomeEditState>) {
+    const source = incomeItems.find((row) => row.id === id);
+    if (!source) return;
+    setIncomeEdits((prev) => {
+      const existing =
+        prev[id] ||
+        ({
+          name: source.name || '',
+          amount: String(Number(source.amount || 0) || ''),
+          dirty: false,
+          saving: false,
+        } as IncomeEditState);
+      const next = { ...existing, ...patch };
+      next.dirty =
+        next.name.trim() !== String(source.name || '').trim() ||
+        Math.max(0, parseMoney(next.amount)) !== Math.max(0, Number(source.amount || 0));
+      return { ...prev, [id]: next };
+    });
+  }
+
+  function setPlanEditField(id: string, patch: Partial<PlanEditState>) {
+    const source = planWithPriority.find((row) => row.id === id);
+    if (!source) return;
+    setPlanEdits((prev) => {
+      const existing =
+        prev[id] ||
+        ({
+          name: source.name || '',
+          tagsInput: tagsToInput(source.tags),
+          amount: String(Number(source.amount || 0) || ''),
+          dirty: false,
+          saving: false,
+        } as PlanEditState);
+      const next = { ...existing, ...patch };
+      next.dirty =
+        next.name.trim() !== String(source.name || '').trim() ||
+        tagsToInput(parseTagsInput(next.tagsInput)) !== tagsToInput(source.tags) ||
+        Math.max(0, parseMoney(next.amount)) !== Math.max(0, Number(source.amount || 0));
+      return { ...prev, [id]: next };
+    });
+  }
+
+  function resetIncomeEditFromSource(id: string) {
+    const source = incomeItems.find((row) => row.id === id);
+    if (!source) return;
+    setIncomeEdits((prev) => ({
+      ...prev,
+      [id]: {
+        name: source.name || '',
+        amount: String(Number(source.amount || 0) || ''),
+        dirty: false,
+        saving: false,
+      },
+    }));
+  }
+
+  function beginIncomeEdit(id: string) {
+    if (incomeEditingId && incomeEditingId !== id) {
+      const current = incomeEdits[incomeEditingId];
+      if (current?.dirty) {
+        setIncomeFormError('Save or cancel the current edited income row first.');
+        return;
+      }
+    }
+    setIncomeEditingId(id);
+    setIncomeFormError('');
+  }
+
+  function cancelIncomeEdit(id: string) {
+    resetIncomeEditFromSource(id);
+    setIncomeEditingId((prev) => (prev === id ? null : prev));
+    setIncomeFormError('');
+  }
+
+  function resetPlanEditFromSource(id: string) {
+    const source = planWithPriority.find((row) => row.id === id);
+    if (!source) return;
+    setPlanEdits((prev) => ({
+      ...prev,
+      [id]: {
+        name: source.name || '',
+        tagsInput: tagsToInput(source.tags),
+        amount: String(Number(source.amount || 0) || ''),
+        dirty: false,
+        saving: false,
+      },
+    }));
+  }
+
+  function beginPlanEdit(id: string) {
+    if (planEditingId && planEditingId !== id) {
+      const current = planEdits[planEditingId];
+      if (current?.dirty) {
+        setPlanFormError('Save or cancel the current edited plan row first.');
+        return;
+      }
+    }
+    setPlanEditingId(id);
+    setPlanFormError('');
+  }
+
+  function cancelPlanEdit(id: string) {
+    resetPlanEditFromSource(id);
+    setPlanEditingId((prev) => (prev === id ? null : prev));
+    setPlanFormError('');
+  }
 
   const fundingOrder = useMemo(() => {
     const rows = [...planWithPriority];
@@ -323,11 +495,42 @@ export default function BudgetDetailScreen() {
 
   async function saveIncomeRow(item: IncomeItem) {
     if (!uid || !pid || readOnly || !item.id) return;
-    await updateIncomeItem(uid, pid, item.id, {
-      name: item.name.trim(),
-      amount: item.amount,
-      active: item.active !== false,
-    });
+    const edit = incomeEdits[item.id];
+    if (!edit) return;
+    const name = edit.name.trim();
+    const amount = Math.max(0, parseMoney(edit.amount));
+    if (!name) {
+      setIncomeFormError('Income source name is required.');
+      return;
+    }
+    if (amount <= 0) {
+      setIncomeFormError('Income amount must be greater than 0.');
+      return;
+    }
+    setIncomeEdits((prev) => ({ ...prev, [item.id!]: { ...edit, saving: true } }));
+    try {
+      await updateIncomeItem(uid, pid, item.id, {
+        name,
+        amount,
+        active: item.active !== false,
+      });
+      setIncomeEdits((prev) => ({
+        ...prev,
+        [item.id!]: {
+          ...edit,
+          name,
+          amount: String(amount || ''),
+          dirty: false,
+          saving: false,
+        },
+      }));
+      setIncomeEditingId((prev) => (prev === item.id ? null : prev));
+      setIncomeFormError('');
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      setIncomeFormError(message || 'Could not save income row.');
+      setIncomeEdits((prev) => ({ ...prev, [item.id!]: { ...edit, saving: false } }));
+    }
   }
 
   async function toggleIncomeActive(item: IncomeItem, active: boolean) {
@@ -345,6 +548,7 @@ export default function BudgetDetailScreen() {
   async function deleteIncomeRow(id?: string) {
     if (!uid || !pid || readOnly || !id) return;
     await deleteIncomeItem(uid, pid, id);
+    setIncomeEditingId((prev) => (prev === id ? null : prev));
   }
 
   async function addPlanRow() {
@@ -387,13 +591,46 @@ export default function BudgetDetailScreen() {
 
   async function savePlanRow(item: PlanWithId) {
     if (!uid || !pid || readOnly || !item.id) return;
-    await updatePlanItem(uid, pid, item.id, {
-      name: item.name.trim(),
-      amount: item.amount,
-      group: item.group,
-      tags: item.tags ?? [],
-      priority: item.priority as any,
-    } as any);
+    const edit = planEdits[item.id];
+    if (!edit) return;
+    const name = edit.name.trim();
+    const amount = Math.max(0, parseMoney(edit.amount));
+    const tags = parseTagsInput(edit.tagsInput);
+    if (!name) {
+      setPlanFormError('Plan item name is required.');
+      return;
+    }
+    if (amount <= 0) {
+      setPlanFormError('Plan amount must be greater than 0.');
+      return;
+    }
+    setPlanEdits((prev) => ({ ...prev, [item.id!]: { ...edit, saving: true } }));
+    try {
+      await updatePlanItem(uid, pid, item.id, {
+        name,
+        amount,
+        group: item.group,
+        tags,
+        priority: item.priority as any,
+      } as any);
+      setPlanEdits((prev) => ({
+        ...prev,
+        [item.id!]: {
+          ...edit,
+          name,
+          amount: String(amount || ''),
+          tagsInput: tagsToInput(tags),
+          dirty: false,
+          saving: false,
+        },
+      }));
+      setPlanEditingId((prev) => (prev === item.id ? null : prev));
+      setPlanFormError('');
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      setPlanFormError(message || 'Could not save plan row.');
+      setPlanEdits((prev) => ({ ...prev, [item.id!]: { ...edit, saving: false } }));
+    }
   }
 
   async function deletePlanRow(id?: string) {
@@ -401,6 +638,7 @@ export default function BudgetDetailScreen() {
     await deletePlanItem(uid, pid, id);
     const existingAllocation = allocationByItemId[id];
     if (existingAllocation?.id) await deleteAllocation(uid, pid, existingAllocation.id);
+    setPlanEditingId((prev) => (prev === id ? null : prev));
   }
 
   async function reorderPriorityWithinGroup(group: PlanGroup, itemId: string, direction: -1 | 1) {
@@ -496,7 +734,7 @@ export default function BudgetDetailScreen() {
   );
 
   const planTagOptions = useMemo(() => {
-    const tags = [...new Set(planWithPriority.flatMap((row) => row.tags || []))].sort((a, b) => a.localeCompare(b));
+    const tags = [...new Set(planWithPriority.flatMap((row) => row.tags || []).map((tag) => String(tag).trim().toLowerCase()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
     return [{ label: 'All tags', value: 'ALL' }, ...tags.map((tag) => ({ label: `#${tag}`, value: tag }))];
   }, [planWithPriority]);
 
@@ -668,25 +906,37 @@ export default function BudgetDetailScreen() {
                 <Text className={`${incomeCol.actions} text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Actions</Text>
               </View>
 
-              {incomeItems.map((row) => (
+              {incomeItems.map((row) => {
+                const edit = row.id ? incomeEdits[row.id] : null;
+                if (!row.id || !edit) return null;
+                const isEditing = incomeEditingId === row.id;
+                const dirty = edit.dirty;
+                return (
                 <View
                   key={row.id}
-                  className="flex-row items-center border-b border-border py-2 hover:bg-muted/35 dark:border-zinc-800 dark:hover:bg-zinc-800/55"
+                  className={cn(
+                    'flex-row items-center border-b py-2 dark:border-zinc-800',
+                    dirty
+                      ? 'border-primary/40 bg-primary/5 dark:bg-zinc-800/70'
+                      : 'border-border hover:bg-muted/35 dark:hover:bg-zinc-800/55'
+                  )}
                 >
                   <View className={`${incomeCol.name} pr-2`}>
                     {readOnly ? (
                       <Text className={cn('text-sm font-medium', row.active === false ? 'text-muted-foreground line-through' : 'text-foreground dark:text-zinc-50')}>
                         {row.name}
                       </Text>
-                    ) : (
+                    ) : isEditing ? (
                       <AppInput
-                        value={row.name}
-                        onChangeText={(value) =>
-                          setIncomeItems((prev) => prev.map((it) => (it.id === row.id ? { ...it, name: value } : it)))
-                        }
+                        value={edit.name}
+                        onChangeText={(value) => setIncomeEditField(row.id!, { name: value })}
                         placeholder="Income source"
                         className="h-9"
                       />
+                    ) : (
+                      <Text className={cn('text-sm font-medium', row.active === false ? 'text-muted-foreground line-through' : 'text-foreground dark:text-zinc-50')}>
+                        {row.name}
+                      </Text>
                     )}
                   </View>
 
@@ -695,16 +945,18 @@ export default function BudgetDetailScreen() {
                       <Text className={cn('text-right text-sm font-medium', row.active === false ? 'text-muted-foreground' : 'text-foreground dark:text-zinc-50')}>
                         {fmtMoney(row.amount || 0)}
                       </Text>
-                    ) : (
+                    ) : isEditing ? (
                       <AppInput
-                        value={String(row.amount || '')}
-                        onChangeText={(value) =>
-                          setIncomeItems((prev) => prev.map((it) => (it.id === row.id ? { ...it, amount: parseMoney(value) } : it)))
-                        }
+                        value={edit.amount}
+                        onChangeText={(value) => setIncomeEditField(row.id!, { amount: value })}
                         keyboardType="decimal-pad"
                         placeholder="0.00"
                         className="h-9 text-right"
                       />
+                    ) : (
+                      <Text className={cn('text-right text-sm font-medium', row.active === false ? 'text-muted-foreground' : 'text-foreground dark:text-zinc-50')}>
+                        {fmtMoney(row.amount || 0)}
+                      </Text>
                     )}
                   </View>
 
@@ -721,14 +973,22 @@ export default function BudgetDetailScreen() {
 
                   <View className={`${incomeCol.actions} flex-row items-center justify-center gap-2`}>
                     {!readOnly ? (
-                      <>
-                        <IconActionButton icon="content-save-outline" label="Save income row" onPress={() => saveIncomeRow(row)} />
-                        <IconActionButton icon="trash-can-outline" label="Delete income row" variant="danger" onPress={() => deleteIncomeRow(row.id)} />
-                      </>
+                      isEditing ? (
+                        <>
+                          {dirty ? <AppBadge label="Unsaved" variant="warning" /> : null}
+                          <IconActionButton icon="content-save-outline" label="Save income row" onPress={() => saveIncomeRow(row)} disabled={!dirty || edit.saving} />
+                          <IconActionButton icon="close" label="Cancel edit" variant="muted" onPress={() => cancelIncomeEdit(row.id!)} />
+                        </>
+                      ) : (
+                        <>
+                          <IconActionButton icon="pencil-outline" label="Edit income row" onPress={() => beginIncomeEdit(row.id!)} />
+                          <IconActionButton icon="trash-can-outline" label="Delete income row" variant="danger" onPress={() => deleteIncomeRow(row.id)} />
+                        </>
+                      )
                     ) : null}
                   </View>
                 </View>
-              ))}
+              )})}
 
               {!readOnly ? (
                 <View className="flex-row items-center border-b border-border bg-muted/40 py-2 dark:border-zinc-800 dark:bg-zinc-800/40">
@@ -778,9 +1038,11 @@ export default function BudgetDetailScreen() {
         <View className="gap-3">
           <AppCard className="gap-2">
             <View className="flex-col gap-2 md:flex-row md:items-center md:justify-between">
-              <View className="w-full md:w-64">
-                <DropdownField value={planTagFilter} options={planTagOptions} onChange={setPlanTagFilter} placeholder="Filter by tag" menuStrategy="inline" />
-              </View>
+              {planSortMode === 'TAG' ? (
+                <View className="w-full md:w-64">
+                  <DropdownField value={planTagFilter} options={planTagOptions} onChange={setPlanTagFilter} placeholder="Filter by tag" menuStrategy="inline" />
+                </View>
+              ) : <View />}
               <AppSegmented
                 value={planSortMode}
                 onChange={(value) => setPlanSortMode(value as 'PRIORITY' | 'TAG')}
@@ -794,7 +1056,7 @@ export default function BudgetDetailScreen() {
           </AppCard>
           {PLAN_GROUP_OPTIONS.map((group) => {
             let rows = planWithPriority.filter((item) => item.group === group.value);
-            if (planTagFilter !== 'ALL') rows = rows.filter((item) => (item.tags || []).includes(planTagFilter));
+            if (planSortMode === 'TAG' && planTagFilter !== 'ALL') rows = rows.filter((item) => (item.tags || []).includes(planTagFilter));
             if (planSortMode === 'TAG') {
               rows = [...rows].sort((a, b) => {
                 const ta = firstTag(a.tags);
@@ -823,67 +1085,87 @@ export default function BudgetDetailScreen() {
                       <Text className={`${planCol.actions} text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Actions</Text>
                     </View>
 
-                    {rows.map((row) => (
+                    {rows.map((row) => {
+                      const edit = planEdits[row.id];
+                      if (!edit) return null;
+                      const isEditing = planEditingId === row.id;
+                      const dirty = edit.dirty;
+                      const editTags = parseTagsInput(edit.tagsInput);
+                      return (
                       <View
                         key={row.id}
-                        className="flex-row items-center border-b border-border py-2 hover:bg-muted/35 dark:border-zinc-800 dark:hover:bg-zinc-800/55"
+                        className={cn(
+                          'flex-row items-center border-b py-2 dark:border-zinc-800',
+                          dirty
+                            ? 'border-primary/40 bg-primary/5 dark:bg-zinc-800/70'
+                            : 'border-border hover:bg-muted/35 dark:hover:bg-zinc-800/55'
+                        )}
                       >
                         <View className={`${planCol.name} pr-2`}>
                           {readOnly ? (
                             <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{row.name}</Text>
-                          ) : (
+                          ) : isEditing ? (
                             <AppInput
-                              value={row.name}
-                              onChangeText={(value) =>
-                                setPlanItems((prev) => prev.map((it) => (it.id === row.id ? { ...it, name: value } : it)))
-                              }
+                              value={edit.name}
+                              onChangeText={(value) => setPlanEditField(row.id, { name: value })}
                               placeholder="Plan item"
                               className="h-9"
                             />
+                          ) : (
+                            <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{row.name}</Text>
                           )}
                         </View>
 
                         <View className={`${planCol.tags} pr-2`}>
                           {readOnly ? (
                             <Text className="text-xs text-muted-foreground">{tagsLabel(row.tags)}</Text>
-                          ) : (
+                          ) : isEditing ? (
                             <AppInput
-                              value={tagsToInput(row.tags)}
-                              onChangeText={(value) =>
-                                setPlanItems((prev) => prev.map((it) => (it.id === row.id ? { ...it, tags: parseTagsInput(value) } : it)))
-                              }
+                              value={edit.tagsInput}
+                              onChangeText={(value) => setPlanEditField(row.id, { tagsInput: value })}
                               placeholder="utilities, groceries"
                               className="h-9"
                             />
+                          ) : (
+                            <Text className="text-xs text-muted-foreground">{tagsLabel(row.tags)}</Text>
                           )}
+                          {!readOnly && isEditing && editTags.length ? <Text className="mt-1 text-xs text-muted-foreground">{tagsLabel(editTags)}</Text> : null}
                         </View>
 
                         <View className={`${planCol.amount} pr-2`}>
                           {readOnly ? (
                             <Text className="text-right text-sm font-medium text-foreground dark:text-zinc-50">{fmtMoney(row.amount || 0)}</Text>
-                          ) : (
+                          ) : isEditing ? (
                             <AppInput
-                              value={String(row.amount || '')}
-                              onChangeText={(value) =>
-                                setPlanItems((prev) => prev.map((it) => (it.id === row.id ? { ...it, amount: parseMoney(value) } : it)))
-                              }
+                              value={edit.amount}
+                              onChangeText={(value) => setPlanEditField(row.id, { amount: value })}
                               keyboardType="decimal-pad"
                               placeholder="0.00"
                               className="h-9 text-right"
                             />
+                          ) : (
+                            <Text className="text-right text-sm font-medium text-foreground dark:text-zinc-50">{fmtMoney(row.amount || 0)}</Text>
                           )}
                         </View>
 
                         <View className={`${planCol.actions} flex-row items-center justify-center gap-2`}>
                           {!readOnly ? (
-                            <>
-                              <IconActionButton icon="content-save-outline" label="Save plan row" onPress={() => savePlanRow(row)} />
-                              <IconActionButton icon="trash-can-outline" label="Delete plan row" variant="danger" onPress={() => deletePlanRow(row.id)} />
-                            </>
+                            isEditing ? (
+                              <>
+                                {dirty ? <AppBadge label="Unsaved" variant="warning" /> : null}
+                                <IconActionButton icon="content-save-outline" label="Save plan row" onPress={() => savePlanRow(row)} disabled={!dirty || edit.saving} />
+                                <IconActionButton icon="close" label="Cancel edit" variant="muted" onPress={() => cancelPlanEdit(row.id)} />
+                              </>
+                            ) : (
+                              <>
+                                <IconActionButton icon="pencil-outline" label="Edit plan row" onPress={() => beginPlanEdit(row.id)} />
+                                <IconActionButton icon="trash-can-outline" label="Delete plan row" variant="danger" onPress={() => deletePlanRow(row.id)} />
+                              </>
+                            )
                           ) : null}
                         </View>
                       </View>
-                    ))}
+                    )})}
 
                     {!rows.length ? (
                       <View className="py-3">
@@ -1128,7 +1410,7 @@ export default function BudgetDetailScreen() {
                                 disabled={readOnly}
                                 placeholder="Select account"
                                 className="w-full"
-                                menuStrategy="overlay"
+                                menuStrategy="inline"
                                 menuClassName="min-w-[320px] max-h-52"
                                 triggerClassName="bg-background dark:bg-zinc-900"
                               />

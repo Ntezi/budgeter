@@ -71,12 +71,17 @@ export function DropdownField({
         <View
           className={cn(
             menuStrategy === 'overlay'
-              ? 'absolute z-50 mt-10 max-h-56 w-full overflow-hidden rounded-md border border-border bg-card dark:border-zinc-700 dark:bg-zinc-900'
+              ? 'absolute left-0 right-0 top-full z-50 mt-1 max-h-56 overflow-hidden rounded-md border border-border bg-card dark:border-zinc-700 dark:bg-zinc-900'
               : 'z-50 mt-2 max-h-56 w-full overflow-hidden rounded-md border border-border bg-card dark:border-zinc-700 dark:bg-zinc-900',
             menuClassName
           )}
         >
           <ScrollView nestedScrollEnabled>
+            {!options.length ? (
+              <View className="px-3 py-2.5">
+                <Text className="text-sm text-muted-foreground">No options</Text>
+              </View>
+            ) : null}
             {options.map((option) => {
               const active = option.value === value;
               return (
