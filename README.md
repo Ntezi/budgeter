@@ -246,6 +246,7 @@ npx eas-cli@latest login
 ```bash
 npx expo export --platform web
 npx firebase-tools deploy --only hosting
+npx firebase-tools deploy --project budgeter-budgeter-a43a1 --non-interactive
 ```
 
 ### Firestore rules/indexes deploy
