@@ -292,58 +292,126 @@ export default function ShoppingScreen() {
     );
 
     return (
-      <AppCard className="flex-1 border-border bg-card dark:border-zinc-800 dark:bg-zinc-900">
-        <View className="flex-row items-center justify-between mb-4">
-          <View>
-            <Text className="text-xl font-bold text-foreground dark:text-zinc-50">{selectedList.name}</Text>
-            {!isWide && (
-              <Pressable onPress={() => setSelectedListId('')} className="mt-1">
-                <Text className="text-primary dark:text-blue-400 text-sm font-medium">← Back to lists</Text>
-              </Pressable>
-            )}
-          </View>
-          <View className="flex-row gap-2">
+      <View className="flex-1 gap-3">
+        {!isWide && (
+          <View className="flex-row items-center justify-between">
+            <Pressable onPress={() => setSelectedListId('')} className="flex-row items-center gap-1">
+              <MaterialCommunityIcons name="chevron-left" size={20} color="#717182" />
+              <Text className="text-primary dark:text-blue-400 font-medium">Lists</Text>
+            </Pressable>
             {!completing && (
-              <>
+              <View className="flex-row gap-2">
                 <AppButton label="Import" onPress={() => setImportOpen(true)} variant="outline" size="sm" />
                 <AppButton label="Complete" onPress={startCompletion} variant="outline" size="sm" />
-              </>
+              </View>
             )}
           </View>
-        </View>
+        )}
 
-        <View className="mb-4 gap-2">
-          <Text className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground dark:text-zinc-400">Assign to Budget Item</Text>
-          <DropdownField
-            value={(selectedList as any).assignedPlanItemId || ''}
-            options={[{ label: 'None (Unassigned)', value: '' }, ...planOptions.map(o => ({ label: o.label, value: o.id }))]}
-            onChange={updateListPlan}
-            placeholder="Select Budget Item"
-            menuStrategy="inline"
-            triggerClassName="bg-background dark:bg-zinc-950 border-border dark:border-zinc-800"
-          />
-        </View>
+        <AppCard className="flex-1 border-border bg-card dark:border-zinc-800 dark:bg-zinc-900">
+          <View className="flex-row items-center justify-between mb-4">
+            <View>
+              <Text className="text-xl font-bold text-foreground dark:text-zinc-50">{selectedList.name}</Text>
+            </View>
+            {isWide && !completing && (
+              <View className="flex-row gap-2">
+                <AppButton label="Import" onPress={() => setImportOpen(true)} variant="outline" size="sm" />
+                <AppButton label="Complete" onPress={startCompletion} variant="outline" size="sm" />
+              </View>
+            )}
+          </View>
+
+          {isWide && (
+          <View className="mb-4 gap-2">
+            <Text className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground dark:text-zinc-400">Assign to Budget Item</Text>
+            <DropdownField
+              value={(selectedList as any).assignedPlanItemId || ''}
+              options={[{ label: 'None (Unassigned)', value: '' }, ...planOptions.map(o => ({ label: o.label, value: o.id }))]}
+              onChange={updateListPlan}
+              placeholder="Select Budget Item"
+              menuStrategy="inline"
+              triggerClassName="bg-background dark:bg-zinc-950 border-border dark:border-zinc-800"
+            />
+          </View>
+        )}
 
         {!completing ? (
           <>
-            <View className="flex-row gap-2 mb-4">
-              <AppInput
-                value={itemDraftName}
-                onChangeText={setItemDraftName}
-                placeholder="Item name"
-                className="flex-1"
-              />
-              <AppInput
-                value={itemDraftQuantity}
-                onChangeText={setItemDraftQuantity}
-                placeholder="Qty"
-                keyboardType="numeric"
-                className="w-16"
-              />
-              <AppButton onPress={addItem}>
-                <MaterialCommunityIcons name="plus" size={20} color="#FFFFFF" />
-              </AppButton>
-            </View>
+            {isWide ? (
+              <View className="flex-row gap-2 mb-4">
+                <AppInput
+                  value={itemDraftName}
+                  onChangeText={setItemDraftName}
+                  placeholder="Item name"
+                  className="flex-1"
+                />
+                <AppInput
+                  value={itemDraftQuantity}
+                  onChangeText={setItemDraftQuantity}
+                  placeholder="Qty"
+                  keyboardType="numeric"
+                  className="w-16"
+                />
+                <AppButton onPress={addItem}>
+                  <MaterialCommunityIcons name="plus" size={20} color="#FFFFFF" />
+                </AppButton>
+              </View>
+            ) : (
+              <View className="mb-4 relative z-50">
+                <AppInput
+                  value={itemDraftName}
+                  onChangeText={setItemDraftName}
+                  placeholder="Add item..."
+                  className="flex-1"
+                />
+                {itemDraftName.trim().length > 0 && (
+                  <View className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg dark:bg-zinc-900 dark:border-zinc-800 overflow-hidden">
+                    <ScrollView keyboardShouldPersistTaps="handled" className="max-h-48">
+                      {/* Filtered catalog items */}
+                      {catalogRows
+                        .filter(c => c.name?.toLowerCase().includes(itemDraftName.toLowerCase()))
+                        .map(c => (
+                          <Pressable
+                            key={c.id}
+                            className="p-3 border-b border-border dark:border-zinc-800 active:bg-muted/50"
+                            onPress={() => {
+                              addShoppingListItem(uid!, selectedListId, {
+                                name: c.name || '',
+                                quantity: 1,
+                                price: c.price || 0,
+                                bought: false,
+                                completed: false,
+                              });
+                              setItemDraftName('');
+                            }}
+                          >
+                            <Text className="text-foreground dark:text-zinc-100">{c.name}</Text>
+                          </Pressable>
+                        ))
+                      }
+                      {/* Option to add as new if not an exact match */}
+                      {!catalogRows.some(c => c.name?.toLowerCase() === itemDraftName.toLowerCase()) && (
+                        <Pressable
+                          className="p-3 active:bg-muted/50"
+                          onPress={() => {
+                            addShoppingListItem(uid!, selectedListId, {
+                              name: itemDraftName.trim(),
+                              quantity: 1,
+                              price: 0,
+                              bought: false,
+                              completed: false,
+                            });
+                            setItemDraftName('');
+                          }}
+                        >
+                          <Text className="text-primary font-medium">Add "{itemDraftName.trim()}"</Text>
+                        </Pressable>
+                      )}
+                    </ScrollView>
+                  </View>
+                )}
+              </View>
+            )}
 
             <ScrollView className="flex-1">
               {displayItems.map((item) => (
@@ -404,14 +472,17 @@ export default function ShoppingScreen() {
           </View>
         )}
       </AppCard>
+    </View>
     );
   };
 
   return (
-    <View className="flex-1 p-4 gap-4 bg-background dark:bg-zinc-950">
-      <View className="flex-row items-center justify-between">
-        <Text className="text-3xl font-bold text-foreground dark:text-zinc-50">Shopping</Text>
-      </View>
+    <View className={cn("flex-1 gap-4 bg-background dark:bg-zinc-950", isWide ? "p-4" : "px-1.5 pt-1 pb-4")}>
+      {isWide && (
+        <View className="flex-row items-center justify-between">
+          <Text className="text-3xl font-bold text-foreground dark:text-zinc-50">Shopping</Text>
+        </View>
+      )}
 
       <View className={`flex-1 ${isWide ? 'flex-row gap-4' : 'flex-col'}`}>
         {(!selectedListId || isWide) && renderLists()}

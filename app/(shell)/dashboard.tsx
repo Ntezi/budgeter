@@ -154,8 +154,11 @@ export default function DashboardScreen() {
               There is no budget for {currentPeriodTitle}. Create one to start tracking.
             </Text>
           </View>
-          <AppButton onPress={handleCreateCurrentBudget} textClassName="text-white">
-            Create Budget for {currentPeriodTitle}
+          <AppButton onPress={handleCreateCurrentBudget}>
+            <View className="flex-row items-center gap-2">
+              <MaterialCommunityIcons name="plus" size={16} color="#FFFFFF" />
+              <Text className="text-sm font-medium text-white">Create Budget for {currentPeriodTitle}</Text>
+            </View>
           </AppButton>
         </AppCard>
       ) : (
