@@ -44,6 +44,7 @@ import { addTransaction, watchTransactions, type Tx } from '@/lib/repo/transacti
 const SECTION_OPTIONS = [
   { label: 'Income', value: 'INCOME' },
   { label: 'Spending Plan', value: 'PLAN' },
+  { label: 'Spending Details', value: 'SPENDING' },
   { label: 'Reconcile', value: 'RECONCILE' },
 ] as const;
 
@@ -56,6 +57,7 @@ const RECONCILE_PINNED_GROUP_ORDER: Record<PlanGroup, number> = {
 type SectionKey = (typeof SECTION_OPTIONS)[number]['value'];
 type PlanWithId = PlanItem & { id: string; priority: number };
 type ReconcileRow = PlanWithId & { funded: number; unfunded: number; fundingOrder: number };
+type SpendingRow = PlanWithId & { spent: number; remaining: number };
 type IncomeEditState = {
   name: string;
   amount: string;
@@ -159,6 +161,15 @@ export default function BudgetDetailScreen() {
   }, [uid, pid]);
 
   const spentItemIds = useMemo(() => new Set(transactions.map((t) => t.categoryId).filter(Boolean)), [transactions]);
+  const spentByItemId = useMemo(() => {
+    const totals: Record<string, number> = {};
+    transactions.forEach((row) => {
+      const categoryId = String(row.categoryId || '').trim();
+      if (!categoryId) return;
+      totals[categoryId] = (totals[categoryId] || 0) + Number(row.amount || 0);
+    });
+    return totals;
+  }, [transactions]);
 
   const pct = useMemo(
     () => ({
@@ -193,6 +204,49 @@ export default function BudgetDetailScreen() {
       .map((row, index) => ({ ...row, priority: Number((row as any).priority) || index + 1 }))
       .sort((a, b) => a.priority - b.priority);
   }, [planItems]);
+
+  const spendingRows = useMemo<SpendingRow[]>(
+    () =>
+      planWithPriority.map((row) => {
+        const planned = Number(row.amount || 0);
+        const spent = Number(spentByItemId[row.id] || 0);
+        return {
+          ...row,
+          spent,
+          remaining: planned - spent,
+        };
+      }),
+    [planWithPriority, spentByItemId]
+  );
+
+  const spendingByGroup = useMemo(() => {
+    const grouped: Record<PlanGroup, SpendingRow[]> = {
+      NEED: [],
+      WANT: [],
+      SAVINGS_DEBT: [],
+    };
+    spendingRows.forEach((row) => grouped[row.group].push(row));
+    return grouped;
+  }, [spendingRows]);
+
+  const spendingTotalsByGroup = useMemo(() => {
+    const totals: Record<PlanGroup, { planned: number; spent: number; remaining: number }> = {
+      NEED: { planned: 0, spent: 0, remaining: 0 },
+      WANT: { planned: 0, spent: 0, remaining: 0 },
+      SAVINGS_DEBT: { planned: 0, spent: 0, remaining: 0 },
+    };
+    spendingRows.forEach((row) => {
+      totals[row.group].planned += Number(row.amount || 0);
+      totals[row.group].spent += row.spent;
+      totals[row.group].remaining += row.remaining;
+    });
+    return totals;
+  }, [spendingRows]);
+
+  const totalSpentAcrossBudget = useMemo(
+    () => spendingRows.reduce((sum, row) => sum + row.spent, 0),
+    [spendingRows]
+  );
 
   useEffect(() => {
     setIncomeEdits((prev) => {
@@ -1207,6 +1261,117 @@ export default function BudgetDetailScreen() {
         </View>
       ) : null}
 
+      {section === 'SPENDING' ? (
+        <View className="gap-3">
+          <AppCard className="gap-3">
+            <View className="grid grid-cols-2 gap-2 md:grid-cols-4">
+              <View className="rounded-lg border border-border bg-muted/20 p-3 dark:border-zinc-800 dark:bg-zinc-800/30">
+                <Text className="text-xxs uppercase tracking-wide text-muted-foreground">Planned Total</Text>
+                <Text className="text-base font-semibold text-foreground dark:text-zinc-50">{fmtMoney(plannedTotal)}</Text>
+              </View>
+              <View className="rounded-lg border border-border bg-muted/20 p-3 dark:border-zinc-800 dark:bg-zinc-800/30">
+                <Text className="text-xxs uppercase tracking-wide text-muted-foreground">Spent Total</Text>
+                <Text className="text-base font-semibold text-blue-700 dark:text-blue-300">{fmtMoney(totalSpentAcrossBudget)}</Text>
+              </View>
+              <View className="rounded-lg border border-border bg-muted/20 p-3 dark:border-zinc-800 dark:bg-zinc-800/30">
+                <Text className="text-xxs uppercase tracking-wide text-muted-foreground">Remaining Total</Text>
+                <Text
+                  className={cn(
+                    'text-base font-semibold',
+                    plannedTotal - totalSpentAcrossBudget < 0
+                      ? 'text-red-700 dark:text-red-300'
+                      : 'text-emerald-700 dark:text-emerald-300'
+                  )}
+                >
+                  {fmtMoney(plannedTotal - totalSpentAcrossBudget)}
+                </Text>
+              </View>
+              <View className="rounded-lg border border-border bg-muted/20 p-3 dark:border-zinc-800 dark:bg-zinc-800/30">
+                <Text className="text-xxs uppercase tracking-wide text-muted-foreground">Spent Items</Text>
+                <Text className="text-base font-semibold text-foreground dark:text-zinc-50">
+                  {spendingRows.filter((row) => row.spent > 0).length}/{spendingRows.length}
+                </Text>
+              </View>
+            </View>
+
+            <Text className="text-xs text-muted-foreground">
+              Remaining = Planned - Spent. If spending exceeds planned amount, the remaining value is negative.
+            </Text>
+          </AppCard>
+
+          {PLAN_GROUP_OPTIONS.map((group) => {
+            const rows = spendingByGroup[group.value];
+            const totals = spendingTotalsByGroup[group.value];
+            return (
+              <AppCard key={group.value} className="gap-3">
+                <View className="flex-row items-center justify-between rounded-md bg-muted/30 px-3 py-2 dark:bg-zinc-800/30">
+                  <View className="flex-row items-center gap-2">
+                    <View className={cn('h-2.5 w-2.5 rounded-full', groupDotColor[group.value])} />
+                    <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">{group.label}</Text>
+                  </View>
+                  <View className="flex-row flex-wrap items-center gap-2">
+                    <AppBadge label={`Planned ${fmtMoney(totals.planned)}`} variant="outline" />
+                    <AppBadge label={`Spent ${fmtMoney(totals.spent)}`} variant="success" />
+                    <AppBadge
+                      label={`Remaining ${fmtMoney(totals.remaining)}`}
+                      variant={totals.remaining < 0 ? 'danger' : 'secondary'}
+                    />
+                  </View>
+                </View>
+
+                {rows.length ? (
+                  <ScrollView horizontal showsHorizontalScrollIndicator>
+                    <View className="min-w-[880px] flex-1">
+                      <View className="flex-row border-b border-border pb-2 dark:border-zinc-800">
+                        <Text className="w-[280px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Item</Text>
+                        <Text className="w-[150px] text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Planned</Text>
+                        <Text className="w-[150px] text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Spent</Text>
+                        <Text className="w-[150px] text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Remaining</Text>
+                        <Text className="w-[120px] text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</Text>
+                      </View>
+
+                      {rows.map((row) => (
+                        <View
+                          key={row.id}
+                          className={cn(
+                            'flex-row items-center border-b border-border py-2 dark:border-zinc-800',
+                            row.spent > 0 ? 'bg-primary/5 dark:bg-zinc-800/55' : 'hover:bg-muted/35 dark:hover:bg-zinc-800/45'
+                          )}
+                        >
+                          <View className="w-[280px] pr-2">
+                            <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{row.name}</Text>
+                            {row.tags?.length ? (
+                              <Text className="text-xs text-muted-foreground dark:text-zinc-400">{tagsLabel(row.tags)}</Text>
+                            ) : null}
+                          </View>
+                          <Text className="w-[150px] text-right text-sm text-foreground dark:text-zinc-100">{fmtMoney(row.amount || 0)}</Text>
+                          <Text className="w-[150px] text-right text-sm font-semibold text-blue-700 dark:text-blue-300">{fmtMoney(row.spent)}</Text>
+                          <Text
+                            className={cn(
+                              'w-[150px] text-right text-sm font-semibold',
+                              row.remaining < 0
+                                ? 'text-red-700 dark:text-red-300'
+                                : 'text-emerald-700 dark:text-emerald-300'
+                            )}
+                          >
+                            {fmtMoney(row.remaining)}
+                          </Text>
+                          <View className="w-[120px] items-center">
+                            {row.spent > 0 ? <AppBadge label="Spent" variant="success" /> : <AppBadge label="Pending" variant="secondary" />}
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  </ScrollView>
+                ) : (
+                  <Text className="text-sm text-muted-foreground">No {group.label.toLowerCase()} items in this budget.</Text>
+                )}
+              </AppCard>
+            );
+          })}
+        </View>
+      ) : null}
+
       {section === 'RECONCILE' ? (
         <View className="gap-3">
           <AppCard className="gap-3">
@@ -1271,7 +1436,6 @@ export default function BudgetDetailScreen() {
                         const statusLabel = row.unfunded <= 0 ? 'Funded' : row.funded > 0 ? 'Partial' : 'Unfunded';
                         const statusVariant = row.unfunded <= 0 ? 'success' : row.funded > 0 ? 'warning' : 'danger';
                         const isSpent = spentItemIds.has(row.id);
-                        const canMarkSpent = row.funded > 0 && !isSpent;
                         return (
                           <View
                             key={row.id}

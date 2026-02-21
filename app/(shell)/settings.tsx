@@ -312,7 +312,7 @@ export default function SettingsScreen() {
             menuStrategy="inline"
             triggerClassName="bg-background dark:bg-zinc-950 border-border dark:border-zinc-800"
           />
-          <Text className="text-xs text-muted-foreground dark:text-zinc-400">Account balances reflect this period's allocations.</Text>
+          <Text className="text-xs text-muted-foreground dark:text-zinc-400">Account balances reflect this period&apos;s allocations.</Text>
         </View>
 
         {activePeriodId ? (

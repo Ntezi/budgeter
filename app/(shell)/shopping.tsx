@@ -1,84 +1,109 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, Switch, Text, View, useWindowDimensions, Alert } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Alert, Pressable, ScrollView, Switch, Text, View, useWindowDimensions } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { AppButton } from '@/components/ui/AppButton';
 import { AppCard } from '@/components/ui/AppCard';
 import { AppInput } from '@/components/ui/AppInput';
-import { AppButton } from '@/components/ui/AppButton';
 import { AppModal } from '@/components/ui/AppModal';
 import { DropdownField } from '@/components/ui/DropdownField';
 import { IconActionButton } from '@/components/ui/IconActionButton';
-import { AppBadge } from '@/components/ui/AppBadge';
-import { useWorkspaceUid } from '@/providers/WorkspaceProvider';
+import { cn } from '@/lib/cn';
+import { computeFundedBudgetByItemId, hasFundedAmount } from '@/lib/funding';
+import { fmtMoney, parseMoney } from '@/lib/format';
+import { planGroupLabel } from '@/lib/groups';
+import { watchIncomeItems } from '@/lib/repo/income';
+import { periodIdFromDate } from '@/lib/repo/periods';
+import { type PlanItem, watchPlanTotals } from '@/lib/repo/plans';
 import {
-  addShoppingCategory,
   type ShoppingCatalogItem,
   addShoppingList,
   addShoppingListItem,
-  deleteShoppingList,
   deleteShoppingListItem,
   type ShoppingList,
   type ShoppingListItem,
-  upsertShoppingCatalogItem,
   updateShoppingListItem,
+  upsertShoppingCatalogItem,
   watchShoppingCatalog,
   watchShoppingListItems,
   watchShoppingLists,
-  updateShoppingList,
 } from '@/lib/repo/shopping';
 import { addTransaction } from '@/lib/repo/transactions';
-import { periodIdFromDate, type PeriodDoc, watchPeriods } from '@/lib/repo/periods';
-import { type PlanItem, watchPlanTotals } from '@/lib/repo/plans';
-import { fmtMoney, parseMoney } from '@/lib/format';
-import { planGroupLabel } from '@/lib/groups';
-import { cn } from '@/lib/cn';
+import { useWorkspace, useWorkspaceUid } from '@/providers/WorkspaceProvider';
 
-type PlanOption = { id: string; label: string; group: PlanItem['group'] };
+type PlanOption = {
+  id: string;
+  name: string;
+  label: string;
+  group: PlanItem['group'];
+};
+
+type CompletionInput = {
+  quantity: string;
+  price: string;
+  planItemId: string;
+};
 
 function normalize(input: string) {
   return input.trim().toLowerCase();
 }
 
+function parseQuantity(input: string) {
+  const value = parseInt(input, 10);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
 export default function ShoppingScreen() {
+  const { activePeriodId } = useWorkspace();
   const uid = useWorkspaceUid();
-  const router = useRouter();
-  const { width: windowWidth } = useWindowDimensions();
-  const isWide = windowWidth >= 768;
+  const { width } = useWindowDimensions();
+  const isWide = width >= 768;
+  const targetPid = activePeriodId || periodIdFromDate();
 
   const [lists, setLists] = useState<ShoppingList[]>([]);
   const [selectedListId, setSelectedListId] = useState('');
+  const [items, setItems] = useState<ShoppingListItem[]>([]);
   const [catalogRows, setCatalogRows] = useState<ShoppingCatalogItem[]>([]);
 
-  const [items, setItems] = useState<ShoppingListItem[]>([]);
   const [createListOpen, setCreateListOpen] = useState(false);
   const [listDraftName, setListDraftName] = useState('');
   const [listError, setListError] = useState('');
 
   const [itemDraftName, setItemDraftName] = useState('');
-  const [itemDraftQuantity, setItemDraftQuantity] = useState('1');
-  const [itemDraftPrice, setItemDraftPrice] = useState('');
   const [itemError, setItemError] = useState('');
 
-  const [completing, setCompleting] = useState(false);
-  const [itemInputs, setItemInputs] = useState<Record<string, { price: string; quantity: string }>>({});
+  const [editItemOpen, setEditItemOpen] = useState(false);
+  const [editItemError, setEditItemError] = useState('');
+  const [editDraft, setEditDraft] = useState({
+    id: '',
+    name: '',
+    quantity: '1',
+    planItemId: '',
+  });
 
-  const [periods, setPeriods] = useState<(PeriodDoc & { id: string })[]>([]);
-  const [selectedPid, setSelectedPid] = useState(periodIdFromDate());
   const [planItems, setPlanItems] = useState<PlanItem[]>([]);
+  const [activeIncomeTotal, setActiveIncomeTotal] = useState(0);
 
   const [importOpen, setImportOpen] = useState(false);
   const [importSearch, setImportSearch] = useState('');
+  const [importCategoryFilter, setImportCategoryFilter] = useState('ALL');
   const [importSelection, setImportSelection] = useState<Record<string, boolean>>({});
+
+  const [completing, setCompleting] = useState(false);
+  const [itemInputs, setItemInputs] = useState<Record<string, CompletionInput>>({});
 
   useEffect(() => {
     if (!uid) return;
     return watchShoppingLists(uid, (rows) => {
       setLists(rows);
+      if (selectedListId && !rows.some((row) => row.id === selectedListId)) {
+        setSelectedListId(rows[0]?.id || '');
+        return;
+      }
       if (!selectedListId && rows.length > 0 && isWide) {
         setSelectedListId(rows[0].id || '');
       }
     });
-  }, [uid, isWide]);
+  }, [uid, selectedListId, isWide]);
 
   useEffect(() => {
     if (!uid) return;
@@ -94,21 +119,18 @@ export default function ShoppingScreen() {
   }, [uid, selectedListId]);
 
   useEffect(() => {
-    if (!uid) return;
-    return watchPeriods(uid, (next) => {
-      setPeriods(next);
-      if (!next.some((p) => p.id === selectedPid) && next[0]?.id) {
-        setSelectedPid(next[0].id);
-      }
-    });
-  }, [uid]);
+    if (!uid || !targetPid) return;
+    return watchPlanTotals(uid, targetPid, (_totals, nextRows) => setPlanItems(nextRows));
+  }, [uid, targetPid]);
 
   useEffect(() => {
-    if (!uid || !selectedPid) return;
-    return watchPlanTotals(uid, selectedPid, (_totals, rows) => setPlanItems(rows));
-  }, [uid, selectedPid]);
+    if (!uid || !targetPid) return;
+    return watchIncomeItems(uid, targetPid, (_rows, activeTotal) => {
+      setActiveIncomeTotal(activeTotal);
+    });
+  }, [uid, targetPid]);
 
-  const selectedList = useMemo(() => lists.find((l) => l.id === selectedListId) || null, [lists, selectedListId]);
+  const selectedList = useMemo(() => lists.find((row) => row.id === selectedListId) || null, [lists, selectedListId]);
 
   const planOptions = useMemo<PlanOption[]>(
     () =>
@@ -116,11 +138,78 @@ export default function ShoppingScreen() {
         .filter((row): row is PlanItem & { id: string } => Boolean(row.id))
         .map((row) => ({
           id: row.id,
-          label: `${row.name} · ${fmtMoney(row.amount || 0)} · ${planGroupLabel(row.group)}`,
+          name: row.name,
           group: row.group,
+          label: `${row.name} · ${fmtMoney(row.amount || 0)} · ${planGroupLabel(row.group)}`,
         })),
     [planItems]
   );
+
+  const planById = useMemo(() => {
+    const map = new Map<string, PlanOption>();
+    planOptions.forEach((row) => map.set(row.id, row));
+    return map;
+  }, [planOptions]);
+
+  const planByName = useMemo(() => {
+    const map = new Map<string, PlanOption>();
+    planOptions.forEach((row) => {
+      const key = normalize(row.name);
+      if (!map.has(key)) map.set(key, row);
+    });
+    return map;
+  }, [planOptions]);
+
+  const fundedByPlanId = useMemo(
+    () =>
+      computeFundedBudgetByItemId(
+        planItems
+          .filter((row): row is PlanItem & { id: string } => Boolean(row.id))
+          .map((row, index) => ({
+            id: row.id,
+            name: row.name,
+            amount: row.amount,
+            group: row.group,
+            priority: Number((row as any).priority) || index + 1,
+            reconcilePinned: Boolean((row as any).reconcilePinned),
+          })),
+        activeIncomeTotal
+      ),
+    [activeIncomeTotal, planItems]
+  );
+
+  const fundedPlanOptions = useMemo(
+    () => planOptions.filter((row) => hasFundedAmount(fundedByPlanId, row.id)),
+    [fundedByPlanId, planOptions]
+  );
+
+  const categoryOptions = useMemo(() => {
+    const names = new Set<string>();
+    catalogRows.forEach((row) => {
+      const category = String(row.category || '').trim();
+      if (category) names.add(category);
+    });
+    return [{ label: 'All categories', value: 'ALL' }, ...Array.from(names).sort((a, b) => a.localeCompare(b)).map((name) => ({ label: name, value: name }))];
+  }, [catalogRows]);
+
+  const importCandidates = useMemo(() => {
+    const q = normalize(importSearch);
+    return catalogRows
+      .filter((row) => {
+        if (importCategoryFilter !== 'ALL' && normalize(row.category || '') !== normalize(importCategoryFilter)) {
+          return false;
+        }
+        if (!q) return true;
+        return normalize(row.name || '').includes(q) || normalize(row.category || '').includes(q);
+      })
+      .slice(0, 80);
+  }, [catalogRows, importCategoryFilter, importSearch]);
+
+  const suggestedRows = useMemo(() => {
+    const q = normalize(itemDraftName);
+    if (!q) return [];
+    return catalogRows.filter((row) => normalize(row.name || '').includes(q)).slice(0, 10);
+  }, [catalogRows, itemDraftName]);
 
   const displayItems = useMemo(() => {
     return [...items].sort((a, b) => {
@@ -129,42 +218,81 @@ export default function ShoppingScreen() {
     });
   }, [items]);
 
-  const importCandidates = useMemo(() => {
-    const q = importSearch.trim().toLowerCase();
-    if (!q) return catalogRows.slice(0, 20);
-    return catalogRows.filter(c => c.name?.toLowerCase().includes(q));
-  }, [catalogRows, importSearch]);
+  function resolvePlanForItemName(name: string, catalog?: ShoppingCatalogItem | null) {
+    const catalogPlanId = String(catalog?.assignedPlanItemId || '').trim();
+    if (catalogPlanId) {
+      const fromCatalog = planById.get(catalogPlanId);
+      if (fromCatalog) return fromCatalog;
+    }
+    const catalogPlanName = String(catalog?.assignedPlanItemName || '').trim();
+    if (catalogPlanName) {
+      const fromCatalogName = planByName.get(normalize(catalogPlanName));
+      if (fromCatalogName) return fromCatalogName;
+    }
+    return planByName.get(normalize(name)) || null;
+  }
 
   async function createList() {
     if (!uid) return;
     const name = listDraftName.trim();
     if (!name) {
-      setListError('Name is required.');
+      setListError('List name is required.');
       return;
     }
+
     const ref = await addShoppingList(uid, name);
     setListDraftName('');
+    setListError('');
     setCreateListOpen(false);
     setSelectedListId(ref.id);
+  }
+
+  async function addItemFromCatalog(catalog: ShoppingCatalogItem) {
+    if (!uid || !selectedListId) return;
+    const name = String(catalog.name || '').trim();
+    if (!name) return;
+    const plan = resolvePlanForItemName(name, catalog);
+
+    await addShoppingListItem(uid, selectedListId, {
+      name,
+      quantity: 1,
+      price: 0,
+      category: catalog.category || '',
+      tags: catalog.tags || [],
+      assignedPlanItemId: plan?.id || '',
+      assignedPlanItemName: plan?.name || '',
+      assignedGroup: plan?.group,
+      bought: false,
+      completed: false,
+    });
   }
 
   async function addItem() {
     if (!uid || !selectedListId) return;
     const name = itemDraftName.trim();
-    if (!name) return;
-    const quantity = parseInt(itemDraftQuantity) || 1;
-    const price = parseMoney(itemDraftPrice) || 0;
+    if (!name) {
+      setItemError('Item name is required.');
+      return;
+    }
+
+    const catalog = catalogRows.find((row) => normalize(row.name || '') === normalize(name));
+    const plan = resolvePlanForItemName(name, catalog);
 
     await addShoppingListItem(uid, selectedListId, {
       name,
-      quantity,
-      price,
+      quantity: 1,
+      price: 0,
+      category: catalog?.category || '',
+      tags: catalog?.tags || [],
+      assignedPlanItemId: plan?.id || '',
+      assignedPlanItemName: plan?.name || '',
+      assignedGroup: plan?.group,
       bought: false,
       completed: false,
     });
+
     setItemDraftName('');
-    setItemDraftQuantity('1');
-    setItemDraftPrice('');
+    setItemError('');
   }
 
   async function toggleBought(item: ShoppingListItem) {
@@ -177,107 +305,196 @@ export default function ShoppingScreen() {
     await deleteShoppingListItem(uid, selectedListId, item.id);
   }
 
-  const startCompletion = () => {
-    const inputs: Record<string, { price: string; quantity: string }> = {};
-    items.forEach((item) => {
-      if (item.id) {
-        inputs[item.id] = {
-          price: String(item.price || ''),
-          quantity: String(item.quantity || '1'),
-        };
-      }
+  function openEditItem(item: ShoppingListItem) {
+    const assigned = String(item.assignedPlanItemId || '').trim();
+    setEditDraft({
+      id: item.id || '',
+      name: item.name || '',
+      quantity: String(item.quantity || 1),
+      planItemId: assigned,
     });
-    setItemInputs(inputs);
-    setCompleting(true);
-  };
+    setEditItemError('');
+    setEditItemOpen(true);
+  }
 
-  const handleDoneAndClear = async () => {
+  async function saveEditedItem() {
+    if (!uid || !selectedListId || !editDraft.id) return;
+    const name = editDraft.name.trim();
+    if (!name) {
+      setEditItemError('Item name is required.');
+      return;
+    }
+
+    const quantity = parseQuantity(editDraft.quantity || '1');
+    if (!quantity) {
+      setEditItemError('Quantity must be at least 1.');
+      return;
+    }
+
+    const selectedPlan = planById.get(editDraft.planItemId);
+    await updateShoppingListItem(uid, selectedListId, editDraft.id, {
+      name,
+      quantity,
+      assignedPlanItemId: selectedPlan?.id || '',
+      assignedPlanItemName: selectedPlan?.name || '',
+      assignedGroup: selectedPlan?.group,
+    });
+
+    setEditItemOpen(false);
+    setEditItemError('');
+  }
+
+  function startCompletion() {
+    const nextInputs: Record<string, CompletionInput> = {};
+    items.forEach((item) => {
+      if (!item.id) return;
+      const catalog = catalogRows.find((row) => normalize(row.name || '') === normalize(item.name || ''));
+      const fallbackPlan = resolvePlanForItemName(item.name || '', catalog);
+      nextInputs[item.id] = {
+        quantity: String(item.quantity || '1'),
+        price: String(item.price || ''),
+        planItemId: String(item.assignedPlanItemId || fallbackPlan?.id || ''),
+      };
+    });
+    setItemInputs(nextInputs);
+    setCompleting(true);
+  }
+
+  const completionValidation = useMemo(() => {
+    const missingQuantity: string[] = [];
+    const missingPrice: string[] = [];
+    const missingBudget: string[] = [];
+    const nonFundedBudget: string[] = [];
+
+    items.forEach((item) => {
+      if (!item.id) return;
+      const input = itemInputs[item.id];
+      const qty = parseQuantity(input?.quantity || '0');
+      const price = Math.max(0, parseMoney(input?.price || '0'));
+      const planItemId = String(input?.planItemId || '').trim();
+
+      if (!qty) missingQuantity.push(item.name || 'Unnamed item');
+      if (price <= 0) missingPrice.push(item.name || 'Unnamed item');
+      if (!planItemId || !planById.has(planItemId)) missingBudget.push(item.name || 'Unnamed item');
+      else if (!hasFundedAmount(fundedByPlanId, planItemId)) nonFundedBudget.push(item.name || 'Unnamed item');
+    });
+
+    return {
+      missingQuantity,
+      missingPrice,
+      missingBudget,
+      nonFundedBudget,
+      ready:
+        items.length > 0 &&
+        missingQuantity.length === 0 &&
+        missingPrice.length === 0 &&
+        missingBudget.length === 0 &&
+        nonFundedBudget.length === 0,
+    };
+  }, [fundedByPlanId, items, itemInputs, planById]);
+
+  async function handleDoneAndClear() {
     if (!uid || !selectedListId || !selectedList) return;
-    
+    if (!completionValidation.ready) {
+      Alert.alert(
+        'Complete required fields',
+        'Fill quantity, price, and funded budget item for every shopping item first.'
+      );
+      return;
+    }
+
     try {
       for (const item of items) {
         if (!item.id) continue;
         const input = itemInputs[item.id];
-        const finalPrice = parseMoney(input?.price || '0');
-        const finalQty = parseInt(input?.quantity || '1') || 1;
-        const total = finalPrice * finalQty;
+        const quantity = parseQuantity(input?.quantity || '0');
+        const price = Math.max(0, parseMoney(input?.price || '0'));
+        const plan = planById.get(String(input?.planItemId || '').trim());
+        if (!plan || !quantity || price <= 0 || !hasFundedAmount(fundedByPlanId, plan.id)) continue;
 
-        if (total > 0) {
-          const group = (selectedList as any).assignedGroup || 'NEED';
-          const planItemId = (selectedList as any).assignedPlanItemId || '';
-          
-          await addTransaction(uid, selectedPid, {
-            name: item.name,
-            amount: total,
-            group,
-            date: new Date().toISOString().split('T')[0],
-            note: `Shopping: ${selectedList.name}`,
-            categoryId: planItemId,
-          } as any);
+        const total = price * quantity;
+        await addTransaction(uid, targetPid, {
+          name: plan.name,
+          amount: total,
+          group: plan.group,
+          date: new Date().toISOString().slice(0, 10),
+          note: `Shopping: ${selectedList.name} · Item: ${item.name}`,
+          categoryId: plan.id,
+          shoppingListId: selectedListId,
+          shoppingListName: selectedList.name,
+          shoppingItemId: item.id,
+          shoppingItemName: item.name,
+        });
 
-          // Update catalog with final price history
-          await upsertShoppingCatalogItem(uid, {
-            name: item.name,
-            category: item.category || '',
-            tags: item.tags || [],
-            price: finalPrice,
-            quantity: finalQty,
-          });
-        }
+        await upsertShoppingCatalogItem(uid, {
+          name: item.name,
+          category: item.category || '',
+          tags: item.tags || [],
+          assignedPlanItemId: plan.id,
+          assignedPlanItemName: plan.name,
+          assignedGroup: plan.group,
+          price,
+          quantity,
+        });
+
         await deleteShoppingListItem(uid, selectedListId, item.id);
       }
+
       setCompleting(false);
-      setSelectedListId('');
-    } catch (e) {
-      Alert.alert('Error', 'Failed to complete shopping list');
+      setItemInputs({});
+      if (!isWide) setSelectedListId('');
+    } catch {
+      Alert.alert('Error', 'Failed to complete shopping list.');
     }
-  };
+  }
 
-  const updateListPlan = async (planId: string) => {
+  async function importSelected() {
     if (!uid || !selectedListId) return;
-    const plan = planOptions.find(p => p.id === planId);
-    await updateShoppingList(uid, selectedListId, {
-      assignedPlanItemId: planId,
-      assignedPlanItemName: plan?.label || '',
-      assignedGroup: plan?.group || 'NEED',
-    } as any);
-  };
+    const picks = catalogRows.filter((row) => importSelection[row.id || '']);
 
-  const importSelected = async () => {
-    if (!uid || !selectedListId) return;
-    const picks = catalogRows.filter(c => importSelection[c.id || '']);
-    for (const p of picks) {
+    for (const row of picks) {
+      const name = String(row.name || '').trim();
+      if (!name) continue;
+      const plan = resolvePlanForItemName(name, row);
       await addShoppingListItem(uid, selectedListId, {
-        name: p.name || '',
+        name,
         quantity: 1,
         price: 0,
+        category: row.category || '',
+        tags: row.tags || [],
+        assignedPlanItemId: plan?.id || '',
+        assignedPlanItemName: plan?.name || '',
+        assignedGroup: plan?.group,
         bought: false,
         completed: false,
       });
     }
+
     setImportOpen(false);
+    setImportSearch('');
+    setImportCategoryFilter('ALL');
     setImportSelection({});
-  };
+  }
 
   const renderLists = () => (
-    <AppCard className="flex-1 md:max-w-xs border-border bg-card dark:border-zinc-800 dark:bg-zinc-900">
-      <View className="flex-row items-center justify-between mb-4">
+    <AppCard className="flex-1 border-border bg-card dark:border-zinc-800 dark:bg-zinc-900 md:max-w-xs">
+      <View className="mb-4 flex-row items-center justify-between">
         <Text className="text-lg font-bold text-foreground dark:text-zinc-50">Lists</Text>
         <IconActionButton icon="plus" label="New List" onPress={() => setCreateListOpen(true)} />
       </View>
       <ScrollView>
-        {lists.map((l) => (
+        {lists.map((list) => (
           <Pressable
-            key={l.id}
-            onPress={() => setSelectedListId(l.id || '')}
+            key={list.id}
+            onPress={() => setSelectedListId(list.id || '')}
             className={cn(
-              "p-3 rounded-lg mb-2 border",
-              selectedListId === l.id 
-                ? "bg-primary/10 border-primary/30 dark:bg-primary/20 dark:border-primary/40" 
-                : "bg-muted/30 border-transparent dark:bg-zinc-800/40"
+              'mb-2 rounded-lg border p-3',
+              selectedListId === list.id
+                ? 'border-primary/30 bg-primary/10 dark:border-primary/40 dark:bg-primary/20'
+                : 'border-transparent bg-muted/30 dark:bg-zinc-800/40'
             )}
           >
-            <Text className="font-medium text-foreground dark:text-zinc-100">{l.name}</Text>
+            <Text className="font-medium text-foreground dark:text-zinc-100">{list.name}</Text>
           </Pressable>
         ))}
       </ScrollView>
@@ -285,213 +502,241 @@ export default function ShoppingScreen() {
   );
 
   const renderItems = () => {
-    if (!selectedList) return (
-      <View className="flex-1 items-center justify-center">
-        <Text className="text-muted-foreground dark:text-zinc-400">Select a list to view items</Text>
-      </View>
-    );
+    if (!selectedList) {
+      return (
+        <View className="flex-1 items-center justify-center">
+          <Text className="text-muted-foreground dark:text-zinc-400">Select a list to view items</Text>
+        </View>
+      );
+    }
 
     return (
       <View className="flex-1 gap-3">
-        {!isWide && (
+        {!isWide ? (
           <View className="flex-row items-center justify-between">
             <Pressable onPress={() => setSelectedListId('')} className="flex-row items-center gap-1">
               <MaterialCommunityIcons name="chevron-left" size={20} color="#717182" />
-              <Text className="text-primary dark:text-blue-400 font-medium">Lists</Text>
+              <Text className="font-medium text-primary dark:text-blue-400">Lists</Text>
             </Pressable>
-            {!completing && (
+            {!completing ? (
               <View className="flex-row gap-2">
                 <AppButton label="Import" onPress={() => setImportOpen(true)} variant="outline" size="sm" />
                 <AppButton label="Complete" onPress={startCompletion} variant="outline" size="sm" />
               </View>
-            )}
+            ) : null}
           </View>
-        )}
+        ) : null}
 
         <AppCard className="flex-1 border-border bg-card dark:border-zinc-800 dark:bg-zinc-900">
-          <View className="flex-row items-center justify-between mb-4">
-            <View>
-              <Text className="text-xl font-bold text-foreground dark:text-zinc-50">{selectedList.name}</Text>
-            </View>
-            {isWide && !completing && (
+          <View className="mb-3 flex-row items-center justify-between gap-2">
+            <Text className="text-xl font-bold text-foreground dark:text-zinc-50">{selectedList.name}</Text>
+            {isWide && !completing ? (
               <View className="flex-row gap-2">
                 <AppButton label="Import" onPress={() => setImportOpen(true)} variant="outline" size="sm" />
                 <AppButton label="Complete" onPress={startCompletion} variant="outline" size="sm" />
               </View>
-            )}
+            ) : null}
           </View>
 
-          {isWide && (
-          <View className="mb-4 gap-2">
-            <Text className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground dark:text-zinc-400">Assign to Budget Item</Text>
-            <DropdownField
-              value={(selectedList as any).assignedPlanItemId || ''}
-              options={[{ label: 'None (Unassigned)', value: '' }, ...planOptions.map(o => ({ label: o.label, value: o.id }))]}
-              onChange={updateListPlan}
-              placeholder="Select Budget Item"
-              menuStrategy="inline"
-              triggerClassName="bg-background dark:bg-zinc-950 border-border dark:border-zinc-800"
-            />
-          </View>
-        )}
-
-        {!completing ? (
-          <>
-            {isWide ? (
-              <View className="flex-row gap-2 mb-4">
-                <AppInput
-                  value={itemDraftName}
-                  onChangeText={setItemDraftName}
-                  placeholder="Item name"
-                  className="flex-1"
-                />
-                <AppInput
-                  value={itemDraftQuantity}
-                  onChangeText={setItemDraftQuantity}
-                  placeholder="Qty"
-                  keyboardType="numeric"
-                  className="w-16"
-                />
-                <AppButton onPress={addItem}>
-                  <MaterialCommunityIcons name="plus" size={20} color="#FFFFFF" />
-                </AppButton>
-              </View>
-            ) : (
-              <View className="mb-4 relative z-50">
+          {!completing ? (
+            <>
+              <View className="relative z-50 mb-3">
                 <AppInput
                   value={itemDraftName}
                   onChangeText={setItemDraftName}
                   placeholder="Add item..."
                   className="flex-1"
+                  style={{ height: 56 }}
                 />
-                {itemDraftName.trim().length > 0 && (
-                  <View className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg dark:bg-zinc-900 dark:border-zinc-800 overflow-hidden">
+                {itemDraftName.trim().length > 0 ? (
+                  <View className="absolute left-0 right-0 top-full mt-1 overflow-hidden rounded-md border border-border bg-card shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
                     <ScrollView keyboardShouldPersistTaps="handled" className="max-h-48">
-                      {/* Filtered catalog items */}
-                      {catalogRows
-                        .filter(c => c.name?.toLowerCase().includes(itemDraftName.toLowerCase()))
-                        .map(c => (
-                          <Pressable
-                            key={c.id}
-                            className="p-3 border-b border-border dark:border-zinc-800 active:bg-muted/50"
-                            onPress={() => {
-                              addShoppingListItem(uid!, selectedListId, {
-                                name: c.name || '',
-                                quantity: 1,
-                                price: c.price || 0,
-                                bought: false,
-                                completed: false,
-                              });
-                              setItemDraftName('');
-                            }}
-                          >
-                            <Text className="text-foreground dark:text-zinc-100">{c.name}</Text>
-                          </Pressable>
-                        ))
-                      }
-                      {/* Option to add as new if not an exact match */}
-                      {!catalogRows.some(c => c.name?.toLowerCase() === itemDraftName.toLowerCase()) && (
+                      {suggestedRows.map((row) => (
                         <Pressable
-                          className="p-3 active:bg-muted/50"
+                          key={row.id}
+                          className="border-b border-border p-3 active:bg-muted/50 dark:border-zinc-800"
                           onPress={() => {
-                            addShoppingListItem(uid!, selectedListId, {
-                              name: itemDraftName.trim(),
-                              quantity: 1,
-                              price: 0,
-                              bought: false,
-                              completed: false,
-                            });
+                            void addItemFromCatalog(row);
                             setItemDraftName('');
                           }}
                         >
-                          <Text className="text-primary font-medium">Add "{itemDraftName.trim()}"</Text>
+                          <Text className="text-foreground dark:text-zinc-100">{row.name}</Text>
+                          {row.category ? <Text className="text-xs text-muted-foreground">{row.category}</Text> : null}
                         </Pressable>
-                      )}
+                      ))}
+                      {!catalogRows.some((row) => normalize(row.name || '') === normalize(itemDraftName)) ? (
+                        <Pressable
+                          className="p-3 active:bg-muted/50"
+                          onPress={() => {
+                            void addItem();
+                          }}
+                        >
+                          <Text className="font-medium text-primary">Add &quot;{itemDraftName.trim()}&quot;</Text>
+                        </Pressable>
+                      ) : null}
                     </ScrollView>
                   </View>
-                )}
+                ) : null}
               </View>
-            )}
 
-            <ScrollView className="flex-1">
-              {displayItems.map((item) => (
-                <View key={item.id} className="flex-row items-center justify-between p-3 border-b border-border dark:border-zinc-800">
-                  <View className="flex-row items-center gap-3 flex-1">
-                    <Switch
-                      value={item.bought}
-                      onValueChange={() => toggleBought(item)}
-                    />
-                    <Text className={cn(
-                      "text-foreground dark:text-zinc-100",
-                      item.bought && "line-through text-muted-foreground dark:text-zinc-500"
-                    )}>
-                      {item.name} {item.quantity > 1 ? `(x${item.quantity})` : ''}
+              {itemError ? <Text className="mb-2 text-xs text-destructive">{itemError}</Text> : null}
+
+              <ScrollView className="flex-1">
+                {displayItems.map((item) => {
+                  const budgetLabel =
+                    item.assignedPlanItemName ||
+                    planById.get(String(item.assignedPlanItemId || '').trim())?.name ||
+                    'Unassigned budget item';
+                  const hasBudget = Boolean(String(item.assignedPlanItemId || '').trim());
+                  return (
+                    <View
+                      key={item.id}
+                      className="flex-row items-center justify-between gap-2 border-b border-border p-3 dark:border-zinc-800"
+                    >
+                      <View className="flex-row flex-1 items-center gap-3">
+                        <Switch value={item.bought} onValueChange={() => toggleBought(item)} />
+                        <View className="flex-1">
+                          <Text
+                            className={cn(
+                              'text-foreground dark:text-zinc-100',
+                              item.bought && 'text-muted-foreground line-through dark:text-zinc-500'
+                            )}
+                          >
+                            {item.name} {item.quantity && item.quantity > 1 ? `(x${item.quantity})` : ''}
+                          </Text>
+                          <Text className={cn('text-xs', hasBudget ? 'text-muted-foreground' : 'text-amber-600 dark:text-amber-300')}>
+                            {budgetLabel}
+                          </Text>
+                        </View>
+                      </View>
+                      <View className="flex-row gap-1">
+                        <IconActionButton icon="trash-can-outline" label="Delete item" variant="danger" onPress={() => removeItem(item)} />
+                      </View>
+                    </View>
+                  );
+                })}
+                {!displayItems.length ? (
+                  <Text className="py-8 text-center text-muted-foreground dark:text-zinc-400">No items yet</Text>
+                ) : null}
+              </ScrollView>
+            </>
+          ) : (
+            <View className="flex-1">
+              <Text className="mb-3 text-sm text-muted-foreground dark:text-zinc-400">
+                Fill quantity, unit price, and budget item for every line before clearing.
+              </Text>
+
+              {!completionValidation.ready ? (
+                <View className="mb-3 gap-1 rounded-md border border-amber-400/40 bg-amber-50 px-3 py-2 dark:border-amber-500/30 dark:bg-amber-950/20">
+                  {completionValidation.missingQuantity.length ? (
+                    <Text className="text-xs text-amber-700 dark:text-amber-200">Missing quantity: {completionValidation.missingQuantity.length} item(s)</Text>
+                  ) : null}
+                  {completionValidation.missingPrice.length ? (
+                    <Text className="text-xs text-amber-700 dark:text-amber-200">Missing price: {completionValidation.missingPrice.length} item(s)</Text>
+                  ) : null}
+                  {completionValidation.missingBudget.length ? (
+                    <Text className="text-xs text-amber-700 dark:text-amber-200">Missing budget item: {completionValidation.missingBudget.length} item(s)</Text>
+                  ) : null}
+                  {completionValidation.nonFundedBudget.length ? (
+                    <Text className="text-xs text-amber-700 dark:text-amber-200">
+                      Non-funded budget item selected: {completionValidation.nonFundedBudget.length} item(s)
                     </Text>
-                  </View>
-                  <View className="flex-row gap-1">
-                    <IconActionButton icon="pencil-outline" label="Edit" onPress={() => {}} />
-                    <IconActionButton icon="trash-can-outline" label="Delete" variant="danger" onPress={() => removeItem(item)} />
-                  </View>
+                  ) : null}
                 </View>
-              ))}
-              {!displayItems.length && (
-                <Text className="text-center text-muted-foreground dark:text-zinc-400 py-8">No items yet</Text>
-              )}
-            </ScrollView>
-          </>
-        ) : (
-          <View className="flex-1">
-            <Text className="text-sm text-muted-foreground dark:text-zinc-400 mb-4">Finalize quantities and prices before clearing.</Text>
-            <ScrollView className="flex-1 mb-4">
-              {items.map((item) => (
-                <View key={item.id} className="flex-row items-center gap-3 p-3 border-b border-border dark:border-zinc-800">
-                  <Text className="flex-1 text-foreground dark:text-zinc-100" numberOfLines={1}>{item.name}</Text>
-                  <View className="flex-row gap-2 items-center">
-                    <AppInput
-                      value={itemInputs[item.id!]?.quantity}
-                      onChangeText={(v) => setItemInputs(prev => ({ ...prev, [item.id!]: { ...prev[item.id!], quantity: v } }))}
-                      className="w-16 h-9 text-center"
-                      placeholder="Qty"
-                      keyboardType="numeric"
-                    />
-                    <AppInput
-                      value={itemInputs[item.id!]?.price}
-                      onChangeText={(v) => setItemInputs(prev => ({ ...prev, [item.id!]: { ...prev[item.id!], price: v } }))}
-                      className="w-24 h-9 text-right"
-                      placeholder="Price"
-                      keyboardType="numeric"
-                    />
-                  </View>
-                </View>
-              ))}
-            </ScrollView>
-            <View className="flex-row gap-2">
-              <AppButton label="Cancel" onPress={() => setCompleting(false)} variant="outline" className="flex-1" />
-              <AppButton label="Done & Clear" onPress={handleDoneAndClear} className="flex-1" textClassName="text-white" />
+              ) : null}
+
+              <ScrollView className="mb-4 flex-1">
+                {items.map((item) => {
+                  if (!item.id) return null;
+                  return (
+                    <View key={item.id} className="gap-2 border-b border-border p-3 dark:border-zinc-800">
+                      <Text className="text-foreground dark:text-zinc-100" numberOfLines={1}>
+                        {item.name}
+                      </Text>
+                      <View className={cn('gap-2', isWide ? 'flex-row items-center' : '')}>
+                        <AppInput
+                          value={itemInputs[item.id]?.quantity}
+                          onChangeText={(value) =>
+                            setItemInputs((prev) => ({
+                              ...prev,
+                              [item.id!]: { ...prev[item.id!], quantity: value },
+                            }))
+                          }
+                          className={cn('h-9 text-center', isWide ? 'w-20' : 'w-full')}
+                          placeholder="Qty"
+                          keyboardType="numeric"
+                        />
+                        <AppInput
+                          value={itemInputs[item.id]?.price}
+                          onChangeText={(value) =>
+                            setItemInputs((prev) => ({
+                              ...prev,
+                              [item.id!]: { ...prev[item.id!], price: value },
+                            }))
+                          }
+                          className={cn('h-9 text-right', isWide ? 'w-28' : 'w-full')}
+                          placeholder="Price"
+                          keyboardType="decimal-pad"
+                        />
+                        <View className="flex-1">
+                          <DropdownField
+                            value={itemInputs[item.id]?.planItemId || ''}
+                            options={[
+                              { label: 'Select funded budget item', value: '' },
+                              ...fundedPlanOptions.map((row) => ({ label: row.label, value: row.id })),
+                            ]}
+                            onChange={(value) =>
+                              setItemInputs((prev) => ({
+                                ...prev,
+                                [item.id!]: { ...prev[item.id!], planItemId: value },
+                              }))
+                            }
+                            placeholder="Funded budget item"
+                            menuStrategy="inline"
+                          />
+                        </View>
+                      </View>
+                    </View>
+                  );
+                })}
+              </ScrollView>
+
+              <View className="flex-row gap-2">
+                <AppButton label="Cancel" onPress={() => setCompleting(false)} variant="outline" className="flex-1" />
+                <AppButton
+                  label="Done & Clear"
+                  onPress={handleDoneAndClear}
+                  className="flex-1"
+                  textClassName="text-white"
+                  disabled={!completionValidation.ready}
+                />
+              </View>
             </View>
-          </View>
-        )}
-      </AppCard>
-    </View>
+          )}
+        </AppCard>
+      </View>
     );
   };
 
+  const selectedImportCount = Object.values(importSelection).filter(Boolean).length;
+
   return (
-    <View className={cn("flex-1 gap-4 bg-background dark:bg-zinc-950", isWide ? "p-4" : "px-1.5 pt-1 pb-4")}>
-      {isWide && (
+    <View className={cn('flex-1 gap-4 bg-background dark:bg-zinc-950', isWide ? 'p-4' : 'px-1.5 pb-4 pt-1')}>
+      {isWide ? (
         <View className="flex-row items-center justify-between">
           <Text className="text-3xl font-bold text-foreground dark:text-zinc-50">Shopping</Text>
         </View>
-      )}
+      ) : null}
 
-      <View className={`flex-1 ${isWide ? 'flex-row gap-4' : 'flex-col'}`}>
-        {(!selectedListId || isWide) && renderLists()}
-        {(selectedListId || isWide) && renderItems()}
+      <View className={cn('flex-1', isWide ? 'flex-row gap-4' : 'flex-col')}>
+        {!selectedListId || isWide ? renderLists() : null}
+        {selectedListId || isWide ? renderItems() : null}
       </View>
 
       <AppModal open={createListOpen} onClose={() => setCreateListOpen(false)} title="New Shopping List">
         <View className="gap-4">
           <AppInput value={listDraftName} onChangeText={setListDraftName} placeholder="List name (e.g. Weekly Groceries)" />
+          {listError ? <Text className="text-xs text-destructive">{listError}</Text> : null}
           <View className="flex-row gap-2">
             <AppButton label="Cancel" onPress={() => setCreateListOpen(false)} variant="outline" />
             <AppButton label="Create" onPress={createList} textClassName="text-white" />
@@ -499,39 +744,89 @@ export default function ShoppingScreen() {
         </View>
       </AppModal>
 
+      <AppModal open={editItemOpen} onClose={() => setEditItemOpen(false)} title="Edit Shopping Item">
+        <View className="gap-3">
+          <View className="gap-1">
+            <Text className="text-xs text-muted-foreground">Item</Text>
+            <AppInput value={editDraft.name} onChangeText={(value) => setEditDraft((prev) => ({ ...prev, name: value }))} />
+          </View>
+          <View className="gap-1">
+            <Text className="text-xs text-muted-foreground">Quantity</Text>
+            <AppInput
+              value={editDraft.quantity}
+              onChangeText={(value) => setEditDraft((prev) => ({ ...prev, quantity: value }))}
+              keyboardType="numeric"
+            />
+          </View>
+          <View className="gap-1">
+            <Text className="text-xs text-muted-foreground">Budget Item</Text>
+            <DropdownField
+              value={editDraft.planItemId}
+              options={[{ label: 'Unassigned', value: '' }, ...planOptions.map((row) => ({ label: row.label, value: row.id }))]}
+              onChange={(value) => setEditDraft((prev) => ({ ...prev, planItemId: value }))}
+              placeholder="Select budget item"
+              menuStrategy="inline"
+            />
+          </View>
+          {editItemError ? <Text className="text-xs text-destructive">{editItemError}</Text> : null}
+          <View className="flex-row gap-2">
+            <AppButton label="Cancel" onPress={() => setEditItemOpen(false)} variant="outline" className="flex-1" />
+            <AppButton label="Save" onPress={saveEditedItem} className="flex-1" textClassName="text-white" />
+          </View>
+        </View>
+      </AppModal>
+
       <AppModal open={importOpen} onClose={() => setImportOpen(false)} title="Import Items">
-        <View className="gap-4">
+        <View className="gap-3">
           <AppInput
             value={importSearch}
             onChangeText={setImportSearch}
-            placeholder="Search catalog..."
-            className="mb-2"
+            placeholder="Search by item name or category"
+            style={{ height: 48 }}
+          />
+          <DropdownField
+            value={importCategoryFilter}
+            options={categoryOptions}
+            onChange={setImportCategoryFilter}
+            placeholder="Filter category"
+            menuStrategy="inline"
           />
           <ScrollView className="max-h-80">
-            {importCandidates.map((c) => (
+            {importCandidates.map((row) => (
               <Pressable
-                key={c.id}
-                onPress={() => setImportSelection(prev => ({ ...prev, [c.id!]: !prev[c.id!] }))}
+                key={row.id}
+                onPress={() => setImportSelection((prev) => ({ ...prev, [row.id!]: !prev[row.id!] }))}
                 className={cn(
-                  "flex-row items-center justify-between p-3 border-b border-border dark:border-zinc-800",
-                  importSelection[c.id!] && "bg-primary/5 dark:bg-primary/10"
+                  'border-b border-border p-3 dark:border-zinc-800',
+                  importSelection[row.id!] && 'bg-primary/5 dark:bg-primary/10'
                 )}
               >
-                <Text className="text-foreground dark:text-zinc-100">{c.name}</Text>
-                <MaterialCommunityIcons
-                  name={importSelection[c.id!] ? "checkbox-marked" : "checkbox-blank-outline"}
-                  size={20}
-                  color={importSelection[c.id!] ? "#22C55E" : "#717182"}
-                />
+                <View className="flex-row items-start justify-between gap-3">
+                  <View className="flex-1">
+                    <Text className="text-foreground dark:text-zinc-100">{row.name}</Text>
+                    <Text className="text-xs text-muted-foreground">
+                      {(row.category || 'No category') + (row.assignedPlanItemName ? ` · ${row.assignedPlanItemName}` : '')}
+                    </Text>
+                  </View>
+                  <MaterialCommunityIcons
+                    name={importSelection[row.id!] ? 'checkbox-marked' : 'checkbox-blank-outline'}
+                    size={20}
+                    color={importSelection[row.id!] ? '#22C55E' : '#717182'}
+                  />
+                </View>
               </Pressable>
             ))}
+            {!importCandidates.length ? (
+              <Text className="py-4 text-center text-sm text-muted-foreground">No items found for this filter.</Text>
+            ) : null}
           </ScrollView>
           <View className="flex-row justify-end gap-2">
             <AppButton label="Cancel" onPress={() => setImportOpen(false)} variant="outline" />
-            <AppButton 
-              label={`Import Selected (${Object.values(importSelection).filter(Boolean).length})`} 
+            <AppButton
+              label={`Import Selected (${selectedImportCount})`}
               onPress={importSelected}
               textClassName="text-white"
+              disabled={selectedImportCount === 0}
             />
           </View>
         </View>

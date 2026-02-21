@@ -1,7 +1,7 @@
 import '../global.css';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Stack, usePathname, useRouter } from 'expo-router';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, View, useWindowDimensions } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '@/providers/AuthProvider';
 import { ThemeProvider, useThemeMode } from '@/providers/ThemeProvider';
@@ -14,6 +14,8 @@ function AppGate() {
   const { ready: workspaceReady } = useWorkspace();
   const pathname = usePathname();
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const firstShellRoute = width >= 980 ? '/dashboard' : '/shopping';
 
   const [checkedOnboarding, setCheckedOnboarding] = useState(false);
   const [onboardingComplete, setOnboardingCompleteFlag] = useState(false);
@@ -50,9 +52,9 @@ function AppGate() {
     }
 
     if (onboardingComplete && user && (isOnboarding || isAuth || pathname === '/')) {
-      router.replace('/dashboard');
+      router.replace(firstShellRoute);
     }
-  }, [authReady, checkedOnboarding, onboardingComplete, pathname, router, themeReady, user, workspaceReady]);
+  }, [authReady, checkedOnboarding, firstShellRoute, onboardingComplete, pathname, router, themeReady, user, workspaceReady]);
 
   const loading = useMemo(
     () => !(authReady && themeReady && workspaceReady && checkedOnboarding),

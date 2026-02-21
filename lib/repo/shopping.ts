@@ -48,6 +48,9 @@ export type ShoppingCatalogItem = {
   name: string;
   category?: string;
   tags?: string[];
+  assignedPlanItemId?: string;
+  assignedPlanItemName?: string;
+  assignedGroup?: Group;
   createdAt?: unknown;
   updatedAt?: unknown;
 };
@@ -90,6 +93,11 @@ function normalizeCategory(input?: string) {
 
 function normalizeTags(input?: string[]) {
   return Array.isArray(input) ? input.map((tag) => String(tag).trim().toLowerCase()).filter(Boolean) : [];
+}
+
+function normalizeGroup(input?: Group) {
+  if (input === 'NEED' || input === 'WANT' || input === 'SAVINGS_DEBT') return input;
+  return undefined;
 }
 
 function catalogDocId(name: string) {
@@ -239,6 +247,10 @@ export async function upsertShoppingCatalogItem(
   const id = catalogDocId(name);
   const category = normalizeCategory(input.category);
   const tags = normalizeTags(input.tags);
+  const assignedPlanItemId = String(input.assignedPlanItemId || '').trim();
+  const assignedPlanItemName = String(input.assignedPlanItemName || '').trim();
+  const assignedGroup = normalizeGroup(input.assignedGroup);
+  const storedAssignedGroup = assignedPlanItemId ? assignedGroup ?? null : null;
   
   const docRef = doc(shoppingCatalogCol(uid), id);
   await setDoc(
@@ -247,6 +259,9 @@ export async function upsertShoppingCatalogItem(
       name,
       category,
       tags,
+      assignedPlanItemId,
+      assignedPlanItemName,
+      assignedGroup: storedAssignedGroup as any,
       updatedAt: serverTimestamp(),
       createdAt: serverTimestamp(),
     }),
@@ -267,10 +282,20 @@ export async function upsertShoppingCatalogItem(
 export async function updateShoppingCatalogItem(uid: string, id: string, patch: Partial<ShoppingCatalogItem>) {
   const tags = patch.tags ? normalizeTags(patch.tags) : patch.tags;
   const category = patch.category !== undefined ? normalizeCategory(patch.category) : undefined;
+  const assignedPlanItemId =
+    patch.assignedPlanItemId !== undefined ? String(patch.assignedPlanItemId || '').trim() : undefined;
+  const assignedPlanItemName =
+    patch.assignedPlanItemName !== undefined ? String(patch.assignedPlanItemName || '').trim() : undefined;
+  const assignedGroup = patch.assignedGroup !== undefined ? normalizeGroup(patch.assignedGroup) ?? null : undefined;
+  const normalizedAssignedGroup =
+    assignedPlanItemId !== undefined && !assignedPlanItemId ? null : assignedGroup;
   return updateDoc(doc(shoppingCatalogCol(uid), id), compactFields({
     ...patch,
     ...(tags ? { tags } : {}),
     ...(category !== undefined ? { category } : {}),
+    ...(assignedPlanItemId !== undefined ? { assignedPlanItemId } : {}),
+    ...(assignedPlanItemName !== undefined ? { assignedPlanItemName } : {}),
+    ...(normalizedAssignedGroup !== undefined ? { assignedGroup: normalizedAssignedGroup as any } : {}),
     updatedAt: serverTimestamp(),
   }) as any);
 }
@@ -308,7 +333,8 @@ export async function deleteShoppingCategory(uid: string, id: string) {
   return deleteDoc(doc(shoppingCategoriesCol(uid), id));
 }
 
-export const shoppingCatalogCsvHeader = 'name,category,tags';
+export const shoppingCatalogCsvHeader = 'name,category,tags,budgetItemName';
+const shoppingCatalogCsvLegacyHeader = 'name,category,tags';
 
 export function parseShoppingCatalogCsv(csvText: string): Omit<ShoppingCatalogItem, 'id' | 'createdAt' | 'updatedAt'>[] {
   const rawLines = csvText
@@ -318,22 +344,28 @@ export function parseShoppingCatalogCsv(csvText: string): Omit<ShoppingCatalogIt
   if (!rawLines.length) return [];
   const [headerRaw, ...lines] = rawLines;
   const header = headerRaw.replace(/^\uFEFF/, '');
-  if (header.toLowerCase() !== shoppingCatalogCsvHeader.toLowerCase()) {
-    throw new Error(`Invalid CSV header. Expected:\n${shoppingCatalogCsvHeader}`);
+  const headerNormalized = header.toLowerCase();
+  const isLegacy = headerNormalized === shoppingCatalogCsvLegacyHeader.toLowerCase();
+  if (headerNormalized !== shoppingCatalogCsvHeader.toLowerCase() && !isLegacy) {
+    throw new Error(
+      `Invalid CSV header. Expected:\n${shoppingCatalogCsvHeader}\n(legacy supported: ${shoppingCatalogCsvLegacyHeader})`
+    );
   }
 
   return lines.map((line, idx) => {
-    const [nameRaw, categoryRaw, tagsRaw] = parseCsvRecord(line);
+    const [nameRaw, categoryRaw, tagsRaw, budgetItemNameRaw] = parseCsvRecord(line);
     const name = String(nameRaw || '').trim();
     if (!name) throw new Error(`Line ${idx + 2}: name is required`);
     const tags = String(tagsRaw || '')
       .split('|')
       .map((tag) => tag.trim().toLowerCase())
       .filter(Boolean);
+    const assignedPlanItemName = String(budgetItemNameRaw || '').trim();
     return {
       name,
       category: normalizeCategory(categoryRaw),
       tags,
+      assignedPlanItemName,
     };
   });
 }
@@ -383,6 +415,9 @@ export async function backfillShoppingCatalogFromLists(uid: string) {
         name: row.name,
         category: row.category || '',
         tags: row.tags || [],
+        assignedPlanItemId: row.assignedPlanItemId || '',
+        assignedPlanItemName: row.assignedPlanItemName || '',
+        assignedGroup: row.assignedGroup,
       });
       if (row.category?.trim()) await addShoppingCategory(uid, row.category);
       count += 1;

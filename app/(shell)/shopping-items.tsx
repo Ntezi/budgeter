@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, ScrollView, Text, View } from 'react-native';
+import { Alert, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { AppCard } from '@/components/ui/AppCard';
 import { AppInput } from '@/components/ui/AppInput';
@@ -22,18 +22,24 @@ import {
   watchShoppingCatalog,
   watchShoppingCategories,
 } from '@/lib/repo/shopping';
+import { periodIdFromDate, type PeriodDoc, watchPeriods } from '@/lib/repo/periods';
+import { type PlanItem, watchPlanTotals } from '@/lib/repo/plans';
+import { fmtMoney } from '@/lib/format';
+import { planGroupLabel } from '@/lib/groups';
 import { parseTagsInput, tagsLabel, tagsToInput } from '@/lib/tags';
 
 type CatalogDraft = {
   name: string;
   category: string;
   tagsInput: string;
+  assignedPlanItemId: string;
 };
 
 type CatalogEdit = {
   name: string;
   category: string;
   tagsInput: string;
+  assignedPlanItemId: string;
   dirty: boolean;
   saving: boolean;
 };
@@ -44,11 +50,16 @@ function normalize(input: string) {
 
 export default function ShoppingItemsScreen() {
   const uid = useWorkspaceUid();
+  const { width } = useWindowDimensions();
+  const isCompact = width < 768;
 
   const [rows, setRows] = useState<ShoppingCatalogItem[]>([]);
   const [categories, setCategories] = useState<ShoppingCategory[]>([]);
+  const [periods, setPeriods] = useState<(PeriodDoc & { id: string })[]>([]);
+  const [selectedPid, setSelectedPid] = useState(periodIdFromDate());
+  const [planItems, setPlanItems] = useState<PlanItem[]>([]);
 
-  const [draft, setDraft] = useState<CatalogDraft>({ name: '', category: '', tagsInput: '' });
+  const [draft, setDraft] = useState<CatalogDraft>({ name: '', category: '', tagsInput: '', assignedPlanItemId: '' });
   const [categoryDraft, setCategoryDraft] = useState('');
   const [csvText, setCsvText] = useState(`${shoppingCatalogCsvHeader}\n`);
 
@@ -73,6 +84,21 @@ export default function ShoppingItemsScreen() {
   }, [uid]);
 
   useEffect(() => {
+    if (!uid) return;
+    return watchPeriods(uid, (next) => {
+      setPeriods(next);
+      if (!next.some((row) => row.id === selectedPid) && next[0]?.id) {
+        setSelectedPid(next[0].id);
+      }
+    });
+  }, [uid, selectedPid]);
+
+  useEffect(() => {
+    if (!uid || !selectedPid) return;
+    return watchPlanTotals(uid, selectedPid, (_totals, nextItems) => setPlanItems(nextItems));
+  }, [uid, selectedPid]);
+
+  useEffect(() => {
     setEdits((prev) => {
       const next: Record<string, CatalogEdit> = {};
       rows.forEach((row) => {
@@ -86,6 +112,7 @@ export default function ShoppingItemsScreen() {
           name: row.name || '',
           category: row.category || '',
           tagsInput: tagsToInput(row.tags),
+          assignedPlanItemId: String(row.assignedPlanItemId || ''),
           dirty: false,
           saving: false,
         };
@@ -104,6 +131,16 @@ export default function ShoppingItemsScreen() {
     () => [{ label: 'All categories', value: 'ALL' }, ...categoryNames.map((name) => ({ label: name, value: name }))],
     [categoryNames]
   );
+
+  const planOptions = useMemo(() => {
+    const rowsWithId = planItems.filter((row): row is PlanItem & { id: string } => Boolean(row.id));
+    return rowsWithId.map((row) => ({
+      value: row.id,
+      label: `${row.name} · ${fmtMoney(row.amount || 0)} · ${planGroupLabel(row.group)}`,
+      group: row.group,
+      name: row.name,
+    }));
+  }, [planItems]);
 
   const displayRows = useMemo(() => {
     const q = normalize(search);
@@ -141,6 +178,7 @@ export default function ShoppingItemsScreen() {
           name: source.name || '',
           category: source.category || '',
           tagsInput: tagsToInput(source.tags),
+          assignedPlanItemId: String(source.assignedPlanItemId || ''),
           dirty: false,
           saving: false,
         } as CatalogEdit);
@@ -148,7 +186,8 @@ export default function ShoppingItemsScreen() {
       next.dirty =
         normalize(next.name) !== normalize(source.name || '') ||
         next.category.trim() !== String(source.category || '').trim() ||
-        tagsToInput(parseTagsInput(next.tagsInput)) !== tagsToInput(source.tags);
+        tagsToInput(parseTagsInput(next.tagsInput)) !== tagsToInput(source.tags) ||
+        next.assignedPlanItemId !== String(source.assignedPlanItemId || '');
       return { ...prev, [id]: next };
     });
   }
@@ -162,6 +201,7 @@ export default function ShoppingItemsScreen() {
         name: source.name || '',
         category: source.category || '',
         tagsInput: tagsToInput(source.tags),
+        assignedPlanItemId: String(source.assignedPlanItemId || ''),
         dirty: false,
         saving: false,
       },
@@ -214,10 +254,18 @@ export default function ShoppingItemsScreen() {
     }
     const category = draft.category.trim();
     const tags = parseTagsInput(draft.tagsInput);
+    const assignedPlan = planOptions.find((row) => row.value === draft.assignedPlanItemId);
 
-    await upsertShoppingCatalogItem(uid, { name, category, tags });
+    await upsertShoppingCatalogItem(uid, {
+      name,
+      category,
+      tags,
+      assignedPlanItemId: assignedPlan?.value || '',
+      assignedPlanItemName: assignedPlan?.name || '',
+      assignedGroup: assignedPlan?.group,
+    });
     if (category) await addShoppingCategory(uid, category);
-    setDraft({ name: '', category, tagsInput: '' });
+    setDraft({ name: '', category, tagsInput: '', assignedPlanItemId: draft.assignedPlanItemId });
     setScreenError('');
   }
 
@@ -228,6 +276,7 @@ export default function ShoppingItemsScreen() {
     const name = edit.name.trim();
     const category = edit.category.trim();
     const tags = parseTagsInput(edit.tagsInput);
+    const assignedPlan = planOptions.find((option) => option.value === edit.assignedPlanItemId);
     if (!name) {
       setScreenError('Item name is required.');
       return;
@@ -235,7 +284,14 @@ export default function ShoppingItemsScreen() {
 
     setEdits((prev) => ({ ...prev, [row.id!]: { ...edit, saving: true } }));
     try {
-      const newId = await upsertShoppingCatalogItem(uid, { name, category, tags });
+      const newId = await upsertShoppingCatalogItem(uid, {
+        name,
+        category,
+        tags,
+        assignedPlanItemId: assignedPlan?.value || '',
+        assignedPlanItemName: assignedPlan?.name || '',
+        assignedGroup: assignedPlan?.group,
+      });
       if (category) await addShoppingCategory(uid, category);
       if (row.id !== newId) await deleteShoppingCatalogItem(uid, row.id);
       setEdits((prev) => ({
@@ -244,6 +300,7 @@ export default function ShoppingItemsScreen() {
           name,
           category,
           tagsInput: tagsToInput(tags),
+          assignedPlanItemId: assignedPlan?.value || '',
           dirty: false,
           saving: false,
         },
@@ -289,6 +346,11 @@ export default function ShoppingItemsScreen() {
     }
   }
 
+  const periodOptions = periods.map((row) => ({
+    label: row.title || row.id,
+    value: row.id,
+  }));
+
   return (
     <ScrollView className="flex-1" contentContainerClassName="gap-4 pb-8">
       <View className="gap-1">
@@ -296,7 +358,23 @@ export default function ShoppingItemsScreen() {
         <Text className="text-sm text-muted-foreground">Reusable shopping items library with category management and CSV import.</Text>
       </View>
 
-      <View className="grid grid-cols-1 gap-3 md:grid-cols-4">
+      <AppCard className="gap-2">
+        <Text className="text-xs uppercase tracking-wide text-muted-foreground">Budget Mapping Period</Text>
+        <View className="w-full md:w-80">
+          <DropdownField
+            value={selectedPid}
+            options={periodOptions}
+            onChange={setSelectedPid}
+            placeholder="Select period"
+            menuStrategy="inline"
+          />
+        </View>
+        <Text className="text-xs text-muted-foreground">
+          Assign each shopping item to a budget item so imported list items and transactions stay linked.
+        </Text>
+      </AppCard>
+
+      <View className="grid grid-cols-1 gap-3 md:grid-cols-5">
         <AppCard>
           <Text className="text-xs uppercase tracking-wide text-muted-foreground">Items</Text>
           <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">{rows.length}</Text>
@@ -313,6 +391,12 @@ export default function ShoppingItemsScreen() {
         <AppCard className="gap-2">
           <Text className="text-xs uppercase tracking-wide text-muted-foreground">CSV Import</Text>
           <Text className="text-xs text-muted-foreground">name,category,tags</Text>
+        </AppCard>
+        <AppCard>
+          <Text className="text-xs uppercase tracking-wide text-muted-foreground">Mapped to Budget</Text>
+          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">
+            {rows.filter((row) => String(row.assignedPlanItemId || '').trim().length > 0).length}
+          </Text>
         </AppCard>
       </View>
 
@@ -367,6 +451,16 @@ export default function ShoppingItemsScreen() {
               className="h-9"
             />
           </View>
+          <View className="min-w-[280px] flex-1 gap-1">
+            <Text className="text-xs text-muted-foreground">Budget Item</Text>
+            <DropdownField
+              value={draft.assignedPlanItemId}
+              options={[{ label: 'Unassigned', value: '' }, ...planOptions.map((row) => ({ label: row.label, value: row.value }))]}
+              onChange={(value) => setDraft((prev) => ({ ...prev, assignedPlanItemId: value }))}
+              placeholder="Link to budget item"
+              menuStrategy="inline"
+            />
+          </View>
           <IconActionButton icon="plus" label="Add shopping catalog item" onPress={addCatalogItem} />
         </View>
       </AppCard>
@@ -391,12 +485,13 @@ export default function ShoppingItemsScreen() {
         </View>
 
         <ScrollView horizontal showsHorizontalScrollIndicator>
-          <View className="min-w-[980px] flex-1">
+          <View className={isCompact ? 'min-w-[1120px] flex-1' : 'min-w-[1220px] flex-1'}>
             <View className="flex-row border-b border-border pb-2 dark:border-zinc-800">
-              <Text className="w-[280px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Name</Text>
-              <Text className="w-[220px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Category</Text>
-              <Text className="w-[280px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tags</Text>
-              <Text className="w-[180px] text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Actions</Text>
+              <Text className="w-[220px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Name</Text>
+              <Text className="w-[180px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Category</Text>
+              <Text className="w-[240px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tags</Text>
+              <Text className="w-[420px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Budget Item</Text>
+              <Text className="w-[160px] text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Actions</Text>
             </View>
 
             {displayRows.map((row) => {
@@ -412,14 +507,14 @@ export default function ShoppingItemsScreen() {
                       : 'border-border hover:bg-muted/35 dark:hover:bg-zinc-800/55'
                   }`}
                 >
-                  <View className="w-[280px] pr-2">
+                  <View className="w-[220px] pr-2">
                     {isEditing ? (
                       <AppInput value={edit.name} onChangeText={(value) => setEditField(row.id!, { name: value })} className="h-9" />
                     ) : (
                       <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{row.name}</Text>
                     )}
                   </View>
-                  <View className="w-[220px] pr-2">
+                  <View className="w-[180px] pr-2">
                     {isEditing ? (
                       <DropdownField
                         value={edit.category}
@@ -431,13 +526,28 @@ export default function ShoppingItemsScreen() {
                       <Text className="text-xs text-muted-foreground">{row.category || 'No category'}</Text>
                     )}
                   </View>
-                  <View className="w-[280px] pr-2">
+                  <View className="w-[240px] pr-2">
                     {isEditing ? (
                       <AppInput value={edit.tagsInput} onChangeText={(value) => setEditField(row.id!, { tagsInput: value })} className="h-9" placeholder="tags" />
                     ) : null}
                     <Text className="mt-1 text-xs text-muted-foreground">{tagsLabel(isEditing ? parseTagsInput(edit.tagsInput) : row.tags)}</Text>
                   </View>
-                  <View className="w-[180px] flex-row items-center justify-center gap-2">
+                  <View className="w-[420px] pr-2">
+                    {isEditing ? (
+                      <DropdownField
+                        value={edit.assignedPlanItemId}
+                        options={[{ label: 'Unassigned', value: '' }, ...planOptions.map((option) => ({ label: option.label, value: option.value }))]}
+                        onChange={(value) => setEditField(row.id!, { assignedPlanItemId: value })}
+                        placeholder="Link to budget item"
+                        menuStrategy="inline"
+                      />
+                    ) : (
+                      <Text className="text-xs text-muted-foreground">
+                        {row.assignedPlanItemName || 'Unassigned'}
+                      </Text>
+                    )}
+                  </View>
+                  <View className="w-[160px] flex-row items-center justify-center gap-2">
                     {isEditing ? (
                       <>
                         {edit.dirty ? <AppBadge label="Unsaved" variant="warning" /> : null}
@@ -467,7 +577,7 @@ export default function ShoppingItemsScreen() {
       <AppCard className="gap-3">
         <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Import CSV</Text>
         <Text className="text-xs text-muted-foreground">CSV format: {shoppingCatalogCsvHeader}</Text>
-        <Text className="text-xs text-muted-foreground">Example: Rice,Groceries,vegetables|staples</Text>
+        <Text className="text-xs text-muted-foreground">Example: Rice,Groceries,vegetables|staples,Groceries</Text>
         <Text className="text-xs text-muted-foreground">Quantity and price are intentionally excluded from this import.</Text>
         <AppInput
           value={csvText}
