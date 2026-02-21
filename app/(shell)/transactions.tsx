@@ -34,7 +34,6 @@ export default function TransactionsScreen() {
   const [transactions, setTransactions] = useState<Tx[]>([]);
   const [txEdits, setTxEdits] = useState<Record<string, TxEditState>>({});
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [templates, setTemplates] = useState<Recurring[]>([]);
   const [filter, setFilter] = useState<Filter>('ALL');
   const [formError, setFormError] = useState('');
 
@@ -58,12 +57,7 @@ export default function TransactionsScreen() {
 
   useEffect(() => {
     if (!uid || !selectedPid) return;
-    const unTx = watchTransactions(uid, selectedPid, setTransactions);
-    const unRecurring = watchRecurring(uid, setTemplates);
-    return () => {
-      unTx();
-      unRecurring();
-    };
+    return watchTransactions(uid, selectedPid, setTransactions);
   }, [uid, selectedPid]);
 
   useEffect(() => {
@@ -247,11 +241,6 @@ export default function TransactionsScreen() {
     setEditingId((prev) => (prev === id ? null : prev));
   }
 
-  async function generateRecurring() {
-    if (!uid || !selectedPid || readOnly) return;
-    await generateForPeriod(uid, selectedPid, templates);
-  }
-
   const periodOptions = periods.map((row) => ({ label: `${row.title || row.id}`, value: row.id }));
 
   return (
@@ -274,14 +263,6 @@ export default function TransactionsScreen() {
         </View>
         <View className="flex-row items-center gap-2">
           <AppBadge label={periodStatus} variant={readOnly ? 'secondary' : 'success'} />
-          <AppButton onPress={generateRecurring} variant="outline" disabled={readOnly}>
-            <View className="flex-row items-center gap-2">
-              <MaterialCommunityIcons name="refresh" size={18} color="#717182" />
-              <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">
-                {readOnly ? `Closed (${selectedPid})` : `Generate recurring (${selectedPid})`}
-              </Text>
-            </View>
-          </AppButton>
         </View>
       </View>
       {readOnly ? <Text className="text-xs text-muted-foreground">Closed budgets are view-only.</Text> : null}

@@ -46,6 +46,7 @@ export default function RecurringScreen() {
   });
   const [formError, setFormError] = useState('');
   const [tagFilter, setTagFilter] = useState('ALL');
+  const [categoryFilter, setCategoryFilter] = useState<'ALL' | 'NEED' | 'WANT' | 'SAVINGS_DEBT'>('ALL');
   const [sortMode, setSortMode] = useState<'CREATED' | 'TAG'>('CREATED');
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -70,8 +71,17 @@ export default function RecurringScreen() {
     const tags = [...new Set(rows.flatMap((row) => row.tags || []).map((tag) => String(tag).trim().toLowerCase()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
     return [{ label: 'All tags', value: 'ALL' }, ...tags.map((tag) => ({ label: `#${tag}`, value: tag }))];
   }, [rows]);
+
+  const categoryOptions = [
+    { label: 'All Categories', value: 'ALL' },
+    ...PLAN_GROUP_OPTIONS.map((opt) => ({ label: opt.label, value: opt.value })),
+  ];
+
   const displayRows = useMemo(() => {
     let out = [...rows];
+    if (categoryFilter !== 'ALL') {
+      out = out.filter((row) => (row.flow === 'INCOME' ? false : (row.group ?? 'NEED') === categoryFilter));
+    }
     if (sortMode === 'TAG' && tagFilter !== 'ALL') out = out.filter((row) => (row.tags || []).includes(tagFilter));
     if (sortMode === 'TAG') {
       out.sort((a, b) => {
@@ -82,7 +92,7 @@ export default function RecurringScreen() {
       });
     }
     return out;
-  }, [rows, sortMode, tagFilter]);
+  }, [rows, sortMode, tagFilter, categoryFilter]);
 
   async function addRow() {
     if (!uid) return;
@@ -227,7 +237,6 @@ export default function RecurringScreen() {
     name: 'w-[220px]',
     flow: 'w-[150px]',
     group: 'w-[190px]',
-    tags: 'w-[220px]',
     amount: 'w-[130px]',
     status: 'w-[110px]',
     actions: 'w-[140px]',
@@ -251,7 +260,7 @@ export default function RecurringScreen() {
         <AppButton onPress={createNextBudgetFromRecurring} disabled={recurringActionsBusy}>
           <View className="flex-row items-center gap-2">
             <MaterialCommunityIcons name="repeat" size={18} color="#FFFFFF" />
-            <Text className="text-sm font-semibold text-primary-foreground">{isCreatingNextBudget ? 'Creating...' : 'Create Next Budget'}</Text>
+            <Text className="text-sm font-semibold text-white">{isCreatingNextBudget ? 'Creating...' : 'Create Next Budget'}</Text>
           </View>
         </AppButton>
       </View>
@@ -294,11 +303,22 @@ export default function RecurringScreen() {
 
       <AppCard className="gap-3">
         <View className="flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          {sortMode === 'TAG' ? (
+          <View className="flex-row flex-wrap gap-2">
             <View className="w-full md:w-64">
-              <DropdownField value={tagFilter} options={tagOptions} onChange={setTagFilter} placeholder="Filter by tag" menuStrategy="inline" />
+              <DropdownField
+                value={categoryFilter}
+                options={categoryOptions}
+                onChange={(v) => setCategoryFilter(v as any)}
+                placeholder="Filter by category"
+                menuStrategy="inline"
+              />
             </View>
-          ) : <View />}
+            {sortMode === 'TAG' ? (
+              <View className="w-full md:w-64">
+                <DropdownField value={tagFilter} options={tagOptions} onChange={setTagFilter} placeholder="Filter by tag" menuStrategy="inline" />
+              </View>
+            ) : null}
+          </View>
           <AppSegmented
             value={sortMode}
             onChange={(value) => setSortMode(value as 'CREATED' | 'TAG')}
@@ -316,12 +336,11 @@ export default function RecurringScreen() {
         </View>
 
         <ScrollView horizontal showsHorizontalScrollIndicator>
-          <View className="min-w-[1160px] flex-1">
+          <View className="min-w-[940px] flex-1">
             <View className="flex-row border-b border-border pb-2 dark:border-zinc-800">
               <Text className={`${col.name} text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Name</Text>
               <Text className={`${col.flow} text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Type</Text>
               <Text className={`${col.group} text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Category</Text>
-              <Text className={`${col.tags} text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Tags</Text>
               <Text className={`${col.amount} text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Amount</Text>
               <Text className={`${col.status} text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Status</Text>
               <Text className={`${col.actions} text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Actions</Text>
@@ -360,14 +379,6 @@ export default function RecurringScreen() {
                     <Text className="text-xs text-muted-foreground">Income</Text>
                   </View>
                 )}
-              </View>
-              <View className={`${col.tags} pr-2`}>
-                <AppInput
-                  value={tagsToInput(draft.tags)}
-                  onChangeText={(value) => setDraft((prev) => ({ ...prev, tags: parseTagsInput(value) }))}
-                  placeholder="utilities, vegetables"
-                  className="h-9"
-                />
               </View>
               <View className={`${col.amount} pr-2`}>
                 <AppInput
@@ -461,19 +472,6 @@ export default function RecurringScreen() {
                       )
                     ) : (
                       <AppBadge label={(row.flow ?? 'EXPENSE') === 'EXPENSE' ? row.group ?? 'NEED' : 'INCOME'} variant="outline" />
-                    )}
-                  </View>
-
-                  <View className={`${col.tags} pr-2`}>
-                    {isEditing && editingRow ? (
-                      <AppInput
-                        value={tagsToInput(editingRow.tags)}
-                        onChangeText={(value) => setEditingDraft((prev) => (prev ? { ...prev, tags: parseTagsInput(value) } : prev))}
-                        className="h-9"
-                        placeholder="tags"
-                      />
-                    ) : (
-                      <Text className="text-xs text-muted-foreground">{tagsLabel(row.tags)}</Text>
                     )}
                   </View>
 

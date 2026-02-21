@@ -8,10 +8,9 @@ import { AppBadge } from '@/components/ui/AppBadge';
 import { AppSegmented } from '@/components/ui/AppSegmented';
 import { AppProgressBar } from '@/components/ui/AppProgressBar';
 import { fmtMoney } from '@/lib/format';
-import { useWorkspaceUid } from '@/providers/WorkspaceProvider';
+import { useWorkspace, useWorkspaceUid } from '@/providers/WorkspaceProvider';
 import {
   createPeriod,
-  getOrCreatePeriod,
   nextMonthMeta,
   periodIdFromDate,
   periodTitleFromId,
@@ -32,7 +31,9 @@ type CompareMode = 'AUTO' | 'MANUAL';
 export default function DashboardScreen() {
   const router = useRouter();
   const uid = useWorkspaceUid();
-  const pid = periodIdFromDate();
+  const { activePeriodId } = useWorkspace();
+  const fallbackPid = periodIdFromDate();
+  const pid = activePeriodId || fallbackPid;
 
   const [periods, setPeriods] = useState<(PeriodDoc & { id: string })[]>([]);
   const [targetPct, setTargetPct] = useState({ needs: 0.5, wants: 0.3, sd: 0.2 });
@@ -42,10 +43,10 @@ export default function DashboardScreen() {
   const [allocationTotals, setAllocationTotals] = useState({ needs: 0, wants: 0, savings: 0, total: 0 });
   const [mode, setMode] = useState<CompareMode>('AUTO');
 
+  const budgetExists = useMemo(() => periods.some((p) => p.id === pid), [periods, pid]);
+
   useEffect(() => {
     if (!uid) return;
-
-    getOrCreatePeriod(uid, pid);
 
     const unPeriod = watchPeriod(uid, pid, (period) => {
       setTargetPct(period.targetPct ?? { needs: 0.5, wants: 0.3, sd: 0.2 });
@@ -95,6 +96,13 @@ export default function DashboardScreen() {
     return current?.title || periodTitleFromId(pid);
   }, [periods, pid]);
 
+  async function handleCreateCurrentBudget() {
+    if (!uid) return;
+    await createPeriod(uid, pid, periodTitleFromId(pid));
+    await seedBudgetForNewPeriod(uid, pid);
+    await applyAllocationDefaultsForPeriod(uid, pid);
+  }
+
   async function createNextBudget() {
     if (!uid) return;
     const next = nextMonthMeta();
@@ -137,102 +145,119 @@ export default function DashboardScreen() {
 
   return (
     <ScrollView className="flex-1" contentContainerClassName="gap-5 pb-8">
-      <View className="flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <View>
-          <Text className="text-3xl font-bold text-foreground dark:text-zinc-50">Dashboard</Text>
-          <Text className="text-sm text-muted-foreground">Overview for {currentPeriodTitle}</Text>
-        </View>
-        <View className="flex-row flex-wrap gap-2">
-          <AppButton onPress={openCurrentBudget} variant="outline">
-            <View className="flex-row items-center gap-2">
-              <MaterialCommunityIcons name="wallet-outline" size={16} color="#717182" />
-              <Text className="text-sm font-medium text-foreground dark:text-zinc-50">Open Current Budget</Text>
-            </View>
-          </AppButton>
-          <AppButton onPress={createNextBudget}>
-            <View className="flex-row items-center gap-2">
-              <MaterialCommunityIcons name="plus" size={16} color="#FFFFFF" />
-              <Text className="text-sm font-medium text-primary-foreground">Create Next Budget</Text>
-            </View>
-          </AppButton>
-        </View>
-      </View>
-
-      <View className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <AppCard className="gap-1">
-          <View className="flex-row items-center justify-between">
-            <Text className="text-xs uppercase tracking-wide text-muted-foreground">Income</Text>
-            <MaterialCommunityIcons name="cash-plus" size={16} color="#16A34A" />
-          </View>
-          <Text className="text-2xl font-bold text-foreground dark:text-zinc-50">{fmtMoney(incomeTotal)}</Text>
-          <Text className="text-xs text-muted-foreground">Planned this month</Text>
-        </AppCard>
-        <AppCard className="gap-1">
-          <View className="flex-row items-center justify-between">
-            <Text className="text-xs uppercase tracking-wide text-muted-foreground">Spent</Text>
-            <MaterialCommunityIcons name="cash-minus" size={16} color="#D4183D" />
-          </View>
-          <Text className="text-2xl font-bold text-foreground dark:text-zinc-50">{fmtMoney(spentTotal)}</Text>
-          <Text className="text-xs text-muted-foreground">Transactions so far</Text>
-        </AppCard>
-        <AppCard className="gap-1">
-          <View className="flex-row items-center justify-between">
-            <Text className="text-xs uppercase tracking-wide text-muted-foreground">Net Surplus</Text>
-            <MaterialCommunityIcons name="chart-line" size={16} color={surplus >= 0 ? '#16A34A' : '#D4183D'} />
-          </View>
-          <Text className={cn('text-2xl font-bold', surplus >= 0 ? 'text-emerald-600 dark:text-emerald-300' : 'text-red-600 dark:text-red-300')}>
-            {fmtMoney(surplus)}
-          </Text>
-          <Text className="text-xs text-muted-foreground">Savings rate {savingsRate}%</Text>
-        </AppCard>
-        <AppCard className="gap-1">
-          <View className="flex-row items-center justify-between">
-            <Text className="text-xs uppercase tracking-wide text-muted-foreground">Allocated</Text>
-            <MaterialCommunityIcons name="bank-outline" size={16} color="#717182" />
-          </View>
-          <Text className="text-2xl font-bold text-foreground dark:text-zinc-50">{fmtMoney(allocationTotals.total)}</Text>
-          <Text className="text-xs text-muted-foreground">Mapped to accounts</Text>
-        </AppCard>
-      </View>
-
-      <AppCard className="gap-4">
-        <View className="gap-3 md:flex-row md:items-center md:justify-between">
-          <View>
-            <Text className="text-lg font-semibold text-foreground dark:text-zinc-50">Spending Plan</Text>
-            <Text className="text-sm text-muted-foreground">
-              {mode === 'AUTO'
-                ? 'Auto mode uses your 50/30/20 target percentages.'
-                : 'Manual mode shows real percentages from current plan totals.'}
+      {!budgetExists ? (
+        <AppCard className="items-center py-12 gap-4">
+          <MaterialCommunityIcons name="calendar-blank" size={48} color="#717182" />
+          <View className="items-center gap-1">
+            <Text className="text-xl font-bold text-foreground dark:text-zinc-50">No Active Budget</Text>
+            <Text className="text-sm text-muted-foreground text-center px-8">
+              There is no budget for {currentPeriodTitle}. Create one to start tracking.
             </Text>
           </View>
-          <AppSegmented
-            value={mode}
-            onChange={setMode}
-            compact
-            options={[
-              { label: 'Auto 50/30/20', value: 'AUTO' },
-              { label: 'Manual Real %', value: 'MANUAL' },
-            ]}
-          />
-        </View>
-
-        <View className="gap-4">
-          {rows.map((row) => {
-            const progress = row.target > 0 ? (row.actual / row.target) * 100 : 0;
-            return (
-              <View key={row.label} className="gap-2">
-                <View className="flex-row items-center justify-between">
-                  <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{row.label}</Text>
-                  <Text className="text-xs text-muted-foreground">
-                    {fmtMoney(row.actual)} / {fmtMoney(row.target)} · {Math.round(row.percent)}%
-                  </Text>
+          <AppButton onPress={handleCreateCurrentBudget} textClassName="text-white">
+            Create Budget for {currentPeriodTitle}
+          </AppButton>
+        </AppCard>
+      ) : (
+        <>
+          <View className="flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <View>
+              <Text className="text-3xl font-bold text-foreground dark:text-zinc-50">Dashboard</Text>
+              <Text className="text-sm text-muted-foreground">Overview for {currentPeriodTitle}</Text>
+            </View>
+            <View className="flex-row flex-wrap gap-2">
+              <AppButton onPress={openCurrentBudget} variant="outline">
+                <View className="flex-row items-center gap-2">
+                  <MaterialCommunityIcons name="wallet-outline" size={16} color="#717182" />
+                  <Text className="text-sm font-medium text-foreground dark:text-zinc-50">Open Current Budget</Text>
                 </View>
-                <AppProgressBar value={progress} indicatorClassName={row.color} />
+              </AppButton>
+              <AppButton onPress={createNextBudget}>
+                <View className="flex-row items-center gap-2">
+                  <MaterialCommunityIcons name="plus" size={16} color="#FFFFFF" />
+                  <Text className="text-sm font-medium text-white">Create Next Budget</Text>
+                </View>
+              </AppButton>
+            </View>
+          </View>
+
+          <View className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <AppCard className="gap-1">
+              <View className="flex-row items-center justify-between">
+                <Text className="text-xs uppercase tracking-wide text-muted-foreground">Income</Text>
+                <MaterialCommunityIcons name="cash-plus" size={16} color="#16A34A" />
               </View>
-            );
-          })}
-        </View>
-      </AppCard>
+              <Text className="text-2xl font-bold text-foreground dark:text-zinc-50">{fmtMoney(incomeTotal)}</Text>
+              <Text className="text-xs text-muted-foreground">Planned this month</Text>
+            </AppCard>
+            <AppCard className="gap-1">
+              <View className="flex-row items-center justify-between">
+                <Text className="text-xs uppercase tracking-wide text-muted-foreground">Spent</Text>
+                <MaterialCommunityIcons name="cash-minus" size={16} color="#D4183D" />
+              </View>
+              <Text className="text-2xl font-bold text-foreground dark:text-zinc-50">{fmtMoney(spentTotal)}</Text>
+              <Text className="text-xs text-muted-foreground">Transactions so far</Text>
+            </AppCard>
+            <AppCard className="gap-1">
+              <View className="flex-row items-center justify-between">
+                <Text className="text-xs uppercase tracking-wide text-muted-foreground">Net Surplus</Text>
+                <MaterialCommunityIcons name="chart-line" size={16} color={surplus >= 0 ? '#16A34A' : '#D4183D'} />
+              </View>
+              <Text className={cn('text-2xl font-bold', surplus >= 0 ? 'text-emerald-600 dark:text-emerald-300' : 'text-red-600 dark:text-red-300')}>
+                {fmtMoney(surplus)}
+              </Text>
+              <Text className="text-xs text-muted-foreground">Savings rate {savingsRate}%</Text>
+            </AppCard>
+            <AppCard className="gap-1">
+              <View className="flex-row items-center justify-between">
+                <Text className="text-xs uppercase tracking-wide text-muted-foreground">Allocated</Text>
+                <MaterialCommunityIcons name="bank-outline" size={16} color="#717182" />
+              </View>
+              <Text className="text-2xl font-bold text-foreground dark:text-zinc-50">{fmtMoney(allocationTotals.total)}</Text>
+              <Text className="text-xs text-muted-foreground">Mapped to accounts</Text>
+            </AppCard>
+          </View>
+
+          <AppCard className="gap-4">
+            <View className="gap-3 md:flex-row md:items-center md:justify-between">
+              <View>
+                <Text className="text-lg font-semibold text-foreground dark:text-zinc-50">Spending Plan</Text>
+                <Text className="text-sm text-muted-foreground">
+                  {mode === 'AUTO'
+                    ? 'Auto mode uses your 50/30/20 target percentages.'
+                    : 'Manual mode shows real percentages from current plan totals.'}
+                </Text>
+              </View>
+              <AppSegmented
+                value={mode}
+                onChange={setMode}
+                compact
+                options={[
+                  { label: 'Auto 50/30/20', value: 'AUTO' },
+                  { label: 'Manual Real %', value: 'MANUAL' },
+                ]}
+              />
+            </View>
+
+            <View className="gap-4">
+              {rows.map((row) => {
+                const progress = row.target > 0 ? (row.actual / row.target) * 100 : 0;
+                return (
+                  <View key={row.label} className="gap-2">
+                    <View className="flex-row items-center justify-between">
+                      <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{row.label}</Text>
+                      <Text className="text-xs text-muted-foreground">
+                        {fmtMoney(row.actual)} / {fmtMoney(row.target)} · {Math.round(row.percent)}%
+                      </Text>
+                    </View>
+                    <AppProgressBar value={progress} indicatorClassName={row.color} />
+                  </View>
+                );
+              })}
+            </View>
+          </AppCard>
+        </>
+      )}
 
       <AppCard className="gap-3">
         <View>
@@ -268,14 +293,16 @@ export default function DashboardScreen() {
         </View>
       </AppCard>
 
-      <AppCard className="gap-3">
-        <Text className="text-base font-semibold text-foreground dark:text-zinc-50">Account Allocation Snapshot ({pid})</Text>
-        <View className="flex-row flex-wrap items-center gap-2">
-          <AppBadge label={`Needs ${fmtMoney(allocationTotals.needs)}`} variant="outline" />
-          <AppBadge label={`Wants ${fmtMoney(allocationTotals.wants)}`} variant="outline" />
-          <AppBadge label={`Savings ${fmtMoney(allocationTotals.savings)}`} variant="outline" />
-        </View>
-      </AppCard>
+      {budgetExists && (
+        <AppCard className="gap-3">
+          <Text className="text-base font-semibold text-foreground dark:text-zinc-50">Account Allocation Snapshot ({pid})</Text>
+          <View className="flex-row flex-wrap items-center gap-2">
+            <AppBadge label={`Needs ${fmtMoney(allocationTotals.needs)}`} variant="outline" />
+            <AppBadge label={`Wants ${fmtMoney(allocationTotals.wants)}`} variant="outline" />
+            <AppBadge label={`Savings ${fmtMoney(allocationTotals.savings)}`} variant="outline" />
+          </View>
+        </AppCard>
+      )}
     </ScrollView>
   );
 }

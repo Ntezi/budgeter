@@ -23,7 +23,7 @@ const VARIANT_CLASS: Record<AppButtonVariant, string> = {
 };
 
 const VARIANT_TEXT_CLASS: Record<AppButtonVariant, string> = {
-  primary: 'text-primary-foreground',
+  primary: 'text-white',
   secondary: 'text-secondary-foreground dark:text-zinc-50',
   outline: 'text-foreground dark:text-zinc-50',
   ghost: 'text-foreground dark:text-zinc-50',

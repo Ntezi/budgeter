@@ -2,10 +2,11 @@ import React from 'react';
 import { Platform, Pressable, Text, View, type PressableProps } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { cn } from '@/lib/cn';
+import { useThemeMode } from '@/providers/ThemeProvider';
 
 type IconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
 
-type IconActionVariant = 'default' | 'danger' | 'muted';
+type IconActionVariant = 'default' | 'danger' | 'muted' | 'success' | 'primary';
 
 type Props = Omit<PressableProps, 'children'> & {
   icon: IconName;
@@ -16,15 +17,19 @@ type Props = Omit<PressableProps, 'children'> & {
 };
 
 const VARIANT_CLASS: Record<IconActionVariant, string> = {
-  default: 'border border-transparent bg-transparent',
-  danger: 'border border-transparent bg-transparent',
-  muted: 'border border-transparent bg-transparent',
+  default: 'border-transparent bg-transparent',
+  danger: 'border-transparent bg-transparent',
+  muted: 'border-transparent bg-transparent',
+  success: 'border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30',
+  primary: 'bg-primary border-primary dark:bg-zinc-100 dark:border-zinc-100',
 };
 
 const VARIANT_COLOR: Record<IconActionVariant, string> = {
   default: '#717182',
   danger: '#D4183D',
   muted: '#717182',
+  success: '#22C55E',
+  primary: '#FFFFFF',
 };
 
 export function IconActionButton({
@@ -41,6 +46,7 @@ export function IconActionButton({
   onBlur,
   ...props
 }: Props) {
+  const { theme } = useThemeMode();
   const [savedFlash, setSavedFlash] = React.useState(false);
   const [showTooltip, setShowTooltip] = React.useState(false);
   const timerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -66,7 +72,11 @@ export function IconActionButton({
   }
 
   const resolvedIcon: IconName = savedFlash ? 'check-circle-outline' : icon;
-  const resolvedColor = savedFlash ? '#16A34A' : VARIANT_COLOR[variant];
+  let resolvedColor = savedFlash ? '#16A34A' : VARIANT_COLOR[variant];
+
+  if (!savedFlash && variant === 'primary') {
+    resolvedColor = theme === 'dark' ? '#000000' : '#FFFFFF';
+  }
 
   return (
     <View className="relative items-center">
@@ -75,7 +85,7 @@ export function IconActionButton({
         accessibilityLabel={label}
         {...({ title: label } as any)}
         className={cn(
-          'h-8 w-8 items-center justify-center rounded-md border active:opacity-80',
+          'h-8 w-8 items-center justify-center rounded-md active:opacity-80',
           VARIANT_CLASS[variant],
           savedFlash && 'border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-900/30',
           disabled && 'opacity-50',

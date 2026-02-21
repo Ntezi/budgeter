@@ -232,15 +232,17 @@ export function watchShoppingCatalog(uid: string, cb: (rows: ShoppingCatalogItem
 
 export async function upsertShoppingCatalogItem(
   uid: string,
-  input: Omit<ShoppingCatalogItem, 'id' | 'createdAt' | 'updatedAt'>
+  input: Omit<ShoppingCatalogItem, 'id' | 'createdAt' | 'updatedAt'> & { price?: number; quantity?: number }
 ) {
   const name = String(input.name || '').trim();
   if (!name) throw new Error('Shopping item name is required.');
   const id = catalogDocId(name);
   const category = normalizeCategory(input.category);
   const tags = normalizeTags(input.tags);
+  
+  const docRef = doc(shoppingCatalogCol(uid), id);
   await setDoc(
-    doc(shoppingCatalogCol(uid), id),
+    docRef,
     compactFields({
       name,
       category,
@@ -250,6 +252,15 @@ export async function upsertShoppingCatalogItem(
     }),
     { merge: true }
   );
+
+  if (input.price !== undefined) {
+    await addDoc(collection(docRef, 'priceHistory'), {
+      price: input.price,
+      quantity: input.quantity || 1,
+      createdAt: serverTimestamp(),
+    });
+  }
+
   return id;
 }
 
@@ -334,6 +345,30 @@ export async function importShoppingCatalogCsv(uid: string, csvText: string) {
     if (row.category) await addShoppingCategory(uid, row.category);
   }
   return rows.length;
+}
+
+export type PriceHistoryEntry = {
+  id: string;
+  price: number;
+  quantity: number;
+  createdAt: number; // millis
+};
+
+export function watchPriceHistory(uid: string, itemId: string, cb: (rows: PriceHistoryEntry[]) => void) {
+  const q = query(collection(db, 'users', uid, 'shoppingCatalog', itemId, 'priceHistory'), orderBy('createdAt', 'asc'));
+  return onSnapshot(q, (snap) => {
+    const rows: PriceHistoryEntry[] = [];
+    snap.forEach((d) => {
+      const data = d.data();
+      rows.push({
+        id: d.id,
+        price: data.price ?? 0,
+        quantity: data.quantity ?? 1,
+        createdAt: data.createdAt?.toMillis?.() ?? Date.now(),
+      });
+    });
+    cb(rows);
+  });
 }
 
 export async function backfillShoppingCatalogFromLists(uid: string) {

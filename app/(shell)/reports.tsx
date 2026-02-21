@@ -7,12 +7,23 @@ import { AppProgressBar } from '@/components/ui/AppProgressBar';
 import { useWorkspaceUid } from '@/providers/WorkspaceProvider';
 import { type PeriodDoc, periodTitleFromId, watchPeriods } from '@/lib/repo/periods';
 import { fetchAccountsReport, fetchPeriodReport, type AccountReport, type PeriodReport } from '@/lib/repo/reports';
+import { watchShoppingListItems, watchShoppingLists, type ShoppingList, type ShoppingListItem } from '@/lib/repo/shopping';
+import { watchExpenses, type ExpenseItem } from '@/lib/repo/expenses';
 import { buildWorkbook, exportWorkbook } from '@/lib/export';
 import { fmtMoney } from '@/lib/format';
 import { PieChart } from '@/components/components/PieChart';
 import { Colors } from '@/lib/budget';
 import { walletTagLabel } from '@/lib/domain';
 import { useThemeMode } from '@/providers/ThemeProvider';
+
+import { DropdownField } from '@/components/ui/DropdownField';
+import { LineChart } from '@/components/components/LineChart';
+import {
+  watchShoppingCatalog,
+  watchPriceHistory,
+  type ShoppingCatalogItem,
+  type PriceHistoryEntry,
+} from '@/lib/repo/shopping';
 
 const CHART_COLORS = [Colors.needs, Colors.wants, Colors.sd];
 
@@ -140,10 +151,84 @@ export default function ReportsScreen() {
   const [accountExporting, setAccountExporting] = useState(false);
   const [loadingLatest, setLoadingLatest] = useState(false);
 
+  const [shoppingLists, setShoppingLists] = useState<ShoppingList[]>([]);
+  const [shoppingItemsByListId, setShoppingItemsByListId] = useState<Record<string, ShoppingListItem[]>>({});
+  const [expenseRows, setExpenseRows] = useState<ExpenseItem[]>([]);
+
+  const [catalog, setCatalog] = useState<ShoppingCatalogItem[]>([]);
+  const [selectedItemId, setSelectedItemId] = useState('');
+  const [priceHistory, setPriceHistory] = useState<PriceHistoryEntry[]>([]);
+
   useEffect(() => {
     if (!uid) return;
     return watchPeriods(uid, setPeriods);
   }, [uid]);
+
+  useEffect(() => {
+    if (!uid) return;
+    return watchShoppingCatalog(uid, setCatalog);
+  }, [uid]);
+
+  useEffect(() => {
+    if (!uid || !selectedItemId) {
+      setPriceHistory([]);
+      return;
+    }
+    return watchPriceHistory(uid, selectedItemId, setPriceHistory);
+  }, [uid, selectedItemId]);
+
+  useEffect(() => {
+    if (!uid) return;
+    return watchExpenses(uid, setExpenseRows);
+  }, [uid]);
+
+  useEffect(() => {
+    if (!uid) return;
+    return watchShoppingLists(uid, setShoppingLists);
+  }, [uid]);
+
+  useEffect(() => {
+    if (!uid || !shoppingLists.length) return;
+    const unsubs = shoppingLists.map((list) => {
+      if (!list.id) return () => {};
+      return watchShoppingListItems(uid, list.id, (items) => {
+        setShoppingItemsByListId((prev) => ({ ...prev, [list.id!]: items }));
+      });
+    });
+    return () => unsubs.forEach((unsub) => unsub());
+  }, [uid, shoppingLists]);
+
+  const shoppingTotals = useMemo(() => {
+    const allItems = Object.values(shoppingItemsByListId).flat();
+    const completed = allItems.filter((row) => row.completed === true).length;
+    const pending = allItems.filter((row) => row.completed !== true).length;
+    const spent = allItems.reduce((sum, row) => sum + (row.completed ? row.cost || 0 : 0), 0);
+    const totalPrice = allItems.reduce((sum, row) => {
+      const quantity = Math.max(1, Number(row.quantity || 1));
+      const estimated = Math.max(0, Number(row.price || 0)) * quantity;
+      return sum + (row.completed ? row.cost || estimated : estimated);
+    }, 0);
+    return { completed, pending, spent, totalPrice };
+  }, [shoppingItemsByListId]);
+
+  const expenseTotals = useMemo(() => {
+    const active = expenseRows.filter((row) => row.active !== false);
+    const total = active.reduce((sum, row) => sum + (row.amount || 0), 0);
+    return { count: expenseRows.length, activeCount: active.length, total };
+  }, [expenseRows]);
+
+  const itemOptions = useMemo(() => {
+    return catalog
+      .map((item) => ({ label: item.name, value: item.id || '' }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [catalog]);
+
+  const chartData = useMemo(() => {
+    return priceHistory.map((row) => ({
+      x: new Date(row.createdAt).toLocaleDateString(),
+      y: row.price,
+    }));
+  }, [priceHistory]);
 
   const loadReport = useCallback(
     async (pid: string, force?: boolean) => {
@@ -270,6 +355,77 @@ export default function ReportsScreen() {
         <Text className="text-3xl font-bold text-foreground dark:text-zinc-50">Reports</Text>
         <Text className="text-sm text-muted-foreground">Export budgets to Excel and inspect allocations/account summaries.</Text>
       </View>
+
+      <View className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <AppCard className="gap-2">
+          <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Expense Summary</Text>
+          <View className="grid grid-cols-3 gap-2">
+            <View className="rounded-md border border-border bg-muted/20 p-2 dark:border-zinc-800 dark:bg-zinc-800/30">
+              <Text className="text-[10px] uppercase tracking-wide text-muted-foreground">Templates</Text>
+              <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">{expenseTotals.count}</Text>
+            </View>
+            <View className="rounded-md border border-border bg-muted/20 p-2 dark:border-zinc-800 dark:bg-zinc-800/30">
+              <Text className="text-[10px] uppercase tracking-wide text-muted-foreground">Active</Text>
+              <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">{expenseTotals.activeCount}</Text>
+            </View>
+            <View className="rounded-md border border-border bg-muted/20 p-2 dark:border-zinc-800 dark:bg-zinc-800/30">
+              <Text className="text-[10px] uppercase tracking-wide text-muted-foreground">Active Total</Text>
+              <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">{fmtMoney(expenseTotals.total)}</Text>
+            </View>
+          </View>
+        </AppCard>
+
+        <AppCard className="gap-2">
+          <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Shopping Summary</Text>
+          <View className="grid grid-cols-4 gap-2">
+            <View className="rounded-md border border-border bg-muted/20 p-2 dark:border-zinc-800 dark:bg-zinc-800/30">
+              <Text className="text-[10px] uppercase tracking-wide text-muted-foreground">Pending</Text>
+              <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">{shoppingTotals.pending}</Text>
+            </View>
+            <View className="rounded-md border border-border bg-muted/20 p-2 dark:border-zinc-800 dark:bg-zinc-800/30">
+              <Text className="text-[10px] uppercase tracking-wide text-muted-foreground">Completed</Text>
+              <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">{shoppingTotals.completed}</Text>
+            </View>
+            <View className="rounded-md border border-border bg-muted/20 p-2 dark:border-zinc-800 dark:bg-zinc-800/30">
+              <Text className="text-[10px] uppercase tracking-wide text-muted-foreground">Spent</Text>
+              <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">{fmtMoney(shoppingTotals.spent)}</Text>
+            </View>
+            <View className="rounded-md border border-border bg-muted/20 p-2 dark:border-zinc-800 dark:bg-zinc-800/30">
+              <Text className="text-[10px] uppercase tracking-wide text-muted-foreground">Total Est.</Text>
+              <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">{fmtMoney(shoppingTotals.totalPrice)}</Text>
+            </View>
+          </View>
+        </AppCard>
+      </View>
+
+      <AppCard className="gap-4">
+        <View>
+          <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Shopping Price Trends</Text>
+          <Text className="text-xs text-muted-foreground">Select an item to see its price history.</Text>
+        </View>
+        
+        <View className="w-full md:w-80">
+          <DropdownField
+            value={selectedItemId}
+            options={[{ label: 'Select an item...', value: '' }, ...itemOptions]}
+            onChange={setSelectedItemId}
+            placeholder="Select an item..."
+            menuStrategy="inline"
+          />
+        </View>
+
+        {selectedItemId && chartData.length > 0 ? (
+          <View>
+            <LineChart
+              data={chartData}
+              lineColor={theme === 'dark' ? '#22C55E' : '#16A34A'}
+              axisColor={theme === 'dark' ? '#A1A1AA' : '#717182'}
+            />
+          </View>
+        ) : selectedItemId ? (
+          <Text className="text-sm text-muted-foreground py-4">No price history available for this item.</Text>
+        ) : null}
+      </AppCard>
 
       <AppCard className="gap-4">
         <View className="flex-row flex-wrap items-center justify-between gap-2">

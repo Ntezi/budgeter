@@ -11,6 +11,7 @@ export type Tx = {
   amount: number;
   group: Group;
   date?: string;          // YYYY-MM-DD
+  accountId?: string;
   categoryId?: string;
   note?: string;
   fromTemplateId?: string;

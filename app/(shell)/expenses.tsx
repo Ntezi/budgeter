@@ -282,17 +282,28 @@ export default function ExpensesScreen() {
   }
 
   async function addToBudget(row: ExpenseItem) {
-    if (!uid || !selectedPid) return;
+    if (!uid) return;
+    let targetPid = selectedPid;
+    if (!targetPid) {
+      targetPid = periodIdFromDate();
+    }
+
     const maxPriority = planItems.reduce((max, item) => Math.max(max, Number((item as any).priority) || 0), 0);
     try {
-      await addPlanItem(uid, selectedPid, {
+      await addPlanItem(uid, targetPid, {
         name: row.name,
         amount: row.amount,
         group: row.group as any,
         tags: row.tags ?? [],
         priority: maxPriority + 1,
       } as any);
-      Alert.alert('Added to budget', `${row.name} added to ${selectedPid}.`);
+
+      // Automatically deactivate from expenses
+      if (row.id) {
+        await updateExpense(uid, row.id, { active: false });
+      }
+
+      Alert.alert('Added to budget', `${row.name} added to ${targetPid} and deactivated from templates.`);
     } catch (e: unknown) {
       Alert.alert('Could not add to budget', e instanceof Error ? e.message : String(e));
     }
@@ -319,28 +330,6 @@ export default function ExpensesScreen() {
         <Text className="text-3xl font-bold text-foreground dark:text-zinc-50">Expenses</Text>
         <Text className="text-sm text-muted-foreground">Reusable expense templates for budgets and recurring items.</Text>
       </View>
-
-      <View className="grid grid-cols-1 gap-3 md:grid-cols-3">
-        <AppCard>
-          <Text className="text-xs uppercase tracking-wide text-muted-foreground">Templates</Text>
-          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">{rows.length}</Text>
-        </AppCard>
-        <AppCard>
-          <Text className="text-xs uppercase tracking-wide text-muted-foreground">Active</Text>
-          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">{activeCount}</Text>
-        </AppCard>
-        <AppCard>
-          <Text className="text-xs uppercase tracking-wide text-muted-foreground">Active total</Text>
-          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">{fmtMoney(activeTotal)}</Text>
-        </AppCard>
-      </View>
-
-      <AppCard className="gap-3">
-        <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Default period for “Add to Budget”</Text>
-        <View className="w-full md:w-80">
-          <DropdownField value={selectedPid} options={periodOptions} onChange={setSelectedPid} placeholder="Select budget period" menuStrategy="inline" />
-        </View>
-      </AppCard>
 
       <AppCard className="gap-3">
         <View className="flex-col gap-2 md:flex-row md:items-center md:justify-between">

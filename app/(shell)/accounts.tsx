@@ -8,7 +8,7 @@ import { AppBadge } from '@/components/ui/AppBadge';
 import { AppSegmented } from '@/components/ui/AppSegmented';
 import { IconActionButton } from '@/components/ui/IconActionButton';
 import { AppModal } from '@/components/ui/AppModal';
-import { useWorkspaceUid } from '@/providers/WorkspaceProvider';
+import { useWorkspace, useWorkspaceUid } from '@/providers/WorkspaceProvider';
 import { fmtMoney, parseMoney } from '@/lib/format';
 import { periodIdFromDate } from '@/lib/repo/periods';
 import { walletTypeOptions, type WalletType } from '@/lib/domain';
@@ -48,9 +48,14 @@ type EditingAccount = {
 
 export default function AccountsScreen() {
   const uid = useWorkspaceUid();
+  const { activePeriodId } = useWorkspace();
+  const [selectedPid, setSelectedPid] = useState(activePeriodId || periodIdFromDate());
+
+  useEffect(() => {
+    setSelectedPid(activePeriodId || periodIdFromDate());
+  }, [activePeriodId]);
 
   const [accounts, setAccounts] = useState<Account[]>([]);
-  const [selectedPid] = useState(periodIdFromDate());
   const [allocations, setAllocations] = useState<Allocation[]>([]);
   const [allTimeAllocations, setAllTimeAllocations] = useState<(Allocation & { periodId: string })[]>([]);
   const [periodIncomeItems, setPeriodIncomeItems] = useState<IncomeItem[]>([]);
@@ -273,7 +278,7 @@ export default function AccountsScreen() {
         <AppButton onPress={() => setCreateOpen(true)}>
           <View className="flex-row items-center gap-2">
             <MaterialCommunityIcons name="plus" size={18} color="#FFFFFF" />
-            <Text className="text-sm font-medium text-primary-foreground">Add Account</Text>
+            <Text className="text-sm font-medium text-white">Add Account</Text>
           </View>
         </AppButton>
       </View>
@@ -281,9 +286,8 @@ export default function AccountsScreen() {
       <View className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
         {accounts.map((row) => {
           const id = row.id ?? '';
-          const allocatedAllTime = totalByAccount.get(id) ?? 0;
-          const currentBalance = (row.openingBalance || 0) + allocatedAllTime;
           const periodAllocated = periodAllocatedByAccount.get(id) ?? 0;
+          const currentBalance = (row.openingBalance || 0) + periodAllocated;
           const remainingUnfunded = hasInactiveIncome ? unfundedDeductionByAccount.get(id) ?? 0 : 0;
           const assignedItems = assignedPlanItemsByAccount.get(id) ?? [];
           const reminderEnabled = row.dailyReminderEnabled === true;

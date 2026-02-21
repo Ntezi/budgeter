@@ -13,6 +13,8 @@ export type WorkspaceOption = {
 type WorkspaceContextValue = {
   ready: boolean;
   workspaceUid: string | null;
+  activePeriodId: string;
+  setActivePeriodId: (pid: string) => Promise<void>;
   workspaceOptions: WorkspaceOption[];
   setWorkspaceUid: (ownerUid: string) => Promise<void>;
   sharedMemberships: WorkspaceMember[];
@@ -24,11 +26,16 @@ function storageKeyFor(uid: string) {
   return `budgeter:workspace:${uid}`;
 }
 
+function periodStorageKeyFor(uid: string) {
+  return `budgeter:activePeriod:${uid}`;
+}
+
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const user = useAuthUser();
 
   const [ready, setReady] = useState(false);
   const [workspaceUid, setWorkspaceUidState] = useState<string | null>(null);
+  const [activePeriodId, setActivePeriodIdState] = useState<string>('');
   const [sharedMemberships, setSharedMemberships] = useState<WorkspaceMember[]>([]);
   const [storageInitialized, setStorageInitialized] = useState(false);
   const [manualWorkspaceSelectionThisSession, setManualWorkspaceSelectionThisSession] = useState(false);
@@ -36,6 +43,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!user?.uid) {
       setWorkspaceUidState(null);
+      setActivePeriodIdState('');
       setSharedMemberships([]);
       setStorageInitialized(false);
       setManualWorkspaceSelectionThisSession(false);
@@ -47,11 +55,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setReady(false);
     setStorageInitialized(false);
     setManualWorkspaceSelectionThisSession(false);
-    AsyncStorage.getItem(storageKeyFor(user.uid))
-      .then((stored) => {
+
+    Promise.all([
+      AsyncStorage.getItem(storageKeyFor(user.uid)),
+      AsyncStorage.getItem(periodStorageKeyFor(user.uid)),
+    ])
+      .then(([storedUid, storedPid]) => {
         if (!mounted) return;
-        const normalized = stored?.trim() || null;
-        setWorkspaceUidState(normalized || user.uid);
+        setWorkspaceUidState(storedUid?.trim() || user.uid);
+        setActivePeriodIdState(storedPid?.trim() || '');
       })
       .finally(() => {
         if (mounted) {
@@ -125,15 +137,23 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     await AsyncStorage.setItem(storageKeyFor(user.uid), next);
   }, [user?.uid]);
 
+  const setActivePeriodId = useCallback(async (pid: string) => {
+    if (!user?.uid) return;
+    setActivePeriodIdState(pid);
+    await AsyncStorage.setItem(periodStorageKeyFor(user.uid), pid);
+  }, [user?.uid]);
+
   const value = useMemo<WorkspaceContextValue>(
     () => ({
       ready,
       workspaceUid,
+      activePeriodId,
+      setActivePeriodId,
       workspaceOptions,
       setWorkspaceUid,
       sharedMemberships,
     }),
-    [ready, workspaceUid, workspaceOptions, sharedMemberships, setWorkspaceUid]
+    [ready, workspaceUid, activePeriodId, setActivePeriodId, workspaceOptions, sharedMemberships, setWorkspaceUid]
   );
 
   return <WorkspaceCtx.Provider value={value}>{children}</WorkspaceCtx.Provider>;
