@@ -287,8 +287,8 @@ export default function AccountsScreen() {
         {accounts.map((row) => {
           const id = row.id ?? '';
           const periodAllocated = periodAllocatedByAccount.get(id) ?? 0;
-          const currentBalance = (row.openingBalance || 0) + periodAllocated;
           const remainingUnfunded = hasInactiveIncome ? unfundedDeductionByAccount.get(id) ?? 0 : 0;
+          const currentBalance = periodAllocated - remainingUnfunded;
           const assignedItems = assignedPlanItemsByAccount.get(id) ?? [];
           const reminderEnabled = row.dailyReminderEnabled === true;
 
@@ -329,7 +329,7 @@ export default function AccountsScreen() {
                     {fmtMoney(currentBalance)}
                   </Text>
                   <Text className="text-xs text-muted-foreground">
-                    Current balance
+                    Current Allocated
                   </Text>
                   <Text className="text-xs text-muted-foreground">Allocated this period {fmtMoney(periodAllocated)}</Text>
                   {hasInactiveIncome && remainingUnfunded > 0 ? (
@@ -447,7 +447,7 @@ export default function AccountsScreen() {
               />
             </View>
             <View className="gap-1">
-              <Text className="text-xs uppercase tracking-wide text-muted-foreground">Current Amount</Text>
+              <Text className="text-xs uppercase tracking-wide text-muted-foreground">Current Amount Allocated</Text>
               <AppInput
                 value={String(editing.currentAmount || '')}
                 onChangeText={(value) =>
@@ -460,7 +460,7 @@ export default function AccountsScreen() {
             <View className="flex-row flex-wrap gap-2">
               <AppBadge label={`Allocated ${fmtMoney(editingAllocated)}`} variant="outline" />
               <AppBadge label={`Current ${fmtMoney(editingRemaining)}`} variant="outline" />
-              <AppBadge label={`Opening (derived) ${fmtMoney((editing.currentAmount || 0) - editingAllocated)}`} variant="outline" />
+              <AppBadge label={`Remaining ${fmtMoney(editingAllocated - editingRemaining)}`} variant="outline" />
             </View>
             <View className="flex-row items-center justify-between rounded-lg border border-border bg-muted/30 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/40">
               <Text className="text-sm text-muted-foreground">Daily reminder</Text>

@@ -610,6 +610,7 @@ export default function ShoppingScreen() {
                         </View>
                       </View>
                       <View className="flex-row gap-1">
+                        {isWide ? <IconActionButton icon="pencil-outline" label="Edit item" onPress={() => openEditItem(item)} />: null}
                         <IconActionButton icon="trash-can-outline" label="Delete item" variant="danger" onPress={() => removeItem(item)} />
                       </View>
                     </View>
