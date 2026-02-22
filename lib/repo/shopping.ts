@@ -30,6 +30,7 @@ export type ShoppingListItem = {
   category?: string;
   ownerUid?: string;
   tags?: string[];
+  tag?: string;
   bought?: boolean;
   cost?: number;
   completed?: boolean;
@@ -93,6 +94,16 @@ function normalizeCategory(input?: string) {
 
 function normalizeTags(input?: string[]) {
   return Array.isArray(input) ? input.map((tag) => String(tag).trim().toLowerCase()).filter(Boolean) : [];
+}
+
+function normalizeItemTag(input?: string) {
+  if (input === undefined) return undefined;
+  const value = String(input || '').trim();
+  if (!value) return '';
+  if (value.length < 1 || value.length > 10) {
+    throw new Error('Item tag must be 1 to 10 characters.');
+  }
+  return value;
 }
 
 function normalizeGroup(input?: Group) {
@@ -192,6 +203,7 @@ export async function addShoppingListItem(
   input: Omit<ShoppingListItem, 'id' | 'createdAt' | 'updatedAt'>
 ) {
   const price = Math.max(0, Number(input.price || 0));
+  const tag = normalizeItemTag(input.tag);
   return addDoc(shoppingItemsCol(uid, listId), compactFields({
     ...input,
     ownerUid: uid,
@@ -200,6 +212,7 @@ export async function addShoppingListItem(
     price,
     category: normalizeCategory(input.category),
     tags: normalizeTags(input.tags),
+    ...(tag !== undefined ? { tag } : {}),
     bought: input.bought === true,
     completed: input.completed === true,
     createdAt: serverTimestamp(),
@@ -209,6 +222,7 @@ export async function addShoppingListItem(
 
 export async function updateShoppingListItem(uid: string, listId: string, id: string, patch: Partial<ShoppingListItem>) {
   const tags = Array.isArray(patch.tags) ? normalizeTags(patch.tags) : patch.tags;
+  const tag = patch.tag === undefined ? undefined : normalizeItemTag(patch.tag);
   const quantity =
     patch.quantity === undefined ? undefined : Math.max(1, Number(patch.quantity || 1));
   const price =
@@ -221,6 +235,7 @@ export async function updateShoppingListItem(uid: string, listId: string, id: st
     ...(price !== undefined ? { price } : {}),
     ...(category !== undefined ? { category } : {}),
     ...(tags ? { tags } : {}),
+    ...(tag !== undefined ? { tag } : {}),
     updatedAt: serverTimestamp(),
   }) as any);
 }

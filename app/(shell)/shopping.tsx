@@ -52,6 +52,14 @@ function parseQuantity(input: string) {
   return Number.isFinite(value) && value > 0 ? value : 0;
 }
 
+function normalizeItemTag(input: string) {
+  return input.trim();
+}
+
+function isValidItemTag(tag: string) {
+  return tag.length >= 1 && tag.length <= 10;
+}
+
 export default function ShoppingScreen() {
   const { activePeriodId } = useWorkspace();
   const uid = useWorkspaceUid();
@@ -78,6 +86,13 @@ export default function ShoppingScreen() {
     name: '',
     quantity: '1',
     planItemId: '',
+  });
+  const [tagEditOpen, setTagEditOpen] = useState(false);
+  const [tagEditError, setTagEditError] = useState('');
+  const [tagDraft, setTagDraft] = useState({
+    id: '',
+    name: '',
+    tag: '',
   });
 
   const [planItems, setPlanItems] = useState<PlanItem[]>([]);
@@ -317,6 +332,17 @@ export default function ShoppingScreen() {
     setEditItemOpen(true);
   }
 
+  function openTagEdit(item: ShoppingListItem) {
+    if (!item.id) return;
+    setTagDraft({
+      id: item.id,
+      name: item.name || '',
+      tag: String(item.tag || ''),
+    });
+    setTagEditError('');
+    setTagEditOpen(true);
+  }
+
   async function saveEditedItem() {
     if (!uid || !selectedListId || !editDraft.id) return;
     const name = editDraft.name.trim();
@@ -344,16 +370,32 @@ export default function ShoppingScreen() {
     setEditItemError('');
   }
 
+  async function saveItemTag() {
+    if (!uid || !selectedListId || !tagDraft.id) return;
+    const nextTag = normalizeItemTag(tagDraft.tag);
+    if (!isValidItemTag(nextTag)) {
+      setTagEditError('Tag must be between 5 and 10 characters.');
+      return;
+    }
+
+    await updateShoppingListItem(uid, selectedListId, tagDraft.id, {
+      tag: nextTag,
+    });
+    setTagEditOpen(false);
+    setTagEditError('');
+  }
+
   function startCompletion() {
     const nextInputs: Record<string, CompletionInput> = {};
     items.forEach((item) => {
       if (!item.id) return;
-      const catalog = catalogRows.find((row) => normalize(row.name || '') === normalize(item.name || ''));
-      const fallbackPlan = resolvePlanForItemName(item.name || '', catalog);
+      const assignedPlanId = String(item.assignedPlanItemId || '').trim();
+      const assignedPlanName = String(item.assignedPlanItemName || '').trim();
+      const assignedByName = assignedPlanName ? planByName.get(normalize(assignedPlanName)) : null;
       nextInputs[item.id] = {
         quantity: String(item.quantity || '1'),
         price: String(item.price || ''),
-        planItemId: String(item.assignedPlanItemId || fallbackPlan?.id || ''),
+        planItemId: assignedPlanId || assignedByName?.id || '',
       };
     });
     setItemInputs(nextInputs);
@@ -588,6 +630,7 @@ export default function ShoppingScreen() {
                     planById.get(String(item.assignedPlanItemId || '').trim())?.name ||
                     'Unassigned budget item';
                   const hasBudget = Boolean(String(item.assignedPlanItemId || '').trim());
+                  const itemTag = normalizeItemTag(String(item.tag || ''));
                   return (
                     <View
                       key={item.id}
@@ -595,19 +638,24 @@ export default function ShoppingScreen() {
                     >
                       <View className="flex-row flex-1 items-center gap-3">
                         <Switch value={item.bought} onValueChange={() => toggleBought(item)} />
-                        <View className="flex-1">
-                          <Text
-                            className={cn(
-                              'text-foreground dark:text-zinc-100',
-                              item.bought && 'text-muted-foreground line-through dark:text-zinc-500'
-                            )}
-                          >
-                            {item.name} {item.quantity && item.quantity > 1 ? `(x${item.quantity})` : ''}
-                          </Text>
+                        <Pressable className="flex-1 py-1" onPress={() => openTagEdit(item)}>
+                          <View className="flex-row flex-wrap items-center gap-1">
+                            <Text
+                              className={cn(
+                                'text-foreground dark:text-zinc-100',
+                                item.bought && 'text-muted-foreground line-through dark:text-zinc-500'
+                              )}
+                            >
+                              {item.name} {item.quantity && item.quantity > 1 ? `(x${item.quantity})` : ''}
+                            </Text>
+                            {itemTag ? (
+                              <Text className="text-xs text-muted-foreground dark:text-zinc-400">[{itemTag}]</Text>
+                            ) : null}
+                          </View>
                           <Text className={cn('text-xs', hasBudget ? 'text-muted-foreground' : 'text-amber-600 dark:text-amber-300')}>
                             {budgetLabel}
                           </Text>
-                        </View>
+                        </Pressable>
                       </View>
                       <View className="flex-row gap-1">
                         {isWide ? <IconActionButton icon="pencil-outline" label="Edit item" onPress={() => openEditItem(item)} />: null}
@@ -649,11 +697,15 @@ export default function ShoppingScreen() {
               <ScrollView className="mb-4 flex-1">
                 {items.map((item) => {
                   if (!item.id) return null;
+                  const itemTag = normalizeItemTag(String(item.tag || ''));
                   return (
                     <View key={item.id} className="gap-2 border-b border-border p-3 dark:border-zinc-800">
-                      <Text className="text-foreground dark:text-zinc-100" numberOfLines={1}>
-                        {item.name}
-                      </Text>
+                      <View className="flex-row flex-wrap items-center gap-1">
+                        <Text className="text-foreground dark:text-zinc-100" numberOfLines={1}>
+                          {item.name}
+                        </Text>
+                        {itemTag ? <Text className="text-xs text-muted-foreground dark:text-zinc-400">[{itemTag}]</Text> : null}
+                      </View>
                       <View className={cn('gap-2', isWide ? 'flex-row items-center' : '')}>
                         <AppInput
                           value={itemInputs[item.id]?.quantity}
@@ -773,6 +825,35 @@ export default function ShoppingScreen() {
           <View className="flex-row gap-2">
             <AppButton label="Cancel" onPress={() => setEditItemOpen(false)} variant="outline" className="flex-1" />
             <AppButton label="Save" onPress={saveEditedItem} className="flex-1" textClassName="text-white" />
+          </View>
+        </View>
+      </AppModal>
+
+      <AppModal open={tagEditOpen} onClose={() => setTagEditOpen(false)} title="Shopping Item Tag">
+        <View className="gap-3">
+          <Text className="text-xs text-muted-foreground">
+            {tagDraft.name ? `Tag for ${tagDraft.name}` : 'Add a short tag'}
+          </Text>
+          <AppInput
+            value={tagDraft.tag}
+            onChangeText={(value) => {
+              setTagDraft((prev) => ({ ...prev, tag: value }));
+              if (tagEditError) setTagEditError('');
+            }}
+            placeholder="1 to 10 characters"
+            maxLength={10}
+          />
+          <Text className="text-xs text-muted-foreground">{normalizeItemTag(tagDraft.tag).length}/10</Text>
+          {tagEditError ? <Text className="text-xs text-destructive">{tagEditError}</Text> : null}
+          <View className="flex-row gap-2">
+            <AppButton label="Cancel" onPress={() => setTagEditOpen(false)} variant="outline" className="flex-1" />
+            <AppButton
+              label="Save Tag"
+              onPress={saveItemTag}
+              className="flex-1"
+              textClassName="text-white"
+              disabled={!isValidItemTag(normalizeItemTag(tagDraft.tag))}
+            />
           </View>
         </View>
       </AppModal>
