@@ -17,12 +17,12 @@ import {
   type PeriodDoc,
   watchPeriod,
   watchPeriods,
-  watchTransactionsTotals,
 } from '@/lib/repo/periods';
 import { watchIncomeItems } from '@/lib/repo/income';
 import { watchPlanTotals } from '@/lib/repo/plans';
 import { applyAllocationDefaultsForPeriod, watchAllocations } from '@/lib/repo/allocations';
 import { seedBudgetForNewPeriod } from '@/lib/repo/recurring';
+import { watchTransactions, type Tx } from '@/lib/repo/transactions';
 import { planGroupLabel } from '@/lib/groups';
 import { cn } from '@/lib/cn';
 
@@ -39,7 +39,7 @@ export default function DashboardScreen() {
   const [targetPct, setTargetPct] = useState({ needs: 0.5, wants: 0.3, sd: 0.2 });
   const [incomeTotal, setIncomeTotal] = useState(0);
   const [planTotals, setPlanTotals] = useState({ needs: 0, wants: 0, sd: 0 });
-  const [actualTotals, setActualTotals] = useState({ needs: 0, wants: 0, sd: 0 });
+  const [transactions, setTransactions] = useState<Tx[]>([]);
   const [allocationTotals, setAllocationTotals] = useState({ needs: 0, wants: 0, savings: 0, total: 0 });
   const [mode, setMode] = useState<CompareMode>('AUTO');
 
@@ -53,7 +53,7 @@ export default function DashboardScreen() {
     });
     const unIncome = watchIncomeItems(uid, pid, (_rows, activeTotal) => setIncomeTotal(activeTotal));
     const unPlan = watchPlanTotals(uid, pid, (totals) => setPlanTotals(totals));
-    const unActual = watchTransactionsTotals(uid, pid, setActualTotals);
+    const unTx = watchTransactions(uid, pid, setTransactions);
     const unAlloc = watchAllocations(uid, pid, (_rows, totals) => setAllocationTotals(totals));
     const unList = watchPeriods(uid, setPeriods);
 
@@ -61,11 +61,26 @@ export default function DashboardScreen() {
       unPeriod();
       unIncome();
       unPlan();
-      unActual();
+      unTx();
       unAlloc();
       unList();
     };
   }, [uid, pid]);
+
+  const actualTotals = useMemo(() => {
+    const res = { needs: 0, wants: 0, sd: 0, shopping: 0, uncategorized: 0, total: 0 };
+    transactions.forEach((tx) => {
+      const amt = tx.amount || 0;
+      res.total += amt;
+      if (tx.group === 'NEED') res.needs += amt;
+      else if (tx.group === 'WANT') res.wants += amt;
+      else res.sd += amt;
+
+      if (tx.shoppingListId || tx.shoppingItemId) res.shopping += amt;
+      if (!tx.categoryId) res.uncategorized += amt;
+    });
+    return res;
+  }, [transactions]);
 
   const autoTargets = useMemo(
     () => ({
@@ -87,7 +102,7 @@ export default function DashboardScreen() {
   );
 
   const compareTargets = mode === 'AUTO' ? autoTargets : planTotals;
-  const spentTotal = actualTotals.needs + actualTotals.wants + actualTotals.sd;
+  const spentTotal = actualTotals.total;
   const surplus = incomeTotal - spentTotal;
   const savingsRate = incomeTotal > 0 ? Math.round((surplus / incomeTotal) * 100) : 0;
 
@@ -218,6 +233,24 @@ export default function DashboardScreen() {
               </View>
               <Text className="text-2xl font-bold text-foreground dark:text-zinc-50">{fmtMoney(allocationTotals.total)}</Text>
               <Text className="text-xs text-muted-foreground">Mapped to accounts</Text>
+            </AppCard>
+            <AppCard className="gap-1">
+              <View className="flex-row items-center justify-between">
+                <Text className="text-xs uppercase tracking-wide text-muted-foreground">Shopping</Text>
+                <MaterialCommunityIcons name="cart-outline" size={16} color="#717182" />
+              </View>
+              <Text className="text-2xl font-bold text-foreground dark:text-zinc-50">{fmtMoney(actualTotals.shopping)}</Text>
+              <Text className="text-xs text-muted-foreground">From shopping lists</Text>
+            </AppCard>
+            <AppCard className="gap-1">
+              <View className="flex-row items-center justify-between">
+                <Text className="text-xs uppercase tracking-wide text-muted-foreground">Uncategorized</Text>
+                <MaterialCommunityIcons name="help-circle-outline" size={16} color={actualTotals.uncategorized > 0 ? '#D4183D' : '#717182'} />
+              </View>
+              <Text className={cn('text-2xl font-bold', actualTotals.uncategorized > 0 ? 'text-red-600 dark:text-red-300' : 'text-foreground dark:text-zinc-50')}>
+                {fmtMoney(actualTotals.uncategorized)}
+              </Text>
+              <Text className="text-xs text-muted-foreground">Needs review</Text>
             </AppCard>
           </View>
 

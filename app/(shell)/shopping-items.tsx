@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, ScrollView, Text, View, useWindowDimensions } from 'react-native';
+import { Alert, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { AppCard } from '@/components/ui/AppCard';
 import { AppInput } from '@/components/ui/AppInput';
@@ -8,6 +8,7 @@ import { AppBadge } from '@/components/ui/AppBadge';
 import { AppSegmented } from '@/components/ui/AppSegmented';
 import { DropdownField } from '@/components/ui/DropdownField';
 import { IconActionButton } from '@/components/ui/IconActionButton';
+import { AppModal } from '@/components/ui/AppModal';
 import { useWorkspaceUid } from '@/providers/WorkspaceProvider';
 import {
   addShoppingCategory,
@@ -21,6 +22,8 @@ import {
   upsertShoppingCatalogItem,
   watchShoppingCatalog,
   watchShoppingCategories,
+  watchPriceHistory,
+  type PriceHistoryEntry,
 } from '@/lib/repo/shopping';
 import { periodIdFromDate, type PeriodDoc, watchPeriods } from '@/lib/repo/periods';
 import { type PlanItem, watchPlanTotals } from '@/lib/repo/plans';
@@ -64,7 +67,6 @@ export default function ShoppingItemsScreen() {
   const [csvText, setCsvText] = useState(`${shoppingCatalogCsvHeader}\n`);
 
   const [search, setSearch] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('ALL');
   const [sortMode, setSortMode] = useState<'NAME' | 'CATEGORY'>('NAME');
 
   const [edits, setEdits] = useState<Record<string, CatalogEdit>>({});
@@ -72,6 +74,9 @@ export default function ShoppingItemsScreen() {
   const [screenError, setScreenError] = useState('');
   const [syncing, setSyncing] = useState(false);
   const [importing, setImporting] = useState(false);
+
+  const [selectedItem, setSelectedItem] = useState<ShoppingCatalogItem | null>(null);
+  const [priceHistory, setPriceHistory] = useState<PriceHistoryEntry[]>([]);
 
   useEffect(() => {
     if (!uid) return;
@@ -82,6 +87,14 @@ export default function ShoppingItemsScreen() {
       unCategories();
     };
   }, [uid]);
+
+  useEffect(() => {
+    if (!uid || !selectedItem?.id) {
+      setPriceHistory([]);
+      return;
+    }
+    return watchPriceHistory(uid, selectedItem.id, setPriceHistory);
+  }, [uid, selectedItem]);
 
   useEffect(() => {
     if (!uid) return;
@@ -127,11 +140,6 @@ export default function ShoppingItemsScreen() {
     return [...new Set([...fromCategories, ...fromRows])].sort((a, b) => a.localeCompare(b));
   }, [rows, categories]);
 
-  const categoryOptions = useMemo(
-    () => [{ label: 'All categories', value: 'ALL' }, ...categoryNames.map((name) => ({ label: name, value: name }))],
-    [categoryNames]
-  );
-
   const planOptions = useMemo(() => {
     const rowsWithId = planItems.filter((row): row is PlanItem & { id: string } => Boolean(row.id));
     return rowsWithId.map((row) => ({
@@ -149,12 +157,11 @@ export default function ShoppingItemsScreen() {
       out = out.filter((row) => {
         const name = normalize(row.name || '');
         const category = normalize(row.category || '');
-        return name.includes(q) || category.includes(q);
+        const planName = normalize(row.assignedPlanItemName || '');
+        return name.includes(q) || category.includes(q) || planName.includes(q);
       });
     }
-    if (categoryFilter !== 'ALL') {
-      out = out.filter((row) => (row.category || '') === categoryFilter);
-    }
+    // Category filter removed
     if (sortMode === 'CATEGORY') {
       out.sort((a, b) => {
         const ca = String(a.category || '');
@@ -166,7 +173,7 @@ export default function ShoppingItemsScreen() {
     }
     out.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
     return out;
-  }, [rows, search, categoryFilter, sortMode]);
+  }, [rows, search, sortMode]);
 
   function setEditField(id: string, patch: Partial<CatalogEdit>) {
     const source = rows.find((row) => row.id === id);
@@ -468,10 +475,7 @@ export default function ShoppingItemsScreen() {
       <AppCard className="gap-3">
         <View className="flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <View className="w-full md:w-72">
-            <AppInput value={search} onChangeText={setSearch} placeholder="Search by name or category" className="h-9" />
-          </View>
-          <View className="w-full md:w-64">
-            <DropdownField value={categoryFilter} options={categoryOptions} onChange={setCategoryFilter} placeholder="Filter by category" menuStrategy="inline" />
+            <AppInput value={search} onChangeText={setSearch} placeholder="Search by name, category or budget..." className="h-9" />
           </View>
           <AppSegmented
             value={sortMode}
@@ -498,8 +502,9 @@ export default function ShoppingItemsScreen() {
               if (!row.id || !edit) return null;
               const isEditing = editingId === row.id;
               return (
-                <View
+                <Pressable
                   key={row.id}
+                  onPress={() => !isEditing && setSelectedItem(row)}
                   className={`flex-row items-center border-b py-2 dark:border-zinc-800 ${
                     edit.dirty
                       ? 'border-primary/40 bg-primary/5 dark:bg-zinc-800/70'
@@ -554,7 +559,7 @@ export default function ShoppingItemsScreen() {
                       </>
                     )}
                   </View>
-                </View>
+                </Pressable>
               );
             })}
 
@@ -593,6 +598,53 @@ export default function ShoppingItemsScreen() {
           </View>
         </AppCard>
       ) : null}
+
+      <AppModal
+        open={Boolean(selectedItem)}
+        onClose={() => setSelectedItem(null)}
+        title={selectedItem?.name || 'Item Details'}
+      >
+        <View className="gap-4">
+          <View className="flex-row flex-wrap gap-4">
+            <View>
+              <Text className="text-xs text-muted-foreground">Category</Text>
+              <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{selectedItem?.category || 'None'}</Text>
+            </View>
+            <View>
+              <Text className="text-xs text-muted-foreground">Budget Item</Text>
+              <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{selectedItem?.assignedPlanItemName || 'Unassigned'}</Text>
+            </View>
+            <View>
+              <Text className="text-xs text-muted-foreground">Last Price</Text>
+              <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{fmtMoney(selectedItem?.lastPrice || 0)}</Text>
+            </View>
+          </View>
+
+          <View className="gap-2">
+            <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Price History</Text>
+            <ScrollView className="max-h-60 rounded-md border border-border bg-muted/20 dark:border-zinc-800 dark:bg-zinc-800/30">
+              {priceHistory.length ? (
+                priceHistory.map((entry) => (
+                  <View key={entry.id} className="flex-row justify-between border-b border-border px-3 py-2 last:border-b-0 dark:border-zinc-800">
+                    <Text className="text-sm text-foreground dark:text-zinc-50">
+                      {new Date(entry.createdAt).toLocaleDateString()}
+                    </Text>
+                    <Text className="text-sm font-medium text-foreground dark:text-zinc-50">
+                      {fmtMoney(entry.price)} {entry.quantity > 1 ? `(x${entry.quantity})` : ''}
+                    </Text>
+                  </View>
+                ))
+              ) : (
+                <Text className="p-4 text-sm text-muted-foreground">No purchase history found.</Text>
+              )}
+            </ScrollView>
+          </View>
+
+          <View className="flex-row justify-end">
+            <AppButton variant="outline" label="Close" onPress={() => setSelectedItem(null)} />
+          </View>
+        </View>
+      </AppModal>
     </ScrollView>
   );
 }

@@ -820,12 +820,34 @@ export default function ReportsScreen() {
         </View>
 
         {selectedItemId && chartData.length > 0 ? (
-          <View>
-            <LineChart
-              data={chartData}
-              lineColor={theme === 'dark' ? '#22C55E' : '#16A34A'}
-              axisColor={theme === 'dark' ? '#A1A1AA' : '#717182'}
-            />
+          <View className="gap-4">
+            <View>
+              <LineChart
+                data={chartData}
+                lineColor={theme === 'dark' ? '#22C55E' : '#16A34A'}
+                axisColor={theme === 'dark' ? '#A1A1AA' : '#717182'}
+              />
+            </View>
+            <View className="rounded-md border border-border bg-muted/20 dark:border-zinc-800 dark:bg-zinc-800/30">
+              <View className="flex-row border-b border-border px-3 py-2 dark:border-zinc-800">
+                <Text className="w-[120px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Date</Text>
+                <Text className="flex-1 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Price</Text>
+                <Text className="w-[80px] text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Qty</Text>
+              </View>
+              {priceHistory.map((row) => (
+                <View key={row.id} className="flex-row border-b border-border px-3 py-2 last:border-b-0 dark:border-zinc-800">
+                  <Text className="w-[120px] text-sm text-foreground dark:text-zinc-50">
+                    {new Date(row.createdAt).toLocaleDateString()}
+                  </Text>
+                  <Text className="flex-1 text-right text-sm font-medium text-foreground dark:text-zinc-50">
+                    {fmtMoney(row.price)}
+                  </Text>
+                  <Text className="w-[80px] text-right text-sm text-muted-foreground">
+                    {row.quantity}
+                  </Text>
+                </View>
+              ))}
+            </View>
           </View>
         ) : selectedItemId ? (
           <Text className="text-sm text-muted-foreground py-4">No price history available for this item.</Text>

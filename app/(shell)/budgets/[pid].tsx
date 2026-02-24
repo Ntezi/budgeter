@@ -56,8 +56,9 @@ const RECONCILE_PINNED_GROUP_ORDER: Record<PlanGroup, number> = {
 
 type SectionKey = (typeof SECTION_OPTIONS)[number]['value'];
 type PlanWithId = PlanItem & { id: string; priority: number };
-type ReconcileRow = PlanWithId & { funded: number; unfunded: number; fundingOrder: number };
-type SpendingRow = PlanWithId & { spent: number; remaining: number };
+type SpendFlag = 'NOT_SPENT' | 'PARTIAL_SPENT' | 'SPENT';
+type ReconcileRow = PlanWithId & { funded: number; unfunded: number; fundingOrder: number; spendFlag: SpendFlag; prioritized: boolean };
+type SpendingRow = PlanWithId & { spent: number; remaining: number; spendFlag: SpendFlag };
 type IncomeEditState = {
   name: string;
   amount: string;
@@ -71,6 +72,14 @@ type PlanEditState = {
   dirty: boolean;
   saving: boolean;
 };
+
+function computeSpendFlag(spent: number, planned: number): SpendFlag {
+  const safeSpent = Math.max(0, Number(spent || 0));
+  const safePlanned = Math.max(0, Number(planned || 0));
+  if (safeSpent <= 0) return 'NOT_SPENT';
+  if (safePlanned > 0 && safeSpent >= safePlanned) return 'SPENT';
+  return 'PARTIAL_SPENT';
+}
 
 export default function BudgetDetailScreen() {
   const { pid } = useLocalSearchParams<{ pid: string }>();
@@ -160,7 +169,6 @@ export default function BudgetDetailScreen() {
     };
   }, [uid, pid]);
 
-  const spentItemIds = useMemo(() => new Set(transactions.map((t) => t.categoryId).filter(Boolean)), [transactions]);
   const spentByItemId = useMemo(() => {
     const totals: Record<string, number> = {};
     transactions.forEach((row) => {
@@ -170,6 +178,38 @@ export default function BudgetDetailScreen() {
     });
     return totals;
   }, [transactions]);
+
+  const plannedByItemId = useMemo(() => {
+    const totals: Record<string, number> = {};
+    planItems.forEach((row) => {
+      if (!row.id) return;
+      totals[row.id] = Number(row.amount || 0);
+    });
+    return totals;
+  }, [planItems]);
+
+  const spendFlagByItemId = useMemo(() => {
+    const flags: Record<string, SpendFlag> = {};
+    const itemIds = new Set<string>([
+      ...Object.keys(plannedByItemId),
+      ...Object.keys(spentByItemId),
+    ]);
+    itemIds.forEach((itemId) => {
+      flags[itemId] = computeSpendFlag(
+        Number(spentByItemId[itemId] || 0),
+        Number(plannedByItemId[itemId] || 0)
+      );
+    });
+    return flags;
+  }, [plannedByItemId, spentByItemId]);
+
+  const spentItemIds = useMemo(() => {
+    const out = new Set<string>();
+    Object.entries(spendFlagByItemId).forEach(([itemId, flag]) => {
+      if (flag === 'SPENT') out.add(itemId);
+    });
+    return out;
+  }, [spendFlagByItemId]);
 
   const pct = useMemo(
     () => ({
@@ -214,9 +254,10 @@ export default function BudgetDetailScreen() {
           ...row,
           spent,
           remaining: planned - spent,
+          spendFlag: spendFlagByItemId[row.id] || 'NOT_SPENT',
         };
       }),
-    [planWithPriority, spentByItemId]
+    [planWithPriority, spendFlagByItemId, spentByItemId]
   );
 
   const spendingByGroup = useMemo(() => {
@@ -400,11 +441,15 @@ export default function BudgetDetailScreen() {
   const fundingOrder = useMemo(() => {
     const rows = [...planWithPriority];
     rows.sort((a, b) => {
-      const aPinned = a.reconcilePinned === true;
-      const bPinned = b.reconcilePinned === true;
-      if (aPinned !== bPinned) return aPinned ? -1 : 1;
+      const aSpendFlag = spendFlagByItemId[a.id] || 'NOT_SPENT';
+      const bSpendFlag = spendFlagByItemId[b.id] || 'NOT_SPENT';
+      const aPrioritized =
+        aSpendFlag === 'PARTIAL_SPENT' || (a.reconcilePinned === true && aSpendFlag !== 'SPENT');
+      const bPrioritized =
+        bSpendFlag === 'PARTIAL_SPENT' || (b.reconcilePinned === true && bSpendFlag !== 'SPENT');
+      if (aPrioritized !== bPrioritized) return aPrioritized ? -1 : 1;
 
-      if (aPinned && bPinned) {
+      if (aPrioritized && bPrioritized) {
         const groupDiff = RECONCILE_PINNED_GROUP_ORDER[a.group] - RECONCILE_PINNED_GROUP_ORDER[b.group];
         if (groupDiff !== 0) return groupDiff;
       }
@@ -413,7 +458,7 @@ export default function BudgetDetailScreen() {
       return a.name.localeCompare(b.name);
     });
     return rows;
-  }, [planWithPriority]);
+  }, [planWithPriority, spendFlagByItemId]);
 
   const reconcileRows = useMemo<ReconcileRow[]>(() => {
     let remaining = incomeTotal;
@@ -421,14 +466,19 @@ export default function BudgetDetailScreen() {
       const amount = item.amount || 0;
       const funded = Math.min(amount, Math.max(remaining, 0));
       remaining = Math.max(0, remaining - amount);
+      const spendFlag = spendFlagByItemId[item.id] || 'NOT_SPENT';
+      const prioritized =
+        spendFlag === 'PARTIAL_SPENT' || (item.reconcilePinned === true && spendFlag !== 'SPENT');
       return {
         ...item,
         fundingOrder: index + 1,
         funded,
         unfunded: Math.max(0, amount - funded),
+        spendFlag,
+        prioritized,
       };
     });
-  }, [fundingOrder, incomeTotal]);
+  }, [fundingOrder, incomeTotal, spendFlagByItemId]);
 
   const reconcileByGroup = useMemo(() => {
     const grouped: Record<PlanGroup, ReconcileRow[]> = {
@@ -691,8 +741,9 @@ export default function BudgetDetailScreen() {
     setPlanEditingId((prev) => (prev === id ? null : prev));
   }
 
-  async function toggleReconcilePinned(item: PlanWithId, enabled: boolean) {
+  async function toggleReconcilePinned(item: ReconcileRow, enabled: boolean) {
     if (!uid || !pid || readOnly) return;
+    if (item.spendFlag === 'SPENT') return;
     await updatePlanItem(uid, pid, item.id, { reconcilePinned: enabled } as any);
   }
 
@@ -723,7 +774,13 @@ export default function BudgetDetailScreen() {
       Alert.alert('No account assigned', 'Please assign an account to this item before marking as spent.');
       return;
     }
-    const spentAmount = row.funded;
+    const alreadySpent = Math.max(0, Number(spentByItemId[row.id] || 0));
+    const remainingToPlanned = Math.max(0, Number(row.amount || 0) - alreadySpent);
+    if (remainingToPlanned <= 0) {
+      Alert.alert('Already spent', `${row.name} is already fully spent.`);
+      return;
+    }
+    const spentAmount = Math.min(Math.max(0, Number(row.funded || 0)), remainingToPlanned);
     if (spentAmount <= 0) return;
 
     setMarkingSpent(row.id);
@@ -737,7 +794,8 @@ export default function BudgetDetailScreen() {
         categoryId: row.id,
         note: `Spent from budget: ${row.name}`,
       } as any);
-      Alert.alert('Transaction recorded', `${row.name} marked as spent.`);
+      if (spentAmount >= remainingToPlanned) Alert.alert('Transaction recorded', `${row.name} marked as spent.`);
+      else Alert.alert('Transaction recorded', `${row.name} marked as partial spent.`);
     } catch (e: unknown) {
       Alert.alert('Error', e instanceof Error ? e.message : 'Could not record transaction.');
     } finally {
@@ -1097,7 +1155,6 @@ export default function BudgetDetailScreen() {
                   <View className="min-w-[840px] flex-1">
                     <View className="flex-row border-b border-border pb-2 dark:border-zinc-800">
                       <Text className={`${planCol.name} text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Item Name</Text>
-                      <Text className={`${planCol.tags} text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Tags</Text>
                       <Text className={`${planCol.amount} text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Amount</Text>
                       <Text className={`${planCol.actions} text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Actions</Text>
                     </View>
@@ -1132,22 +1189,6 @@ export default function BudgetDetailScreen() {
                           ) : (
                             <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{row.name}</Text>
                           )}
-                        </View>
-
-                        <View className={`${planCol.tags} pr-2`}>
-                          {readOnly || isSpent ? (
-                            <Text className="text-xs text-muted-foreground dark:text-zinc-400">{tagsLabel(row.tags)}</Text>
-                          ) : isEditing ? (
-                            <AppInput
-                              value={edit.tagsInput}
-                              onChangeText={(value) => setPlanEditField(row.id, { tagsInput: value })}
-                              placeholder="utilities, groceries"
-                              className="h-9"
-                            />
-                          ) : (
-                            <Text className="text-xs text-muted-foreground dark:text-zinc-400">{tagsLabel(row.tags)}</Text>
-                          )}
-                          {!readOnly && !isSpent && isEditing && editTags.length ? <Text className="mt-1 text-xs text-muted-foreground dark:text-zinc-400">{tagsLabel(editTags)}</Text> : null}
                         </View>
 
                         <View className={`${planCol.amount} pr-2`}>
@@ -1357,7 +1398,13 @@ export default function BudgetDetailScreen() {
                             {fmtMoney(row.remaining)}
                           </Text>
                           <View className="w-[120px] items-center">
-                            {row.spent > 0 ? <AppBadge label="Spent" variant="success" /> : <AppBadge label="Pending" variant="secondary" />}
+                            {row.spendFlag === 'SPENT' ? (
+                              <AppBadge label="Spent" variant="success" />
+                            ) : row.spendFlag === 'PARTIAL_SPENT' ? (
+                              <AppBadge label="Partial spent" variant="warning" />
+                            ) : (
+                              <AppBadge label="Pending" variant="secondary" />
+                            )}
                           </View>
                         </View>
                       ))}
@@ -1395,9 +1442,9 @@ export default function BudgetDetailScreen() {
             </View>
 
             <Text className="text-xs text-muted-foreground">
-              Toggle any row as prioritized to fund it first. Prioritized rows are funded in this order: Needs → Savings-Debt → Wants, then by item priority.
+              Partial spent rows are auto-prioritized. You can also toggle rows to prioritize funding in this order: Needs → Savings-Debt → Wants, then by item priority.
             </Text>
-            <Text className="text-xs text-muted-foreground">Rows not toggled continue after prioritized rows using item priority.</Text>
+            <Text className="text-xs text-muted-foreground">Fully spent rows are no longer available for prioritization.</Text>
           </AppCard>
 
           {PLAN_GROUP_OPTIONS.map((group) => {
@@ -1419,13 +1466,14 @@ export default function BudgetDetailScreen() {
 
                 {rows.length ? (
                   <ScrollView horizontal showsHorizontalScrollIndicator>
-                    <View className="min-w-[1000px] flex-1">
+                    <View className="min-w-[1140px] flex-1">
                       <View className="flex-row border-b border-border pb-2 dark:border-zinc-800">
                         <Text className="w-[260px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Item</Text>
                         <Text className="w-[120px] text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Planned</Text>
                         <Text className="w-[120px] text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Funded</Text>
                         <Text className="w-[120px] text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Unfunded</Text>
-                        <Text className="w-[100px] text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</Text>
+                        <Text className="w-[100px] text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Funding</Text>
+                        <Text className="w-[140px] text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Spend Flag</Text>
                         <Text className="w-[200px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Account</Text>
                         <Text className="w-[100px] text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Spent</Text>
                         <Text className="w-[100px] text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Prioritize</Text>
@@ -1435,13 +1483,25 @@ export default function BudgetDetailScreen() {
                         const allocation = allocationByItemId[row.id];
                         const statusLabel = row.unfunded <= 0 ? 'Funded' : row.funded > 0 ? 'Partial' : 'Unfunded';
                         const statusVariant = row.unfunded <= 0 ? 'success' : row.funded > 0 ? 'warning' : 'danger';
-                        const isSpent = spentItemIds.has(row.id);
+                        const isSpent = row.spendFlag === 'SPENT';
+                        const spendFlagLabel =
+                          row.spendFlag === 'SPENT'
+                            ? 'Spent'
+                            : row.spendFlag === 'PARTIAL_SPENT'
+                              ? 'Partial spent'
+                              : 'Not spent';
+                        const spendFlagVariant =
+                          row.spendFlag === 'SPENT'
+                            ? 'success'
+                            : row.spendFlag === 'PARTIAL_SPENT'
+                              ? 'warning'
+                              : 'secondary';
                         return (
                           <View
                             key={row.id}
                             className={cn(
                               'flex-row items-center border-b border-border py-2 dark:border-zinc-800',
-                              row.reconcilePinned === true ? 'bg-primary/5 dark:bg-zinc-800/65' : 'hover:bg-muted/35 dark:hover:bg-zinc-800/55'
+                              row.prioritized ? 'bg-primary/5 dark:bg-zinc-800/65' : 'hover:bg-muted/35 dark:hover:bg-zinc-800/55'
                             )}
                           >
                             <View className="w-[260px] pr-2">
@@ -1455,6 +1515,10 @@ export default function BudgetDetailScreen() {
 
                             <View className="w-[100px] items-center">
                               <AppBadge label={statusLabel} variant={statusVariant as any} />
+                            </View>
+
+                            <View className="w-[140px] items-center">
+                              <AppBadge label={spendFlagLabel} variant={spendFlagVariant as any} />
                             </View>
 
                             <View className="w-[200px] pr-2">
@@ -1473,7 +1537,7 @@ export default function BudgetDetailScreen() {
                             <View className="w-[100px] items-center">
                               {isSpent ? (
                                 <AppBadge label="Spent" variant="success" />
-                              ) : row.funded > 0 && row.reconcilePinned === true ? (
+                              ) : row.funded > 0 && row.prioritized ? (
                                 <IconActionButton
                                   icon={markingSpent === row.id ? "loading" : "cash-check"}
                                   label="Mark Spent"
@@ -1486,9 +1550,21 @@ export default function BudgetDetailScreen() {
 
                             <View className="w-[100px] items-center">
                               {readOnly ? (
-                                <AppBadge label={row.reconcilePinned ? 'On' : 'Off'} variant={row.reconcilePinned ? 'success' : 'secondary'} />
+                                row.spendFlag === 'PARTIAL_SPENT' ? (
+                                  <AppBadge label="Auto" variant="warning" />
+                                ) : row.spendFlag === 'SPENT' ? (
+                                  <AppBadge label="Spent" variant="secondary" />
+                                ) : (
+                                  <AppBadge label={row.reconcilePinned ? 'On' : 'Off'} variant={row.reconcilePinned ? 'success' : 'secondary'} />
+                                )
                               ) : (
-                                <Switch value={row.reconcilePinned === true} onValueChange={(value) => void toggleReconcilePinned(row, value)} disabled={isSpent} />
+                                row.spendFlag === 'PARTIAL_SPENT' ? (
+                                  <AppBadge label="Auto" variant="warning" />
+                                ) : row.spendFlag === 'SPENT' ? (
+                                  <AppBadge label="Spent" variant="secondary" />
+                                ) : (
+                                  <Switch value={row.reconcilePinned === true} onValueChange={(value) => void toggleReconcilePinned(row, value)} />
+                                )
                               )}
                             </View>
                           </View>

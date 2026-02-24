@@ -359,7 +359,6 @@ export default function ExpensesScreen() {
             <View className="flex-row border-b border-border pb-2 dark:border-zinc-800">
               <Text className="w-[260px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Name</Text>
               <Text className="w-[220px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Category</Text>
-              <Text className="w-[220px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tags</Text>
               <Text className="w-[140px] text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Amount</Text>
               <Text className="w-[130px] text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Active</Text>
               <Text className="w-[320px] text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Actions</Text>
@@ -380,14 +379,6 @@ export default function ExpensesScreen() {
                   compact
                   onChange={(value) => setDraft((prev) => ({ ...prev, group: value as any }))}
                   options={PLAN_GROUP_OPTIONS}
-                />
-              </View>
-              <View className="w-[220px] pr-2">
-                <AppInput
-                  value={tagsToInput(draft.tags)}
-                  onChangeText={(value) => setDraft((prev) => ({ ...prev, tags: parseTagsInput(value) }))}
-                  placeholder="utilities, vegetables"
-                  className="h-9"
                 />
               </View>
               <View className="w-[140px] pr-2">
@@ -450,19 +441,6 @@ export default function ExpensesScreen() {
                   ) : (
                     <Text className="text-sm text-muted-foreground">{planGroupLabel(row.group)}</Text>
                   )}
-                </View>
-                <View className="w-[220px] pr-2">
-                  {isEditing ? (
-                    <AppInput
-                      value={edit.tagsInput}
-                      onChangeText={(value) => setEditField(row.id!, { tagsInput: value })}
-                      placeholder="tags"
-                      className="h-9"
-                    />
-                  ) : (
-                    <Text className="text-xs text-muted-foreground">{tagsLabel(row.tags)}</Text>
-                  )}
-                  {isEditing && editTags.length ? <Text className="mt-1 text-xs text-muted-foreground">{tagsLabel(editTags)}</Text> : null}
                 </View>
                 <View className="w-[140px] pr-2">
                   {isEditing ? (

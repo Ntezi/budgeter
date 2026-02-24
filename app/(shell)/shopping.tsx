@@ -259,6 +259,14 @@ export default function ShoppingScreen() {
     [selectedItems]
   );
 
+  const completionTargetItems = useMemo(() => {
+    if (selectedItems.length > 0) return selectedItems;
+    return displayItems;
+  }, [displayItems, selectedItems]);
+
+  const completionScopeLabel = selectedItems.length > 0 ? 'selected items' : 'shopping items';
+  const isShoppingListEmpty = displayItems.length === 0;
+
   function resolvePlanForItemName(name: string, catalog?: ShoppingCatalogItem | null) {
     const catalogPlanId = String(catalog?.assignedPlanItemId || '').trim();
     if (catalogPlanId) {
@@ -412,20 +420,26 @@ export default function ShoppingScreen() {
   }
 
   function startCompletion() {
+    if (!completionTargetItems.length) {
+      Alert.alert('No items to complete', 'Add shopping items first, then start completion.');
+      return;
+    }
+
     const nextInputs: Record<string, CompletionInput> = {};
-    items.forEach((item) => {
+    completionTargetItems.forEach((item) => {
       if (!item.id) return;
       const assignedPlanId = String(item.assignedPlanItemId || '').trim();
       const assignedPlanName = String(item.assignedPlanItemName || '').trim();
       const assignedByName = assignedPlanName ? planByName.get(normalize(assignedPlanName)) : null;
-      
+
       const qty = item.quantity || 1;
+      const savedTotal = Math.max(0, Number(item.cost || 0));
       const unitPrice = item.price || 0;
-      const total = unitPrice > 0 ? unitPrice * qty : 0;
+      const total = savedTotal > 0 ? savedTotal : unitPrice > 0 ? unitPrice * qty : 0;
 
       nextInputs[item.id] = {
         quantity: String(qty),
-        price: total > 0 ? String(total) : '', // Pre-fill total amount
+        price: total > 0 ? String(total) : '',
         planItemId: assignedPlanId || assignedByName?.id || '',
       };
     });
@@ -439,7 +453,7 @@ export default function ShoppingScreen() {
     const missingBudget: string[] = [];
     const nonFundedBudget: string[] = [];
 
-    items.forEach((item) => {
+    completionTargetItems.forEach((item) => {
       if (!item.id) return;
       const input = itemInputs[item.id];
       const qty = parseQuantity(input?.quantity || '0');
@@ -458,38 +472,87 @@ export default function ShoppingScreen() {
       missingBudget,
       nonFundedBudget,
       ready:
-        items.length > 0 &&
+        completionTargetItems.length > 0 &&
         missingQuantity.length === 0 &&
         missingPrice.length === 0 &&
         missingBudget.length === 0 &&
         nonFundedBudget.length === 0,
     };
-  }, [fundedByPlanId, items, itemInputs, planById]);
+  }, [completionTargetItems, fundedByPlanId, itemInputs, planById]);
+
+  async function handleSaveAndBack() {
+    if (!uid || !selectedListId) return;
+    if (!completionTargetItems.length) {
+      setCompleting(false);
+      return;
+    }
+
+    try {
+      for (const item of completionTargetItems) {
+        if (!item.id) continue;
+        const input = itemInputs[item.id];
+        const quantity = parseQuantity(input?.quantity || '0');
+        const totalAmount = Math.max(0, parseMoney(input?.price || '0'));
+        const selectedPlan = planById.get(String(input?.planItemId || '').trim());
+        const planId = selectedPlan?.id || String(item.assignedPlanItemId || '').trim();
+        const planName = selectedPlan?.name || String(item.assignedPlanItemName || '').trim();
+        const planGroup = selectedPlan?.group ?? item.assignedGroup;
+
+        const patch: Partial<ShoppingListItem> = {
+          assignedPlanItemId: planId,
+          assignedPlanItemName: planName,
+          assignedGroup: planGroup,
+          cost: totalAmount > 0 ? totalAmount : 0,
+        };
+
+        if (quantity > 0) patch.quantity = quantity;
+
+        if (quantity > 0 && totalAmount > 0) {
+          const unitPrice = totalAmount / quantity;
+          patch.price = unitPrice;
+          await upsertShoppingCatalogItem(uid, {
+            name: item.name,
+            category: item.category || '',
+            tags: item.tags || [],
+            assignedPlanItemId: planId,
+            assignedPlanItemName: planName,
+            assignedGroup: planGroup,
+            price: unitPrice,
+            quantity,
+          });
+        }
+
+        await updateShoppingListItem(uid, selectedListId, item.id, patch);
+      }
+
+      setCompleting(false);
+      Alert.alert('Saved', 'Shopping progress saved. You can return later to complete.');
+    } catch {
+      Alert.alert('Error', 'Could not save shopping progress.');
+    }
+  }
 
   async function handleDoneAndClear() {
     if (!uid || !selectedListId || !selectedList) return;
     if (!completionValidation.ready) {
       Alert.alert(
         'Complete required fields',
-        'Fill quantity, price, and funded budget item for every shopping item first.'
+        `Fill quantity, total amount, and funded budget item for every ${completionScopeLabel} first.`
       );
       return;
     }
 
     try {
-      for (const item of items) {
+      for (const item of completionTargetItems) {
         if (!item.id) continue;
         const input = itemInputs[item.id];
         const quantity = parseQuantity(input?.quantity || '0');
-        // Treat input.price as Total Amount
         const totalAmount = Math.max(0, parseMoney(input?.price || '0'));
-        // Calculate Unit Price
         const unitPrice = quantity > 0 ? totalAmount / quantity : 0;
 
         const plan = planById.get(String(input?.planItemId || '').trim());
         if (!plan || !quantity || totalAmount <= 0 || !hasFundedAmount(fundedByPlanId, plan.id)) continue;
 
-        // Transaction uses Total Amount
         await addTransaction(uid, targetPid, {
           name: plan.name,
           amount: totalAmount,
@@ -503,7 +566,6 @@ export default function ShoppingScreen() {
           shoppingItemName: item.name,
         });
 
-        // Catalog uses Unit Price
         await upsertShoppingCatalogItem(uid, {
           name: item.name,
           category: item.category || '',
@@ -599,7 +661,7 @@ export default function ShoppingScreen() {
             {!completing ? (
               <View className="flex-row gap-2">
                 <AppButton label="Import" onPress={() => setImportOpen(true)} variant="outline" size="sm" />
-                <AppButton label="Complete" onPress={startCompletion} variant="outline" size="sm" />
+                <AppButton label="Complete" onPress={startCompletion} variant="outline" size="sm" disabled={isShoppingListEmpty} />
               </View>
             ) : null}
           </View>
@@ -628,7 +690,7 @@ export default function ShoppingScreen() {
             {isWide && !completing ? (
               <View className="flex-row gap-2">
                 <AppButton label="Import" onPress={() => setImportOpen(true)} variant="outline" size="sm" />
-                <AppButton label="Complete" onPress={startCompletion} variant="outline" size="sm" />
+                <AppButton label="Complete" onPress={startCompletion} variant="outline" size="sm" disabled={isShoppingListEmpty} />
               </View>
             ) : null}
           </View>
@@ -743,7 +805,7 @@ export default function ShoppingScreen() {
           ) : (
             <View className="flex-1">
               <Text className="mb-3 text-sm text-muted-foreground dark:text-zinc-400">
-                Fill quantity, total amount, and budget item for every line before clearing.
+                Fill quantity, total amount, and budget item for each {completionScopeLabel} before clearing.
               </Text>
 
               {!completionValidation.ready ? (
@@ -766,7 +828,7 @@ export default function ShoppingScreen() {
               ) : null}
 
               <ScrollView className="mb-4 flex-1">
-                {items.map((item) => {
+                {completionTargetItems.map((item) => {
                   if (!item.id) return null;
                   const itemTag = normalizeItemTag(String(item.tag || ''));
                   return (
@@ -825,14 +887,14 @@ export default function ShoppingScreen() {
                 })}
               </ScrollView>
 
-              <View className="flex-row gap-2">
-                <AppButton label="Cancel" onPress={() => setCompleting(false)} variant="outline" className="flex-1" />
+              <View className="flex-row flex-wrap gap-2">
+                <AppButton label="Cancel" onPress={() => setCompleting(false)} variant="outline" className="flex-1 min-w-[110px]" />
+                <AppButton label="Save & Back" onPress={handleSaveAndBack} variant="outline" className="flex-1 min-w-[130px]" />
                 <AppButton
                   label="Done & Clear"
                   onPress={handleDoneAndClear}
-                  className="flex-1"
+                  className="flex-1 min-w-[130px]"
                   textClassName="text-white"
-                  disabled={!completionValidation.ready}
                 />
               </View>
             </View>
