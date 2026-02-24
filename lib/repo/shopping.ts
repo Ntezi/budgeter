@@ -49,6 +49,7 @@ export type ShoppingCatalogItem = {
   name: string;
   category?: string;
   tags?: string[];
+  lastPrice?: number;
   assignedPlanItemId?: string;
   assignedPlanItemName?: string;
   assignedGroup?: Group;
@@ -274,6 +275,7 @@ export async function upsertShoppingCatalogItem(
       name,
       category,
       tags,
+      lastPrice: input.price,
       assignedPlanItemId,
       assignedPlanItemName,
       assignedGroup: storedAssignedGroup as any,

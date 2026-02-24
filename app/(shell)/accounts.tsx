@@ -26,8 +26,8 @@ import { cn } from '@/lib/cn';
 
 const GROUP_ORDER: Record<PlanItem['group'], number> = {
   NEED: 0,
-  WANT: 1,
-  SAVINGS_DEBT: 2,
+  SAVINGS_DEBT: 1,
+  WANT: 2,
 };
 
 type AccountDraft = {
@@ -133,17 +133,21 @@ export default function AccountsScreen() {
 
   const fundingOrder = useMemo(() => {
     const rows = [...planWithPriority];
-    if (hasInactiveIncome) {
-      rows.sort((a, b) => {
+    rows.sort((a, b) => {
+      const aPinned = (a as any).reconcilePinned === true;
+      const bPinned = (b as any).reconcilePinned === true;
+      if (aPinned !== bPinned) return aPinned ? -1 : 1;
+
+      if (aPinned && bPinned) {
         const groupDiff = GROUP_ORDER[a.group] - GROUP_ORDER[b.group];
         if (groupDiff !== 0) return groupDiff;
-        return a.priority - b.priority;
-      });
-      return rows;
-    }
-    rows.sort((a, b) => a.priority - b.priority);
+      }
+
+      if (a.priority !== b.priority) return a.priority - b.priority;
+      return a.name.localeCompare(b.name);
+    });
     return rows;
-  }, [hasInactiveIncome, planWithPriority]);
+  }, [planWithPriority]);
 
   const unfundedByPlanId = useMemo(() => {
     const map = new Map<string, number>();
@@ -334,7 +338,7 @@ export default function AccountsScreen() {
                   <Text className="text-xs text-muted-foreground">Allocated this period {fmtMoney(periodAllocated)}</Text>
                   {hasInactiveIncome && remainingUnfunded > 0 ? (
                     <Text className="text-xs text-amber-700 dark:text-amber-300">
-                      Remaining to fund {fmtMoney(remainingUnfunded)}
+                      Unfunded amount -{fmtMoney(remainingUnfunded)}
                     </Text>
                   ) : null}
                   <View className="mt-1 flex-row items-center justify-between rounded-md border border-border bg-muted/20 px-2 py-1.5 dark:border-zinc-800 dark:bg-zinc-800/30">
@@ -492,17 +496,20 @@ export default function AccountsScreen() {
       >
         <View className="gap-2">
           {assignedItemsViewerRows.length ? (
-            assignedItemsViewerRows.map((item) => (
-              <View key={item.id} className="flex-row items-center justify-between rounded-md border border-border bg-muted/20 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/30">
-                <Text className="flex-1 text-sm text-foreground dark:text-zinc-50" numberOfLines={1}>
-                  {item.name}
-                </Text>
-                <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{fmtMoney(item.amount)}</Text>
-                {item.unfunded > 0 ? (
-                  <Text className="text-xs text-amber-700 dark:text-amber-300">+{fmtMoney(item.unfunded)}</Text>
-                ) : null}
-              </View>
-            ))
+            assignedItemsViewerRows.map((item) => {
+              const funded = item.amount - item.unfunded;
+              return (
+                <View key={item.id} className="flex-row items-center justify-between rounded-md border border-border bg-muted/20 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/30">
+                  <Text className="flex-1 text-sm text-foreground dark:text-zinc-50" numberOfLines={1}>
+                    {item.name}
+                  </Text>
+                  <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{fmtMoney(funded)}</Text>
+                  {item.unfunded > 0 ? (
+                    <Text className="text-xs text-amber-700 dark:text-amber-300">-{fmtMoney(item.unfunded)}</Text>
+                  ) : null}
+                </View>
+              );
+            })
           ) : (
             <Text className="text-sm text-muted-foreground">No assigned budget items for this account in the current period.</Text>
           )}

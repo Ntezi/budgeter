@@ -233,6 +233,32 @@ export default function ShoppingScreen() {
     });
   }, [items]);
 
+  const estimatedTotal = useMemo(() => {
+    return displayItems.reduce((acc, item) => {
+      const unitPrice = item.price || 0;
+      if (unitPrice <= 0) return acc;
+      return acc + unitPrice * (item.quantity || 1);
+    }, 0);
+  }, [displayItems]);
+
+  const selectedItems = useMemo(
+    () => displayItems.filter((item) => item.bought),
+    [displayItems]
+  );
+
+  const selectedTotal = useMemo(() => {
+    return selectedItems.reduce((acc, item) => {
+      const unitPrice = item.price || 0;
+      if (unitPrice <= 0) return acc;
+      return acc + unitPrice * (item.quantity || 1);
+    }, 0);
+  }, [selectedItems]);
+
+  const selectedMissingUnitPriceCount = useMemo(
+    () => selectedItems.filter((item) => (item.price || 0) <= 0).length,
+    [selectedItems]
+  );
+
   function resolvePlanForItemName(name: string, catalog?: ShoppingCatalogItem | null) {
     const catalogPlanId = String(catalog?.assignedPlanItemId || '').trim();
     if (catalogPlanId) {
@@ -271,7 +297,7 @@ export default function ShoppingScreen() {
     await addShoppingListItem(uid, selectedListId, {
       name,
       quantity: 1,
-      price: 0,
+      price: catalog.lastPrice || 0,
       category: catalog.category || '',
       tags: catalog.tags || [],
       assignedPlanItemId: plan?.id || '',
@@ -296,7 +322,7 @@ export default function ShoppingScreen() {
     await addShoppingListItem(uid, selectedListId, {
       name,
       quantity: 1,
-      price: 0,
+      price: catalog?.lastPrice || 0,
       category: catalog?.category || '',
       tags: catalog?.tags || [],
       assignedPlanItemId: plan?.id || '',
@@ -392,9 +418,14 @@ export default function ShoppingScreen() {
       const assignedPlanId = String(item.assignedPlanItemId || '').trim();
       const assignedPlanName = String(item.assignedPlanItemName || '').trim();
       const assignedByName = assignedPlanName ? planByName.get(normalize(assignedPlanName)) : null;
+      
+      const qty = item.quantity || 1;
+      const unitPrice = item.price || 0;
+      const total = unitPrice > 0 ? unitPrice * qty : 0;
+
       nextInputs[item.id] = {
-        quantity: String(item.quantity || '1'),
-        price: String(item.price || ''),
+        quantity: String(qty),
+        price: total > 0 ? String(total) : '', // Pre-fill total amount
         planItemId: assignedPlanId || assignedByName?.id || '',
       };
     });
@@ -450,14 +481,18 @@ export default function ShoppingScreen() {
         if (!item.id) continue;
         const input = itemInputs[item.id];
         const quantity = parseQuantity(input?.quantity || '0');
-        const price = Math.max(0, parseMoney(input?.price || '0'));
-        const plan = planById.get(String(input?.planItemId || '').trim());
-        if (!plan || !quantity || price <= 0 || !hasFundedAmount(fundedByPlanId, plan.id)) continue;
+        // Treat input.price as Total Amount
+        const totalAmount = Math.max(0, parseMoney(input?.price || '0'));
+        // Calculate Unit Price
+        const unitPrice = quantity > 0 ? totalAmount / quantity : 0;
 
-        const total = price * quantity;
+        const plan = planById.get(String(input?.planItemId || '').trim());
+        if (!plan || !quantity || totalAmount <= 0 || !hasFundedAmount(fundedByPlanId, plan.id)) continue;
+
+        // Transaction uses Total Amount
         await addTransaction(uid, targetPid, {
           name: plan.name,
-          amount: total,
+          amount: totalAmount,
           group: plan.group,
           date: new Date().toISOString().slice(0, 10),
           note: `Shopping: ${selectedList.name} · Item: ${item.name}`,
@@ -468,6 +503,7 @@ export default function ShoppingScreen() {
           shoppingItemName: item.name,
         });
 
+        // Catalog uses Unit Price
         await upsertShoppingCatalogItem(uid, {
           name: item.name,
           category: item.category || '',
@@ -475,7 +511,7 @@ export default function ShoppingScreen() {
           assignedPlanItemId: plan.id,
           assignedPlanItemName: plan.name,
           assignedGroup: plan.group,
-          price,
+          price: unitPrice,
           quantity,
         });
 
@@ -501,7 +537,7 @@ export default function ShoppingScreen() {
       await addShoppingListItem(uid, selectedListId, {
         name,
         quantity: 1,
-        price: 0,
+        price: row.lastPrice || 0,
         category: row.category || '',
         tags: row.tags || [],
         assignedPlanItemId: plan?.id || '',
@@ -571,7 +607,24 @@ export default function ShoppingScreen() {
 
         <AppCard className="flex-1 border-border bg-card dark:border-zinc-800 dark:bg-zinc-900">
           <View className="mb-3 flex-row items-center justify-between gap-2">
-            <Text className="text-xl font-bold text-foreground dark:text-zinc-50">{selectedList.name}</Text>
+            <View>
+              <Text className="text-xl font-bold text-foreground dark:text-zinc-50">{selectedList.name}</Text>
+              {!completing ? (
+                <View>
+                  <Text className="text-xs font-medium text-muted-foreground">
+                    List total: {fmtMoney(estimatedTotal)}
+                  </Text>
+                  <Text className="text-xs font-medium text-muted-foreground">
+                    Selected total: {fmtMoney(selectedTotal)} ({selectedItems.length} item{selectedItems.length === 1 ? '' : 's'})
+                  </Text>
+                  {selectedMissingUnitPriceCount > 0 ? (
+                    <Text className="text-xs font-semibold text-amber-700 dark:text-amber-300">
+                      {selectedMissingUnitPriceCount} selected item{selectedMissingUnitPriceCount === 1 ? '' : 's'} missing unit price
+                    </Text>
+                  ) : null}
+                </View>
+              ) : null}
+            </View>
             {isWide && !completing ? (
               <View className="flex-row gap-2">
                 <AppButton label="Import" onPress={() => setImportOpen(true)} variant="outline" size="sm" />
@@ -631,10 +684,17 @@ export default function ShoppingScreen() {
                     'Unassigned budget item';
                   const hasBudget = Boolean(String(item.assignedPlanItemId || '').trim());
                   const itemTag = normalizeItemTag(String(item.tag || ''));
+                  const unitPrice = item.price || 0;
+                  const hasUnitPrice = unitPrice > 0;
+                  const estCost = hasUnitPrice ? unitPrice * (item.quantity || 1) : 0;
+
                   return (
                     <View
                       key={item.id}
-                      className="flex-row items-center justify-between gap-2 border-b border-border p-3 dark:border-zinc-800"
+                      className={cn(
+                        'flex-row items-center justify-between gap-2 border-b border-border p-3 dark:border-zinc-800',
+                        !hasUnitPrice && 'bg-amber-50/60 dark:bg-amber-950/20'
+                      )}
                     >
                       <View className="flex-row flex-1 items-center gap-3">
                         <Switch value={item.bought} onValueChange={() => toggleBought(item)} />
@@ -652,9 +712,20 @@ export default function ShoppingScreen() {
                               <Text className="text-xs text-muted-foreground dark:text-zinc-400">[{itemTag}]</Text>
                             ) : null}
                           </View>
-                          <Text className={cn('text-xs', hasBudget ? 'text-muted-foreground' : 'text-amber-600 dark:text-amber-300')}>
-                            {budgetLabel}
-                          </Text>
+                          <View className="flex-row items-center gap-2">
+                            <Text className={cn('text-xs', hasBudget ? 'text-muted-foreground' : 'text-amber-600 dark:text-amber-300')}>
+                              {budgetLabel}
+                            </Text>
+                            {hasUnitPrice ? (
+                              <Text className="text-xs font-medium text-muted-foreground">
+                                · {fmtMoney(unitPrice)}/ea · Est. {fmtMoney(estCost)}
+                              </Text>
+                            ) : (
+                              <Text className="text-xs font-semibold text-amber-700 dark:text-amber-300">
+                                · Missing unit price
+                              </Text>
+                            )}
+                          </View>
                         </Pressable>
                       </View>
                       <View className="flex-row gap-1">
@@ -672,7 +743,7 @@ export default function ShoppingScreen() {
           ) : (
             <View className="flex-1">
               <Text className="mb-3 text-sm text-muted-foreground dark:text-zinc-400">
-                Fill quantity, unit price, and budget item for every line before clearing.
+                Fill quantity, total amount, and budget item for every line before clearing.
               </Text>
 
               {!completionValidation.ready ? (
@@ -681,7 +752,7 @@ export default function ShoppingScreen() {
                     <Text className="text-xs text-amber-700 dark:text-amber-200">Missing quantity: {completionValidation.missingQuantity.length} item(s)</Text>
                   ) : null}
                   {completionValidation.missingPrice.length ? (
-                    <Text className="text-xs text-amber-700 dark:text-amber-200">Missing price: {completionValidation.missingPrice.length} item(s)</Text>
+                    <Text className="text-xs text-amber-700 dark:text-amber-200">Missing total: {completionValidation.missingPrice.length} item(s)</Text>
                   ) : null}
                   {completionValidation.missingBudget.length ? (
                     <Text className="text-xs text-amber-700 dark:text-amber-200">Missing budget item: {completionValidation.missingBudget.length} item(s)</Text>
@@ -728,7 +799,7 @@ export default function ShoppingScreen() {
                             }))
                           }
                           className={cn('h-9 text-right', isWide ? 'w-28' : 'w-full')}
-                          placeholder="Price"
+                          placeholder="Total"
                           keyboardType="decimal-pad"
                         />
                         <View className="flex-1">

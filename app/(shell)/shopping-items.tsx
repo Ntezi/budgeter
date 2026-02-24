@@ -489,7 +489,6 @@ export default function ShoppingItemsScreen() {
             <View className="flex-row border-b border-border pb-2 dark:border-zinc-800">
               <Text className="w-[220px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Name</Text>
               <Text className="w-[180px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Category</Text>
-              <Text className="w-[240px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tags</Text>
               <Text className="w-[420px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Budget Item</Text>
               <Text className="w-[160px] text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Actions</Text>
             </View>
@@ -525,12 +524,6 @@ export default function ShoppingItemsScreen() {
                     ) : (
                       <Text className="text-xs text-muted-foreground">{row.category || 'No category'}</Text>
                     )}
-                  </View>
-                  <View className="w-[240px] pr-2">
-                    {isEditing ? (
-                      <AppInput value={edit.tagsInput} onChangeText={(value) => setEditField(row.id!, { tagsInput: value })} className="h-9" placeholder="tags" />
-                    ) : null}
-                    <Text className="mt-1 text-xs text-muted-foreground">{tagsLabel(isEditing ? parseTagsInput(edit.tagsInput) : row.tags)}</Text>
                   </View>
                   <View className="w-[420px] pr-2">
                     {isEditing ? (
