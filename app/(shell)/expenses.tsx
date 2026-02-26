@@ -1,18 +1,20 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, ScrollView, Switch, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, Switch, Text, View, useWindowDimensions } from 'react-native';
 import { AppCard } from '@/components/ui/AppCard';
 import { AppInput } from '@/components/ui/AppInput';
 import { AppSegmented } from '@/components/ui/AppSegmented';
 import { AppBadge } from '@/components/ui/AppBadge';
 import { IconActionButton } from '@/components/ui/IconActionButton';
 import { DropdownField } from '@/components/ui/DropdownField';
+import { AppButton } from '@/components/ui/AppButton';
+import { AppModal } from '@/components/ui/AppModal';
 import { useWorkspaceUid } from '@/providers/WorkspaceProvider';
 import { addExpense, deleteExpense, type ExpenseItem, updateExpense, watchExpenses } from '@/lib/repo/expenses';
 import { addPlanItem, type PlanItem, watchPlanTotals } from '@/lib/repo/plans';
 import { addRecurring } from '@/lib/repo/recurring';
 import { fmtMoney, parseMoney } from '@/lib/format';
 import { PLAN_GROUP_OPTIONS, planGroupLabel } from '@/lib/groups';
-import { periodIdFromDate, type PeriodDoc, watchPeriods } from '@/lib/repo/periods';
+import { periodIdFromDate, watchPeriods } from '@/lib/repo/periods';
 import { firstTag, parseTagsInput, tagsLabel, tagsToInput } from '@/lib/tags';
 
 type ExpenseEditState = {
@@ -28,13 +30,15 @@ type ExpenseEditState = {
 
 export default function ExpensesScreen() {
   const uid = useWorkspaceUid();
+  const { width } = useWindowDimensions();
+  const isCompact = width < 768;
 
   const [rows, setRows] = useState<ExpenseItem[]>([]);
   const [edits, setEdits] = useState<Record<string, ExpenseEditState>>({});
-  const [periods, setPeriods] = useState<(PeriodDoc & { id: string })[]>([]);
   const [selectedPid, setSelectedPid] = useState(periodIdFromDate());
   const [planItems, setPlanItems] = useState<PlanItem[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [mobileDetailId, setMobileDetailId] = useState<string | null>(null);
   const [formError, setFormError] = useState('');
   const [tagFilter, setTagFilter] = useState('ALL');
   const [sortMode, setSortMode] = useState<'CREATED' | 'TAG'>('CREATED');
@@ -51,7 +55,6 @@ export default function ExpensesScreen() {
     if (!uid) return;
     const unExpenses = watchExpenses(uid, setRows);
     const unPeriods = watchPeriods(uid, (next) => {
-      setPeriods(next);
       if (!next.some((row) => row.id === selectedPid) && next[0]?.id) setSelectedPid(next[0].id);
     });
     return () => {
@@ -96,16 +99,6 @@ export default function ExpensesScreen() {
     });
   }, [rows]);
 
-  const periodOptions = useMemo(
-    () => periods.map((period) => ({ label: period.title || period.id, value: period.id })),
-    [periods]
-  );
-
-  const activeCount = useMemo(() => rows.filter((row) => row.active !== false).length, [rows]);
-  const activeTotal = useMemo(
-    () => rows.filter((row) => row.active !== false).reduce((sum, row) => sum + (row.amount || 0), 0),
-    [rows]
-  );
   const tagOptions = useMemo(() => {
     const tags = [...new Set(rows.flatMap((row) => row.tags || []).map((tag) => String(tag).trim().toLowerCase()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
     return [{ label: 'All tags', value: 'ALL' }, ...tags.map((tag) => ({ label: `#${tag}`, value: tag }))];
@@ -123,6 +116,11 @@ export default function ExpensesScreen() {
     }
     return out;
   }, [rows, sortMode, tagFilter]);
+  const mobileDetailRow = useMemo(
+    () => displayRows.find((row) => row.id === mobileDetailId) || null,
+    [displayRows, mobileDetailId]
+  );
+  const mobileDetailEdit = mobileDetailRow?.id ? edits[mobileDetailRow.id] : null;
 
   function setEditField(id: string, patch: Partial<ExpenseEditState>) {
     const source = rows.find((row) => row.id === id);
@@ -175,17 +173,28 @@ export default function ExpensesScreen() {
       const current = edits[editingId];
       if (current?.dirty) {
         setFormError('Save or cancel the current edited row first.');
-        return;
+        return false;
       }
     }
     setEditingId(id);
     setFormError('');
+    return true;
   }
 
   function cancelEdit(id: string) {
     resetEditFromSource(id);
     setEditingId((prev) => (prev === id ? null : prev));
     setFormError('');
+  }
+
+  function openMobileDetail(id: string) {
+    if (!beginEdit(id)) return;
+    setMobileDetailId(id);
+  }
+
+  function closeMobileDetail() {
+    if (mobileDetailId) cancelEdit(mobileDetailId);
+    setMobileDetailId(null);
   }
 
   function effectiveRow(row: ExpenseItem): ExpenseItem {
@@ -354,6 +363,7 @@ export default function ExpensesScreen() {
           <Text className="text-xs text-muted-foreground">Add once and reuse in budget planning or recurring generation.</Text>
         </View>
 
+        {!isCompact ? (
         <ScrollView horizontal showsHorizontalScrollIndicator>
           <View className="min-w-[1260px] flex-1">
             <View className="flex-row border-b border-border pb-2 dark:border-zinc-800">
@@ -409,7 +419,6 @@ export default function ExpensesScreen() {
               const isEditing = editingId === row.id;
               const dirty = edit.dirty;
               const actionRow = effectiveRow(row);
-              const editTags = parseTagsInput(edit.tagsInput);
               return (
               <View
                 key={row.id}
@@ -490,6 +499,72 @@ export default function ExpensesScreen() {
             ) : null}
           </View>
         </ScrollView>
+        ) : (
+          <View className="gap-2">
+            {!uid ? null : (
+              <View className="gap-2 rounded-lg border border-border bg-muted/20 p-3 dark:border-zinc-800 dark:bg-zinc-800/30">
+                <Text className="text-xs uppercase tracking-wide text-muted-foreground">Quick Add</Text>
+                <AppInput
+                  value={draft.name}
+                  onChangeText={(value) => setDraft((prev) => ({ ...prev, name: value }))}
+                  placeholder="e.g. Groceries"
+                  className="h-9"
+                />
+                <AppSegmented
+                  value={draft.group}
+                  compact
+                  onChange={(value) => setDraft((prev) => ({ ...prev, group: value as any }))}
+                  options={PLAN_GROUP_OPTIONS}
+                />
+                <View className="flex-row items-center gap-2">
+                  <View className="flex-1">
+                    <AppInput
+                      value={String(draft.amount || '')}
+                      onChangeText={(value) => setDraft((prev) => ({ ...prev, amount: parseMoney(value) }))}
+                      keyboardType="decimal-pad"
+                      placeholder="0.00"
+                      className="h-9 text-right"
+                    />
+                  </View>
+                  <Switch value={draft.active !== false} onValueChange={(value) => setDraft((prev) => ({ ...prev, active: value }))} />
+                  <IconActionButton icon="plus" label="Add expense template" onPress={addRow} />
+                </View>
+              </View>
+            )}
+
+            {formError ? (
+              <View className="py-1">
+                <Text className="text-xs text-destructive">{formError}</Text>
+              </View>
+            ) : null}
+
+            <View className="overflow-hidden rounded-lg border border-border dark:border-zinc-800">
+              <View className="flex-row border-b border-border bg-muted/30 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/40">
+                <Text className="w-[180px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Name</Text>
+                <Text className="flex-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Category</Text>
+              </View>
+              {displayRows.map((row) => (
+                <Pressable
+                  key={row.id}
+                  className="flex-row items-center border-b border-border px-3 py-2 last:border-b-0 dark:border-zinc-800"
+                  onPress={() => row.id && openMobileDetail(row.id)}
+                >
+                  <Text className="w-[180px] text-sm font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>
+                    {row.name}
+                  </Text>
+                  <Text className="flex-1 text-xs text-muted-foreground" numberOfLines={1}>
+                    {planGroupLabel(row.group)}
+                  </Text>
+                </Pressable>
+              ))}
+              {!displayRows.length ? (
+                <View className="py-4">
+                  <Text className="text-center text-sm text-muted-foreground">No expense templates for this filter.</Text>
+                </View>
+              ) : null}
+            </View>
+          </View>
+        )}
       </AppCard>
 
       <AppCard className="gap-2">
@@ -503,6 +578,84 @@ export default function ExpensesScreen() {
           })}
         </View>
       </AppCard>
+
+      <AppModal open={Boolean(mobileDetailId)} onClose={closeMobileDetail} title="Expense Template">
+        {mobileDetailRow && mobileDetailEdit ? (
+          <View className="gap-3">
+            <View className="gap-1">
+              <Text className="text-xs uppercase tracking-wide text-muted-foreground">Name</Text>
+              <AppInput
+                value={mobileDetailEdit.name}
+                onChangeText={(value) => setEditField(mobileDetailRow.id!, { name: value })}
+              />
+            </View>
+            <View className="gap-1">
+              <Text className="text-xs uppercase tracking-wide text-muted-foreground">Category</Text>
+              <AppSegmented
+                value={mobileDetailEdit.group}
+                compact
+                onChange={(value) => setEditField(mobileDetailRow.id!, { group: value as any })}
+                options={PLAN_GROUP_OPTIONS}
+              />
+            </View>
+            <View className="gap-1">
+              <Text className="text-xs uppercase tracking-wide text-muted-foreground">Amount</Text>
+              <AppInput
+                value={mobileDetailEdit.amount}
+                onChangeText={(value) => setEditField(mobileDetailRow.id!, { amount: value })}
+                keyboardType="decimal-pad"
+              />
+            </View>
+            <View className="gap-1">
+              <Text className="text-xs uppercase tracking-wide text-muted-foreground">Tags</Text>
+              <AppInput
+                value={mobileDetailEdit.tagsInput}
+                onChangeText={(value) => setEditField(mobileDetailRow.id!, { tagsInput: value })}
+                placeholder="utilities, groceries"
+              />
+            </View>
+            <View className="flex-row items-center justify-between rounded-md border border-border bg-muted/20 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/30">
+              <Text className="text-sm text-muted-foreground">Active</Text>
+              <Switch value={mobileDetailEdit.active} onValueChange={(value) => setEditField(mobileDetailRow.id!, { active: value })} />
+            </View>
+            <View className="flex-row flex-wrap items-center gap-2">
+              <AppBadge label={tagsLabel(parseTagsInput(mobileDetailEdit.tagsInput))} variant="outline" />
+              {mobileDetailEdit.dirty ? <AppBadge label="Unsaved" variant="warning" /> : null}
+            </View>
+            <View className="flex-row justify-end gap-2">
+              <IconActionButton
+                icon="wallet-plus-outline"
+                label="Add to budget"
+                onPress={() => addToBudget(effectiveRow(mobileDetailRow))}
+              />
+              <IconActionButton
+                icon="repeat"
+                label="Convert to recurring template"
+                onPress={() => addToRecurringFromExpense(effectiveRow(mobileDetailRow))}
+              />
+              <IconActionButton
+                icon="trash-can-outline"
+                label="Delete expense template"
+                variant="danger"
+                onPress={async () => {
+                  await removeRow(mobileDetailRow);
+                  setMobileDetailId(null);
+                }}
+              />
+            </View>
+            <View className="flex-row justify-end gap-2">
+              <AppButton variant="outline" label="Close" onPress={closeMobileDetail} />
+              <AppButton
+                label={mobileDetailEdit.saving ? 'Saving...' : 'Save'}
+                onPress={() => saveRow(mobileDetailRow)}
+                disabled={!mobileDetailEdit.dirty || mobileDetailEdit.saving}
+              />
+            </View>
+          </View>
+        ) : (
+          <Text className="text-sm text-muted-foreground">No template selected.</Text>
+        )}
+      </AppModal>
     </ScrollView>
   );
 }

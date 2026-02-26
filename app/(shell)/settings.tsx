@@ -170,7 +170,7 @@ export default function SettingsScreen() {
       try {
         await seedBudgetForNewPeriod(workspaceUid, nextPid);
         await applyAllocationDefaultsForPeriod(workspaceUid, nextPid);
-      } catch (e) {}
+      } catch {}
       await setActivePeriodId(nextPid);
       Alert.alert('Success', `Period ${activePeriodId} closed. ${nextPid} is now active.`);
     } catch (e: any) {

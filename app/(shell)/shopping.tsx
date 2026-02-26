@@ -105,6 +105,8 @@ export default function ShoppingScreen() {
 
   const [completing, setCompleting] = useState(false);
   const [itemInputs, setItemInputs] = useState<Record<string, CompletionInput>>({});
+  const [savingCompletion, setSavingCompletion] = useState(false);
+  const [finalizingCompletion, setFinalizingCompletion] = useState(false);
 
   useEffect(() => {
     if (!uid) return;
@@ -420,6 +422,7 @@ export default function ShoppingScreen() {
   }
 
   function startCompletion() {
+    if (savingCompletion || finalizingCompletion) return;
     if (!completionTargetItems.length) {
       Alert.alert('No items to complete', 'Add shopping items first, then start completion.');
       return;
@@ -481,12 +484,14 @@ export default function ShoppingScreen() {
   }, [completionTargetItems, fundedByPlanId, itemInputs, planById]);
 
   async function handleSaveAndBack() {
+    if (savingCompletion || finalizingCompletion) return;
     if (!uid || !selectedListId) return;
     if (!completionTargetItems.length) {
       setCompleting(false);
       return;
     }
 
+    setSavingCompletion(true);
     try {
       for (const item of completionTargetItems) {
         if (!item.id) continue;
@@ -527,12 +532,15 @@ export default function ShoppingScreen() {
 
       setCompleting(false);
       Alert.alert('Saved', 'Shopping progress saved. You can return later to complete.');
-    } catch {
-      Alert.alert('Error', 'Could not save shopping progress.');
+    } catch (e: unknown) {
+      Alert.alert('Error', e instanceof Error ? e.message : 'Could not save shopping progress.');
+    } finally {
+      setSavingCompletion(false);
     }
   }
 
   async function handleDoneAndClear() {
+    if (savingCompletion || finalizingCompletion) return;
     if (!uid || !selectedListId || !selectedList) return;
     if (!completionValidation.ready) {
       Alert.alert(
@@ -542,6 +550,7 @@ export default function ShoppingScreen() {
       return;
     }
 
+    setFinalizingCompletion(true);
     try {
       for (const item of completionTargetItems) {
         if (!item.id) continue;
@@ -583,8 +592,10 @@ export default function ShoppingScreen() {
       setCompleting(false);
       setItemInputs({});
       if (!isWide) setSelectedListId('');
-    } catch {
-      Alert.alert('Error', 'Failed to complete shopping list.');
+    } catch (e: unknown) {
+      Alert.alert('Error', e instanceof Error ? e.message : 'Failed to complete shopping list.');
+    } finally {
+      setFinalizingCompletion(false);
     }
   }
 
@@ -888,13 +899,30 @@ export default function ShoppingScreen() {
               </ScrollView>
 
               <View className="flex-row flex-wrap gap-2">
-                <AppButton label="Cancel" onPress={() => setCompleting(false)} variant="outline" className="flex-1 min-w-[110px]" />
-                <AppButton label="Save & Back" onPress={handleSaveAndBack} variant="outline" className="flex-1 min-w-[130px]" />
                 <AppButton
-                  label="Done & Clear"
-                  onPress={handleDoneAndClear}
+                  label="Cancel"
+                  onPress={() => setCompleting(false)}
+                  variant="outline"
+                  className="flex-1 min-w-[110px]"
+                  disabled={savingCompletion || finalizingCompletion}
+                />
+                <AppButton
+                  label={savingCompletion ? 'Saving...' : 'Save & Back'}
+                  onPress={() => {
+                    void handleSaveAndBack();
+                  }}
+                  variant="outline"
+                  className="flex-1 min-w-[130px]"
+                  disabled={savingCompletion || finalizingCompletion}
+                />
+                <AppButton
+                  label={finalizingCompletion ? 'Finalizing...' : 'Done & Clear'}
+                  onPress={() => {
+                    void handleDoneAndClear();
+                  }}
                   className="flex-1 min-w-[130px]"
                   textClassName="text-white"
+                  disabled={savingCompletion || finalizingCompletion}
                 />
               </View>
             </View>

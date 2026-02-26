@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Platform, ScrollView, Switch, Text, View } from 'react-native';
+import { Alert, Platform, Pressable, ScrollView, Switch, Text, View, useWindowDimensions } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { AppCard } from '@/components/ui/AppCard';
@@ -9,6 +9,7 @@ import { AppBadge } from '@/components/ui/AppBadge';
 import { AppSegmented } from '@/components/ui/AppSegmented';
 import { DropdownField } from '@/components/ui/DropdownField';
 import { IconActionButton } from '@/components/ui/IconActionButton';
+import { AppModal } from '@/components/ui/AppModal';
 import { useWorkspaceUid } from '@/providers/WorkspaceProvider';
 import {
   deletePeriod,
@@ -37,7 +38,7 @@ import { seedBudgetForNewPeriod } from '@/lib/repo/recurring';
 import { fmtMoney, parseMoney, parsePct100 } from '@/lib/format';
 import { planGroupLabel, PLAN_GROUP_OPTIONS, planGroupToTag } from '@/lib/groups';
 import { cn } from '@/lib/cn';
-import { firstTag, parseTagsInput, tagsLabel, tagsToInput } from '@/lib/tags';
+import { parseTagsInput, tagsLabel, tagsToInput } from '@/lib/tags';
 
 import { addTransaction, watchTransactions, type Tx } from '@/lib/repo/transactions';
 
@@ -85,6 +86,8 @@ export default function BudgetDetailScreen() {
   const { pid } = useLocalSearchParams<{ pid: string }>();
   const router = useRouter();
   const uid = useWorkspaceUid();
+  const { width } = useWindowDimensions();
+  const isCompact = width < 768;
 
   const [title, setTitle] = useState('');
   const [status, setStatus] = useState<PeriodStatus>('DRAFT');
@@ -94,6 +97,7 @@ export default function BudgetDetailScreen() {
 
   const [section, setSection] = useState<SectionKey>('PLAN');
   const [metaVisible, setMetaVisible] = useState(false);
+  const [mobileDetail, setMobileDetail] = useState<{ section: SectionKey; id: string } | null>(null);
 
   const [incomeItems, setIncomeItems] = useState<IncomeItem[]>([]);
   const [incomeEdits, setIncomeEdits] = useState<Record<string, IncomeEditState>>({});
@@ -392,11 +396,12 @@ export default function BudgetDetailScreen() {
       const current = incomeEdits[incomeEditingId];
       if (current?.dirty) {
         setIncomeFormError('Save or cancel the current edited income row first.');
-        return;
+        return false;
       }
     }
     setIncomeEditingId(id);
     setIncomeFormError('');
+    return true;
   }
 
   function cancelIncomeEdit(id: string) {
@@ -425,11 +430,12 @@ export default function BudgetDetailScreen() {
       const current = planEdits[planEditingId];
       if (current?.dirty) {
         setPlanFormError('Save or cancel the current edited plan row first.');
-        return;
+        return false;
       }
     }
     setPlanEditingId(id);
     setPlanFormError('');
+    return true;
   }
 
   function cancelPlanEdit(id: string) {
@@ -860,6 +866,51 @@ export default function BudgetDetailScreen() {
     SAVINGS_DEBT: 'bg-savings',
   };
 
+  const mobileIncomeRow = useMemo(
+    () => (mobileDetail?.section === 'INCOME' ? incomeItems.find((row) => row.id === mobileDetail.id) || null : null),
+    [incomeItems, mobileDetail]
+  );
+  const mobileIncomeEdit = mobileIncomeRow?.id ? incomeEdits[mobileIncomeRow.id] : null;
+  const mobilePlanRow = useMemo(
+    () => (mobileDetail?.section === 'PLAN' ? planWithPriority.find((row) => row.id === mobileDetail.id) || null : null),
+    [mobileDetail, planWithPriority]
+  );
+  const mobilePlanEdit = mobilePlanRow?.id ? planEdits[mobilePlanRow.id] : null;
+  const mobileSpendingRow = useMemo(
+    () => (mobileDetail?.section === 'SPENDING' ? spendingRows.find((row) => row.id === mobileDetail.id) || null : null),
+    [mobileDetail, spendingRows]
+  );
+  const mobileReconcileRow = useMemo(
+    () => (mobileDetail?.section === 'RECONCILE' ? reconcileRows.find((row) => row.id === mobileDetail.id) || null : null),
+    [mobileDetail, reconcileRows]
+  );
+  const mobileReconcileAllocation = mobileReconcileRow ? allocationByItemId[mobileReconcileRow.id] : null;
+
+  function openMobileIncomeDetail(id: string) {
+    if (!beginIncomeEdit(id)) return;
+    setMobileDetail({ section: 'INCOME', id });
+  }
+
+  function openMobilePlanDetail(id: string) {
+    if (!beginPlanEdit(id)) return;
+    setMobileDetail({ section: 'PLAN', id });
+  }
+
+  function openMobileSpendingDetail(id: string) {
+    setMobileDetail({ section: 'SPENDING', id });
+  }
+
+  function openMobileReconcileDetail(id: string) {
+    setMobileDetail({ section: 'RECONCILE', id });
+  }
+
+  function closeMobileDetail() {
+    if (!mobileDetail) return;
+    if (mobileDetail.section === 'INCOME') cancelIncomeEdit(mobileDetail.id);
+    if (mobileDetail.section === 'PLAN') cancelPlanEdit(mobileDetail.id);
+    setMobileDetail(null);
+  }
+
   return (
     <ScrollView className="flex-1" contentContainerClassName="gap-4 pb-8">
       <View className="gap-2 border-b border-border pb-4 dark:border-zinc-800">
@@ -999,6 +1050,7 @@ export default function BudgetDetailScreen() {
             {readOnly ? <Text className="text-xs italic text-muted-foreground">Locked in DECIDED mode</Text> : null}
           </View>
 
+          {!isCompact ? (
           <ScrollView horizontal showsHorizontalScrollIndicator>
             <View className="min-w-[760px] flex-1">
               <View className="flex-row border-b border-border pb-2 dark:border-zinc-800">
@@ -1133,6 +1185,59 @@ export default function BudgetDetailScreen() {
               </View>
             </View>
           </ScrollView>
+          ) : (
+            <View className="gap-2">
+              {!readOnly ? (
+                <View className="flex-row items-center gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/30">
+                  <View className="flex-1">
+                    <AppInput
+                      value={incomeDraft.name}
+                      onChangeText={(value) => setIncomeDraft((prev) => ({ ...prev, name: value }))}
+                      placeholder="New source..."
+                      className="h-9"
+                    />
+                  </View>
+                  <View className="w-28">
+                    <AppInput
+                      value={String(incomeDraft.amount || '')}
+                      onChangeText={(value) => setIncomeDraft((prev) => ({ ...prev, amount: parseMoney(value) }))}
+                      placeholder="0.00"
+                      keyboardType="decimal-pad"
+                      className="h-9 text-right"
+                    />
+                  </View>
+                  <IconActionButton icon="plus" label="Add income row" onPress={addIncomeRow} />
+                </View>
+              ) : null}
+
+              {incomeFormError ? (
+                <View className="py-1">
+                  <Text className="text-xs text-destructive">{incomeFormError}</Text>
+                </View>
+              ) : null}
+
+              <View className="overflow-hidden rounded-lg border border-border dark:border-zinc-800">
+                <View className="flex-row border-b border-border bg-muted/30 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/40">
+                  <Text className="w-[180px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Source</Text>
+                  <Text className="flex-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Amount</Text>
+                </View>
+                {incomeItems.map((row) => (
+                  <Pressable
+                    key={row.id}
+                    className="flex-row items-center border-b border-border px-3 py-2 last:border-b-0 dark:border-zinc-800"
+                    onPress={() => row.id && openMobileIncomeDetail(row.id)}
+                  >
+                    <Text className={cn('w-[180px] text-sm font-medium', row.active === false ? 'text-muted-foreground line-through' : 'text-foreground dark:text-zinc-50')} numberOfLines={1}>
+                      {row.name}
+                    </Text>
+                    <Text className={cn('flex-1 text-sm', row.active === false ? 'text-muted-foreground' : 'text-foreground dark:text-zinc-50')}>
+                      {fmtMoney(row.amount || 0)}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          )}
         </AppCard>
       ) : null}
 
@@ -1151,6 +1256,7 @@ export default function BudgetDetailScreen() {
                   <AppBadge label={fmtMoney(subtotal)} variant="outline" />
                 </View>
 
+                {!isCompact ? (
                 <ScrollView horizontal showsHorizontalScrollIndicator>
                   <View className="min-w-[840px] flex-1">
                     <View className="flex-row border-b border-border pb-2 dark:border-zinc-800">
@@ -1164,7 +1270,6 @@ export default function BudgetDetailScreen() {
                       if (!edit) return null;
                       const isEditing = planEditingId === row.id;
                       const dirty = edit.dirty;
-                      const editTags = parseTagsInput(edit.tagsInput);
                       const isSpent = spentItemIds.has(row.id);
                       return (
                       <View
@@ -1235,6 +1340,31 @@ export default function BudgetDetailScreen() {
                     ) : null}
                   </View>
                 </ScrollView>
+                ) : (
+                  <View className="overflow-hidden rounded-lg border border-border dark:border-zinc-800">
+                    <View className="flex-row border-b border-border bg-muted/30 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/40">
+                      <Text className="w-[190px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Item</Text>
+                      <Text className="flex-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Amount</Text>
+                    </View>
+                    {rows.map((row) => (
+                      <Pressable
+                        key={row.id}
+                        className="flex-row items-center border-b border-border px-3 py-2 last:border-b-0 dark:border-zinc-800"
+                        onPress={() => openMobilePlanDetail(row.id)}
+                      >
+                        <Text className="w-[190px] text-sm font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>
+                          {row.name}
+                        </Text>
+                        <Text className="flex-1 text-sm text-foreground dark:text-zinc-50">{fmtMoney(row.amount || 0)}</Text>
+                      </Pressable>
+                    ))}
+                    {!rows.length ? (
+                      <View className="py-3">
+                        <Text className="text-center text-sm text-muted-foreground">No items planned in this category.</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                )}
               </AppCard>
             );
           })}
@@ -1361,6 +1491,7 @@ export default function BudgetDetailScreen() {
                 </View>
 
                 {rows.length ? (
+                  !isCompact ? (
                   <ScrollView horizontal showsHorizontalScrollIndicator>
                     <View className="min-w-[880px] flex-1">
                       <View className="flex-row border-b border-border pb-2 dark:border-zinc-800">
@@ -1410,6 +1541,26 @@ export default function BudgetDetailScreen() {
                       ))}
                     </View>
                   </ScrollView>
+                  ) : (
+                    <View className="overflow-hidden rounded-lg border border-border dark:border-zinc-800">
+                      <View className="flex-row border-b border-border bg-muted/30 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/40">
+                        <Text className="w-[190px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Item</Text>
+                        <Text className="flex-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Planned</Text>
+                      </View>
+                      {rows.map((row) => (
+                        <Pressable
+                          key={row.id}
+                          className="flex-row items-center border-b border-border px-3 py-2 last:border-b-0 dark:border-zinc-800"
+                          onPress={() => openMobileSpendingDetail(row.id)}
+                        >
+                          <Text className="w-[190px] text-sm font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>
+                            {row.name}
+                          </Text>
+                          <Text className="flex-1 text-sm text-foreground dark:text-zinc-50">{fmtMoney(row.amount || 0)}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  )
                 ) : (
                   <Text className="text-sm text-muted-foreground">No {group.label.toLowerCase()} items in this budget.</Text>
                 )}
@@ -1465,6 +1616,7 @@ export default function BudgetDetailScreen() {
                 </View>
 
                 {rows.length ? (
+                  !isCompact ? (
                   <ScrollView horizontal showsHorizontalScrollIndicator>
                     <View className="min-w-[1140px] flex-1">
                       <View className="flex-row border-b border-border pb-2 dark:border-zinc-800">
@@ -1572,6 +1724,26 @@ export default function BudgetDetailScreen() {
                       })}
                     </View>
                   </ScrollView>
+                  ) : (
+                    <View className="overflow-hidden rounded-lg border border-border dark:border-zinc-800">
+                      <View className="flex-row border-b border-border bg-muted/30 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/40">
+                        <Text className="w-[190px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Item</Text>
+                        <Text className="flex-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Planned</Text>
+                      </View>
+                      {rows.map((row) => (
+                        <Pressable
+                          key={row.id}
+                          className="flex-row items-center border-b border-border px-3 py-2 last:border-b-0 dark:border-zinc-800"
+                          onPress={() => openMobileReconcileDetail(row.id)}
+                        >
+                          <Text className="w-[190px] text-sm font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>
+                            {row.name}
+                          </Text>
+                          <Text className="flex-1 text-sm text-foreground dark:text-zinc-50">{fmtMoney(row.amount || 0)}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  )
                 ) : (
                   <Text className="text-sm text-muted-foreground">No {group.label.toLowerCase()} items in this budget.</Text>
                 )}
@@ -1580,6 +1752,180 @@ export default function BudgetDetailScreen() {
           })}
         </View>
       ) : null}
+
+      <AppModal
+        open={Boolean(isCompact && mobileDetail)}
+        onClose={closeMobileDetail}
+        title={
+          mobileDetail?.section === 'INCOME'
+            ? 'Income Details'
+            : mobileDetail?.section === 'PLAN'
+              ? 'Plan Item Details'
+              : mobileDetail?.section === 'SPENDING'
+                ? 'Spending Details'
+                : mobileDetail?.section === 'RECONCILE'
+                  ? 'Reconcile Details'
+                  : 'Details'
+        }
+      >
+        <View className="gap-3">
+          {mobileDetail?.section === 'INCOME' && mobileIncomeRow && mobileIncomeEdit ? (
+            <>
+              <View className="gap-1">
+                <Text className="text-xs text-muted-foreground">Source Name</Text>
+                <AppInput
+                  value={mobileIncomeEdit.name}
+                  onChangeText={(value) => setIncomeEditField(mobileIncomeRow.id!, { name: value })}
+                  editable={!readOnly}
+                />
+              </View>
+              <View className="gap-1">
+                <Text className="text-xs text-muted-foreground">Amount</Text>
+                <AppInput
+                  value={mobileIncomeEdit.amount}
+                  onChangeText={(value) => setIncomeEditField(mobileIncomeRow.id!, { amount: value })}
+                  keyboardType="decimal-pad"
+                  editable={!readOnly}
+                />
+              </View>
+              <View className="flex-row items-center justify-between rounded-md border border-border bg-muted/20 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/30">
+                <Text className="text-sm text-muted-foreground">Active</Text>
+                <Switch
+                  value={mobileIncomeRow.active !== false}
+                  onValueChange={(value) => void toggleIncomeActive(mobileIncomeRow, value)}
+                  disabled={readOnly}
+                />
+              </View>
+              <View className="flex-row justify-end gap-2">
+                {!readOnly ? (
+                  <IconActionButton
+                    icon="trash-can-outline"
+                    label="Delete income row"
+                    variant="danger"
+                    onPress={async () => {
+                      await deleteIncomeRow(mobileIncomeRow.id);
+                      setMobileDetail(null);
+                    }}
+                  />
+                ) : null}
+                <AppButton variant="outline" label="Close" onPress={closeMobileDetail} />
+                {!readOnly ? (
+                  <AppButton
+                    label={mobileIncomeEdit.saving ? 'Saving...' : 'Save'}
+                    onPress={() => saveIncomeRow(mobileIncomeRow)}
+                    disabled={!mobileIncomeEdit.dirty || mobileIncomeEdit.saving}
+                  />
+                ) : null}
+              </View>
+            </>
+          ) : null}
+
+          {mobileDetail?.section === 'PLAN' && mobilePlanRow && mobilePlanEdit ? (
+            <>
+              <View className="gap-1">
+                <Text className="text-xs text-muted-foreground">Item Name</Text>
+                <AppInput
+                  value={mobilePlanEdit.name}
+                  onChangeText={(value) => setPlanEditField(mobilePlanRow.id, { name: value })}
+                  editable={!readOnly && !spentItemIds.has(mobilePlanRow.id)}
+                />
+              </View>
+              <View className="gap-1">
+                <Text className="text-xs text-muted-foreground">Amount</Text>
+                <AppInput
+                  value={mobilePlanEdit.amount}
+                  onChangeText={(value) => setPlanEditField(mobilePlanRow.id, { amount: value })}
+                  keyboardType="decimal-pad"
+                  editable={!readOnly && !spentItemIds.has(mobilePlanRow.id)}
+                />
+              </View>
+              <View className="flex-row flex-wrap gap-2">
+                <AppBadge label={planGroupLabel(mobilePlanRow.group)} variant="outline" />
+                {spentItemIds.has(mobilePlanRow.id) ? <AppBadge label="Spent" variant="success" /> : null}
+                {mobilePlanEdit.dirty ? <AppBadge label="Unsaved" variant="warning" /> : null}
+              </View>
+              <View className="flex-row justify-end gap-2">
+                {!readOnly && !spentItemIds.has(mobilePlanRow.id) ? (
+                  <IconActionButton
+                    icon="trash-can-outline"
+                    label="Delete plan row"
+                    variant="danger"
+                    onPress={async () => {
+                      await deletePlanRow(mobilePlanRow.id);
+                      setMobileDetail(null);
+                    }}
+                  />
+                ) : null}
+                <AppButton variant="outline" label="Close" onPress={closeMobileDetail} />
+                {!readOnly && !spentItemIds.has(mobilePlanRow.id) ? (
+                  <AppButton
+                    label={mobilePlanEdit.saving ? 'Saving...' : 'Save'}
+                    onPress={() => savePlanRow(mobilePlanRow)}
+                    disabled={!mobilePlanEdit.dirty || mobilePlanEdit.saving}
+                  />
+                ) : null}
+              </View>
+            </>
+          ) : null}
+
+          {mobileDetail?.section === 'SPENDING' && mobileSpendingRow ? (
+            <>
+              <Text className="text-base font-semibold text-foreground dark:text-zinc-50">{mobileSpendingRow.name}</Text>
+              <View className="flex-row flex-wrap gap-2">
+                <AppBadge label={`Planned ${fmtMoney(mobileSpendingRow.amount || 0)}`} variant="outline" />
+                <AppBadge label={`Spent ${fmtMoney(mobileSpendingRow.spent)}`} variant="success" />
+                <AppBadge label={`Remaining ${fmtMoney(mobileSpendingRow.remaining)}`} variant={mobileSpendingRow.remaining < 0 ? 'danger' : 'secondary'} />
+              </View>
+              {mobileSpendingRow.tags?.length ? (
+                <Text className="text-xs text-muted-foreground">{tagsLabel(mobileSpendingRow.tags)}</Text>
+              ) : null}
+              <View className="flex-row justify-end">
+                <AppButton variant="outline" label="Close" onPress={closeMobileDetail} />
+              </View>
+            </>
+          ) : null}
+
+          {mobileDetail?.section === 'RECONCILE' && mobileReconcileRow ? (
+            <>
+              <Text className="text-base font-semibold text-foreground dark:text-zinc-50">{mobileReconcileRow.name}</Text>
+              <View className="flex-row flex-wrap gap-2">
+                <AppBadge label={`Planned ${fmtMoney(mobileReconcileRow.amount || 0)}`} variant="outline" />
+                <AppBadge label={`Funded ${fmtMoney(mobileReconcileRow.funded)}`} variant="success" />
+                <AppBadge label={`Unfunded ${fmtMoney(mobileReconcileRow.unfunded)}`} variant={mobileReconcileRow.unfunded > 0 ? 'warning' : 'secondary'} />
+              </View>
+              <View className="gap-1">
+                <Text className="text-xs text-muted-foreground">Account</Text>
+                <DropdownField
+                  value={mobileReconcileAllocation?.accountId ?? ''}
+                  options={accountOptions}
+                  onChange={(value) => assignAccount(mobileReconcileRow, value)}
+                  disabled={readOnly || mobileReconcileRow.spendFlag === 'SPENT'}
+                  placeholder="Select account"
+                  menuStrategy="inline"
+                />
+              </View>
+              <View className="flex-row items-center justify-between rounded-md border border-border bg-muted/20 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/30">
+                <Text className="text-sm text-muted-foreground">Prioritize</Text>
+                <Switch
+                  value={mobileReconcileRow.reconcilePinned === true}
+                  onValueChange={(value) => void toggleReconcilePinned(mobileReconcileRow, value)}
+                  disabled={readOnly || mobileReconcileRow.spendFlag !== 'NOT_SPENT'}
+                />
+              </View>
+              <View className="flex-row justify-end gap-2">
+                {!readOnly && mobileReconcileRow.spendFlag !== 'SPENT' ? (
+                  <AppButton
+                    label={markingSpent === mobileReconcileRow.id ? 'Recording...' : 'Mark Spent'}
+                    onPress={() => markSpent(mobileReconcileRow)}
+                    disabled={markingSpent !== null || !(mobileReconcileRow.funded > 0 && mobileReconcileRow.prioritized)}
+                  />
+                ) : null}
+                <AppButton variant="outline" label="Close" onPress={closeMobileDetail} />
+              </View>
+            </>
+          ) : null}
+        </View>
+      </AppModal>
     </ScrollView>
   );
 }

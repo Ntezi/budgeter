@@ -13,6 +13,7 @@ import { fmtMoney } from '@/lib/format';
 import { PieChart } from '@/components/components/PieChart';
 import { Colors } from '@/lib/budget';
 import { walletTagLabel } from '@/lib/domain';
+import { cn } from '@/lib/cn';
 import { useThemeMode } from '@/providers/ThemeProvider';
 
 import { DropdownField } from '@/components/ui/DropdownField';
@@ -27,6 +28,7 @@ import {
   type ShoppingCatalogItem,
   type PriceHistoryEntry,
 } from '@/lib/repo/shopping';
+import { watchAccounts } from '@/lib/repo/accounts';
 
 const CHART_COLORS = [Colors.needs, Colors.wants, Colors.sd];
 
@@ -314,6 +316,10 @@ function buildCompleteBudgetWorkbook(params: {
   const accountRows = report.accounts.map((account) => {
     const accountId = String(account.id || '').trim();
     const allTimeAllocated = accountId ? accountReport?.totalsByAccount[accountId] ?? 0 : 0;
+    const allTimeSpent = accountId ? accountReport?.spendingByAccount[accountId] ?? 0 : 0;
+    const realCurrent = accountId
+      ? (accountReport?.currentByAccount[accountId] ?? (account.openingBalance || 0))
+      : (account.openingBalance || 0);
     return {
       Account: account.name,
       Type: account.type ?? 'OTHER',
@@ -321,6 +327,8 @@ function buildCompleteBudgetWorkbook(params: {
       'In Budget Wallet': accountId && walletAccountIds.has(accountId) ? 'Yes' : 'No',
       'Budget Allocation': accountId ? periodAllocationByAccount[accountId] || 0 : 0,
       'All-time Allocation': allTimeAllocated,
+      'All-time Spent': allTimeSpent,
+      'Real Current': realCurrent,
       Archived: account.archived ? 'Yes' : 'No',
     };
   });
@@ -391,12 +399,17 @@ function buildCompleteBudgetWorkbook(params: {
 function buildAccountsWorkbook(report: AccountReport) {
   const accountRows = report.accounts.map((account) => {
     const allocated = account.id ? report.totalsByAccount[account.id] ?? 0 : 0;
+    const spent = account.id ? report.spendingByAccount[account.id] ?? 0 : 0;
+    const realCurrent = account.id
+      ? (report.currentByAccount[account.id] ?? (account.openingBalance || 0))
+      : (account.openingBalance || 0);
     return {
       Account: account.name,
       Type: account.type ?? 'OTHER',
       'Opening Balance': account.openingBalance || 0,
       'Allocated Total': allocated,
-      'Computed Balance': (account.openingBalance || 0) + allocated,
+      'Spent Total': spent,
+      'Real Current': realCurrent,
       Archived: account.archived ? 'Yes' : 'No',
     };
   });
@@ -419,7 +432,8 @@ function buildAccountsWorkbook(report: AccountReport) {
       { Metric: 'Accounts', Value: report.accounts.length },
       { Metric: 'Opening Balance Total', Value: report.totals.openingBalance },
       { Metric: 'Allocated Total', Value: report.totals.allocated },
-      { Metric: 'Computed Total', Value: report.totals.computed },
+      { Metric: 'Spent Total', Value: report.totals.spent },
+      { Metric: 'Real Current Total', Value: report.totals.current },
     ],
     Accounts: accountRows,
     'Allocations by Tag': tagRows,
@@ -441,6 +455,7 @@ export default function ReportsScreen() {
   const [accountLoading, setAccountLoading] = useState(false);
   const [accountExporting, setAccountExporting] = useState(false);
   const [loadingLatest, setLoadingLatest] = useState(false);
+  const [accountsVersion, setAccountsVersion] = useState(0);
 
   const [shoppingLists, setShoppingLists] = useState<ShoppingList[]>([]);
   const [shoppingItemsByListId, setShoppingItemsByListId] = useState<Record<string, ShoppingListItem[]>>({});
@@ -453,6 +468,17 @@ export default function ReportsScreen() {
   useEffect(() => {
     if (!uid) return;
     return watchPeriods(uid, setPeriods);
+  }, [uid]);
+
+  useEffect(() => {
+    if (!uid) return;
+    return watchAccounts(
+      uid,
+      () => {
+        setAccountsVersion((prev) => prev + 1);
+      },
+      { includeArchived: true }
+    );
   }, [uid]);
 
   useEffect(() => {
@@ -549,7 +575,7 @@ export default function ReportsScreen() {
       .then(setAccountReport)
       .catch((e: unknown) => Alert.alert('Account report failed', e instanceof Error ? e.message : String(e)))
       .finally(() => setAccountLoading(false));
-  }, [uid]);
+  }, [uid, accountsVersion]);
 
   const allocationTagChart = useMemo(() => {
     if (!accountReport) return [] as { x: string; y: number }[];
@@ -858,7 +884,7 @@ export default function ReportsScreen() {
         <View className="flex-row flex-wrap items-center justify-between gap-2">
           <View>
             <Text className="text-base font-semibold text-foreground dark:text-zinc-50">Accounts Summary</Text>
-            <Text className="text-xs text-muted-foreground">All-time totals by account and allocation tag.</Text>
+            <Text className="text-xs text-muted-foreground">All-time opening, spending, remaining, and allocation mix.</Text>
           </View>
           <AppButton
             label={accountExporting ? 'Exporting...' : 'Export Excel'}
@@ -872,7 +898,7 @@ export default function ReportsScreen() {
 
         {accountReport ? (
           <View className="gap-4">
-            <View className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <View className="grid grid-cols-1 gap-3 md:grid-cols-4">
               <AppCard className="p-3">
                 <Text className="text-xs uppercase tracking-wide text-muted-foreground">Opening</Text>
                 <Text className="text-lg font-semibold text-foreground dark:text-zinc-50">
@@ -880,15 +906,21 @@ export default function ReportsScreen() {
                 </Text>
               </AppCard>
               <AppCard className="p-3">
-                <Text className="text-xs uppercase tracking-wide text-muted-foreground">Allocated</Text>
+                <Text className="text-xs uppercase tracking-wide text-muted-foreground">Spent</Text>
                 <Text className="text-lg font-semibold text-foreground dark:text-zinc-50">
-                  {fmtMoney(accountReport.totals.allocated)}
+                  {fmtMoney(accountReport.totals.spent)}
                 </Text>
               </AppCard>
               <AppCard className="p-3">
-                <Text className="text-xs uppercase tracking-wide text-muted-foreground">Computed</Text>
-                <Text className="text-lg font-semibold text-foreground dark:text-zinc-50">
-                  {fmtMoney(accountReport.totals.computed)}
+                <Text className="text-xs uppercase tracking-wide text-muted-foreground">Current</Text>
+                <Text className={cn('text-lg font-semibold', accountReport.totals.current < 0 ? 'text-red-700 dark:text-red-300' : 'text-foreground dark:text-zinc-50')}>
+                  {fmtMoney(accountReport.totals.current)}
+                </Text>
+              </AppCard>
+              <AppCard className="p-3">
+                <Text className="text-xs uppercase tracking-wide text-muted-foreground">Overdrawn</Text>
+                <Text className={cn('text-lg font-semibold', accountReport.totals.overdraftCount > 0 ? 'text-amber-700 dark:text-amber-300' : 'text-foreground dark:text-zinc-50')}>
+                  {accountReport.totals.overdraftCount}
                 </Text>
               </AppCard>
             </View>

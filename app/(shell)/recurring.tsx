@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Platform, ScrollView, Switch, Text, View } from 'react-native';
+import { Alert, Platform, Pressable, ScrollView, Switch, Text, View, useWindowDimensions } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { AppCard } from '@/components/ui/AppCard';
@@ -9,6 +9,7 @@ import { AppBadge } from '@/components/ui/AppBadge';
 import { AppSegmented } from '@/components/ui/AppSegmented';
 import { IconActionButton } from '@/components/ui/IconActionButton';
 import { DropdownField } from '@/components/ui/DropdownField';
+import { AppModal } from '@/components/ui/AppModal';
 import { useWorkspaceUid } from '@/providers/WorkspaceProvider';
 import {
   addRecurring,
@@ -26,11 +27,13 @@ import { createPeriod, nextMonthMeta, periodIdFromDate, periodTitleFromId } from
 import { applyAllocationDefaultsForPeriod } from '@/lib/repo/allocations';
 import { fmtMoney, parseMoney } from '@/lib/format';
 import { PLAN_GROUP_OPTIONS } from '@/lib/groups';
-import { firstTag, parseTagsInput, tagsLabel, tagsToInput } from '@/lib/tags';
+import { firstTag } from '@/lib/tags';
 
 export default function RecurringScreen() {
   const router = useRouter();
   const uid = useWorkspaceUid();
+  const { width } = useWindowDimensions();
+  const isCompact = width < 768;
 
   const [rows, setRows] = useState<Recurring[]>([]);
   const [csvText, setCsvText] = useState(recurringCsvHeader);
@@ -51,6 +54,7 @@ export default function RecurringScreen() {
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingDraft, setEditingDraft] = useState<Recurring | null>(null);
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [isGeneratingCurrent, setIsGeneratingCurrent] = useState(false);
   const [isCreatingNextBudget, setIsCreatingNextBudget] = useState(false);
 
@@ -129,6 +133,16 @@ export default function RecurringScreen() {
     setEditingDraft(null);
   }
 
+  function openMobileDetail(row: Recurring) {
+    beginEdit(row);
+    setMobileDetailOpen(true);
+  }
+
+  function closeMobileDetail() {
+    cancelEdit();
+    setMobileDetailOpen(false);
+  }
+
   async function saveRow(row: Recurring) {
     if (!uid || !row.id) return;
     await updateRecurring(uid, row.id, {
@@ -147,12 +161,16 @@ export default function RecurringScreen() {
     if (!editingDraft || !editingId) return;
     await saveRow({ ...editingDraft, id: editingId });
     cancelEdit();
+    setMobileDetailOpen(false);
   }
 
   async function removeRow(row: Recurring) {
     if (!uid || !row.id) return;
     await deleteRecurring(uid, row.id);
-    if (editingId === row.id) cancelEdit();
+    if (editingId === row.id) {
+      cancelEdit();
+      setMobileDetailOpen(false);
+    }
   }
 
   async function generateCurrentPeriod() {
@@ -335,6 +353,7 @@ export default function RecurringScreen() {
           <Text className="text-xs text-muted-foreground">Aligned list view from redesign baseline.</Text>
         </View>
 
+        {!isCompact ? (
         <ScrollView horizontal showsHorizontalScrollIndicator>
           <View className="min-w-[940px] flex-1">
             <View className="flex-row border-b border-border pb-2 dark:border-zinc-800">
@@ -529,7 +548,147 @@ export default function RecurringScreen() {
             ) : null}
           </View>
         </ScrollView>
+        ) : (
+          <View className="gap-2">
+            <View className="gap-2 rounded-lg border border-border bg-muted/20 p-3 dark:border-zinc-800 dark:bg-zinc-800/30">
+              <Text className="text-xs uppercase tracking-wide text-muted-foreground">Quick Add</Text>
+              <AppInput
+                value={draft.name}
+                onChangeText={(value) => setDraft((prev) => ({ ...prev, name: value }))}
+                placeholder="New template..."
+                className="h-9"
+              />
+              <AppSegmented
+                value={(draft.flow ?? 'EXPENSE') as RecurringFlow}
+                compact
+                onChange={(value) => setDraft((prev) => ({ ...prev, flow: value as RecurringFlow }))}
+                options={[
+                  { label: 'Expense', value: 'EXPENSE' },
+                  { label: 'Income', value: 'INCOME' },
+                ]}
+              />
+              {(draft.flow ?? 'EXPENSE') === 'EXPENSE' ? (
+                <AppSegmented
+                  value={draft.group ?? 'NEED'}
+                  compact
+                  onChange={(value) => setDraft((prev) => ({ ...prev, group: value as any }))}
+                  options={PLAN_GROUP_OPTIONS.map((option) => ({ label: option.label, value: option.value }))}
+                />
+              ) : null}
+              <View className="flex-row items-center gap-2">
+                <View className="flex-1">
+                  <AppInput
+                    value={String(draft.amount || '')}
+                    onChangeText={(value) => setDraft((prev) => ({ ...prev, amount: parseMoney(value) }))}
+                    keyboardType="decimal-pad"
+                    placeholder="0.00"
+                    className="h-9 text-right"
+                  />
+                </View>
+                <Switch value={draft.active !== false} onValueChange={(value) => setDraft((prev) => ({ ...prev, active: value }))} />
+                <IconActionButton icon="plus" label="Add template" onPress={addRow} />
+              </View>
+            </View>
+
+            {formError ? (
+              <View className="py-1">
+                <Text className="text-xs text-destructive">{formError}</Text>
+              </View>
+            ) : null}
+
+            <View className="overflow-hidden rounded-lg border border-border dark:border-zinc-800">
+              <View className="flex-row border-b border-border bg-muted/30 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/40">
+                <Text className="w-[180px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Name</Text>
+                <Text className="flex-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Type</Text>
+              </View>
+              {displayRows.map((row) => (
+                <Pressable
+                  key={row.id}
+                  className="flex-row items-center border-b border-border px-3 py-2 last:border-b-0 dark:border-zinc-800"
+                  onPress={() => openMobileDetail(row)}
+                >
+                  <Text className="w-[180px] text-sm font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>
+                    {row.name}
+                  </Text>
+                  <Text className="flex-1 text-xs text-muted-foreground">
+                    {row.flow ?? 'EXPENSE'}
+                  </Text>
+                </Pressable>
+              ))}
+              {!displayRows.length ? (
+                <View className="py-4">
+                  <Text className="text-center text-sm text-muted-foreground">No templates for this filter.</Text>
+                </View>
+              ) : null}
+            </View>
+          </View>
+        )}
       </AppCard>
+
+      <AppModal open={isCompact && mobileDetailOpen} onClose={closeMobileDetail} title="Recurring Template">
+        {editingDraft ? (
+          <View className="gap-3">
+            <View className="gap-1">
+              <Text className="text-xs uppercase tracking-wide text-muted-foreground">Name</Text>
+              <AppInput
+                value={editingDraft.name}
+                onChangeText={(value) => setEditingDraft((prev) => (prev ? { ...prev, name: value } : prev))}
+              />
+            </View>
+            <View className="gap-1">
+              <Text className="text-xs uppercase tracking-wide text-muted-foreground">Type</Text>
+              <AppSegmented
+                value={(editingDraft.flow ?? 'EXPENSE') as RecurringFlow}
+                compact
+                onChange={(value) => setEditingDraft((prev) => (prev ? { ...prev, flow: value as RecurringFlow } : prev))}
+                options={[
+                  { label: 'Expense', value: 'EXPENSE' },
+                  { label: 'Income', value: 'INCOME' },
+                ]}
+              />
+            </View>
+            {(editingDraft.flow ?? 'EXPENSE') === 'EXPENSE' ? (
+              <View className="gap-1">
+                <Text className="text-xs uppercase tracking-wide text-muted-foreground">Category</Text>
+                <AppSegmented
+                  value={editingDraft.group ?? 'NEED'}
+                  compact
+                  onChange={(value) => setEditingDraft((prev) => (prev ? { ...prev, group: value as any } : prev))}
+                  options={PLAN_GROUP_OPTIONS.map((option) => ({ label: option.label, value: option.value }))}
+                />
+              </View>
+            ) : null}
+            <View className="gap-1">
+              <Text className="text-xs uppercase tracking-wide text-muted-foreground">Amount</Text>
+              <AppInput
+                value={String(editingDraft.amount || '')}
+                onChangeText={(value) => setEditingDraft((prev) => (prev ? { ...prev, amount: parseMoney(value) } : prev))}
+                keyboardType="decimal-pad"
+              />
+            </View>
+            <View className="flex-row items-center justify-between rounded-md border border-border bg-muted/20 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/30">
+              <Text className="text-sm text-muted-foreground">Active</Text>
+              <Switch value={editingDraft.active !== false} onValueChange={(value) => setEditingDraft((prev) => (prev ? { ...prev, active: value } : prev))} />
+            </View>
+            <View className="flex-row justify-end gap-2">
+              {editingId ? (
+                <IconActionButton
+                  icon="trash-can-outline"
+                  label="Delete template"
+                  variant="danger"
+                  onPress={async () => {
+                    await removeRow({ ...editingDraft, id: editingId });
+                  }}
+                />
+              ) : null}
+              <AppButton variant="outline" label="Close" onPress={closeMobileDetail} />
+              <AppButton label="Save" onPress={saveEditingRow} />
+            </View>
+          </View>
+        ) : (
+          <Text className="text-sm text-muted-foreground">No template selected.</Text>
+        )}
+      </AppModal>
     </ScrollView>
   );
 }

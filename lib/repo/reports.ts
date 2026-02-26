@@ -11,9 +11,10 @@ import {
 } from './allocations';
 import {incomeCol, type IncomeItem} from './income';
 import {planCol, type PlanItem} from './plans';
-import {txCol, type Tx} from './transactions';
+import {listAllTransactions, txCol, type Tx} from './transactions';
 import type {PeriodDoc} from './periods';
 import type {WalletTag} from '../domain';
+import {sumSpendingByAccount, type AllocationWithPeriod} from '../accounting';
 
 export type BudgetTotals = {
   incomeTotal: number;
@@ -38,13 +39,18 @@ export type AccountReport = {
   accounts: Account[];
   allocations: (Allocation & {periodId: string})[];
   totalsByAccount: Record<string, number>;
+  spendingByAccount: Record<string, number>;
+  currentByAccount: Record<string, number>;
   totalsByTag: Record<WalletTag, number>;
   totals: {
     openingBalance: number;
     allocated: number;
+    spent: number;
+    current: number;
     computed: number;
     activeCount: number;
     archivedCount: number;
+    overdraftCount: number;
   };
 };
 
@@ -135,9 +141,10 @@ export async function fetchPeriodReport(uid: string, pid: string): Promise<Perio
 }
 
 export async function fetchAccountsReport(uid: string): Promise<AccountReport> {
-  const [accountsSnap, allocations] = await Promise.all([
+  const [accountsSnap, allocations, transactions] = await Promise.all([
     getDocs(query(accountsCol(uid), orderBy('createdAt', 'asc'))),
     listAllAllocations(uid),
+    listAllTransactions(uid),
   ]);
 
   const accounts: Account[] = [];
@@ -149,6 +156,8 @@ export async function fetchAccountsReport(uid: string): Promise<AccountReport> {
     WANTS: 0,
     SAVINGS: 0,
   };
+  const spendingByAccount: Record<string, number> = {};
+  const currentByAccount: Record<string, number> = {};
   let allocated = 0;
 
   for (const row of allocations) {
@@ -162,11 +171,31 @@ export async function fetchAccountsReport(uid: string): Promise<AccountReport> {
     }
   }
 
+  const spendingMap = sumSpendingByAccount(
+    transactions,
+    allocations as AllocationWithPeriod[]
+  );
+  spendingMap.forEach((amount, accountId) => {
+    spendingByAccount[accountId] = amount;
+  });
+
+  let spent = 0;
+  Object.values(spendingByAccount).forEach((amount) => {
+    spent += amount;
+  });
+
   let openingBalance = 0;
+  let current = 0;
   let activeCount = 0;
   let archivedCount = 0;
+  let overdraftCount = 0;
   for (const account of accounts) {
+    const accountId = String(account.id || '').trim();
     openingBalance += account.openingBalance || 0;
+    const accountCurrent = Number(account.openingBalance || 0);
+    if (accountId) currentByAccount[accountId] = accountCurrent;
+    current += accountCurrent;
+    if (accountCurrent < 0) overdraftCount += 1;
     if (account.archived) archivedCount += 1;
     else activeCount += 1;
   }
@@ -175,13 +204,18 @@ export async function fetchAccountsReport(uid: string): Promise<AccountReport> {
     accounts,
     allocations,
     totalsByAccount,
+    spendingByAccount,
+    currentByAccount,
     totalsByTag,
     totals: {
       openingBalance,
       allocated,
-      computed: openingBalance + allocated,
+      spent,
+      current,
+      computed: current,
       activeCount,
       archivedCount,
+      overdraftCount,
     },
   };
 }

@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { AppBadge } from '@/components/ui/AppBadge';
 import { AppCard } from '@/components/ui/AppCard';
 import { AppInput } from '@/components/ui/AppInput';
 import { AppSegmented } from '@/components/ui/AppSegmented';
 import { DropdownField } from '@/components/ui/DropdownField';
 import { IconActionButton } from '@/components/ui/IconActionButton';
+import { AppButton } from '@/components/ui/AppButton';
+import { AppModal } from '@/components/ui/AppModal';
 import { cn } from '@/lib/cn';
 import { computeFundedBudgetByItemId, hasFundedAmount } from '@/lib/funding';
 import { fmtMoney, parseMoney } from '@/lib/format';
@@ -47,6 +49,8 @@ function getSuggestions(query: string, options: BudgetOption[]) {
 
 export default function TransactionsScreen() {
   const uid = useWorkspaceUid();
+  const { width } = useWindowDimensions();
+  const isCompact = width < 768;
 
   const [periods, setPeriods] = useState<(PeriodDoc & { id: string })[]>([]);
   const [selectedPid, setSelectedPid] = useState(periodIdFromDate());
@@ -58,6 +62,7 @@ export default function TransactionsScreen() {
 
   const [txEdits, setTxEdits] = useState<Record<string, TxEditState>>({});
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [mobileDetailId, setMobileDetailId] = useState<string | null>(null);
 
   const [filter, setFilter] = useState<Filter>('ALL');
   const [formError, setFormError] = useState('');
@@ -262,11 +267,12 @@ export default function TransactionsScreen() {
       const current = txEdits[editingId];
       if (current?.dirty) {
         setFormError('Save or cancel the current edited row first.');
-        return;
+        return false;
       }
     }
     setEditingId(id);
     setFormError('');
+    return true;
   }
 
   function cancelEdit(id: string) {
@@ -384,6 +390,26 @@ export default function TransactionsScreen() {
   const selectedDraftBudgetFunded = selectedDraftBudget ? budgetIsFunded(selectedDraftBudget.id) : false;
 
   const periodOptions = periods.map((row) => ({ label: row.title || row.id, value: row.id }));
+  const mobileDetailRow = useMemo(
+    () => filteredTransactions.find((row) => row.id === mobileDetailId) || null,
+    [filteredTransactions, mobileDetailId]
+  );
+  const mobileDetailEdit = mobileDetailRow?.id ? txEdits[mobileDetailRow.id] : null;
+  const mobileDetailBudget = mobileDetailEdit ? resolveBudget(mobileDetailEdit.name, mobileDetailEdit.categoryId) : null;
+  const mobileBudgetOptions = useMemo(
+    () => [{ label: 'Select funded budget item', value: '' }, ...fundedBudgetOptions.map((row) => ({ label: row.label, value: row.id }))],
+    [fundedBudgetOptions]
+  );
+
+  function openMobileDetail(id: string) {
+    if (!beginEdit(id)) return;
+    setMobileDetailId(id);
+  }
+
+  function closeMobileDetail() {
+    if (mobileDetailId) cancelEdit(mobileDetailId);
+    setMobileDetailId(null);
+  }
 
   return (
     <ScrollView className="flex-1" contentContainerClassName="gap-4 pb-8">
@@ -449,6 +475,7 @@ export default function TransactionsScreen() {
           <Text className="text-xs text-muted-foreground">Use funded budget-item suggestions in the item name field.</Text>
         </View>
 
+        {!isCompact ? (
         <ScrollView horizontal showsHorizontalScrollIndicator>
           <View className="min-w-[980px] flex-1">
             <View className="flex-row border-b border-border pb-2 dark:border-zinc-800">
@@ -687,7 +714,168 @@ export default function TransactionsScreen() {
             ) : null}
           </View>
         </ScrollView>
+        ) : (
+          <View className="gap-2">
+            {!readOnly ? (
+              <View className="gap-2 rounded-lg border border-border bg-muted/20 p-3 dark:border-zinc-800 dark:bg-zinc-800/30">
+                <Text className="text-xs uppercase tracking-wide text-muted-foreground">Quick Add</Text>
+                <DropdownField
+                  value={String(draft.categoryId || '')}
+                  options={mobileBudgetOptions}
+                  onChange={(value) => {
+                    const selected = fundedBudgetOptions.find((row) => row.id === value) || null;
+                    setDraft((prev) => ({
+                      ...prev,
+                      categoryId: selected?.id || '',
+                      name: selected?.name || '',
+                      group: selected?.group || prev.group,
+                    }));
+                  }}
+                  placeholder="Select funded budget item"
+                  menuStrategy="inline"
+                />
+                <View className="flex-row items-center gap-2">
+                  <View className="flex-1">
+                    <AppInput
+                      value={String(draft.amount || '')}
+                      onChangeText={(value) => setDraft((prev) => ({ ...prev, amount: parseMoney(value) }))}
+                      keyboardType="decimal-pad"
+                      placeholder="Amount"
+                      className="h-9 text-right"
+                    />
+                  </View>
+                  <IconActionButton icon="plus" label="Add transaction" onPress={addRow} />
+                </View>
+              </View>
+            ) : null}
+
+            {formError ? (
+              <View className="py-1">
+                <Text className="text-xs text-destructive">{formError}</Text>
+              </View>
+            ) : null}
+
+            <View className="overflow-hidden rounded-lg border border-border dark:border-zinc-800">
+              <View className="flex-row border-b border-border bg-muted/30 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/40">
+                <Text className="w-[110px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Date</Text>
+                <Text className="flex-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Item</Text>
+              </View>
+              {filteredTransactions.map((row) => {
+                const edit = row.id ? txEdits[row.id] : null;
+                if (!row.id || !edit) return null;
+                return (
+                  <Pressable
+                    key={row.id}
+                    className={cn(
+                      'flex-row items-center border-b border-border px-3 py-2 last:border-b-0 dark:border-zinc-800',
+                      edit.dirty ? 'bg-primary/5 dark:bg-zinc-800/70' : 'bg-background dark:bg-zinc-900'
+                    )}
+                    onPress={() => openMobileDetail(row.id!)}
+                  >
+                    <Text className="w-[110px] text-xs text-muted-foreground">{row.date || '-'}</Text>
+                    <View className="flex-1">
+                      <Text className="text-sm font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>
+                        {row.name || '-'}
+                      </Text>
+                      <Text className="text-xs text-muted-foreground">{fmtMoney(row.amount || 0)}</Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
+              {!filteredTransactions.length ? (
+                <View className="py-4">
+                  <Text className="text-center text-sm text-muted-foreground">No transactions in this period/filter yet.</Text>
+                </View>
+              ) : null}
+            </View>
+          </View>
+        )}
       </AppCard>
+
+      <AppModal open={Boolean(mobileDetailId)} onClose={closeMobileDetail} title="Transaction Details">
+        {mobileDetailRow && mobileDetailEdit ? (
+          <View className="gap-3">
+            <View className="gap-1">
+              <Text className="text-xs uppercase tracking-wide text-muted-foreground">Date</Text>
+              <AppInput
+                value={mobileDetailEdit.date}
+                onChangeText={(value) => setEditField(mobileDetailRow.id!, { date: value })}
+                placeholder="YYYY-MM-DD"
+                editable={!readOnly}
+              />
+            </View>
+            <View className="gap-1">
+              <Text className="text-xs uppercase tracking-wide text-muted-foreground">Budget Item</Text>
+              <DropdownField
+                value={mobileDetailEdit.categoryId}
+                options={mobileBudgetOptions}
+                onChange={(value) => {
+                  const selected = fundedBudgetOptions.find((row) => row.id === value) || null;
+                  setEditField(mobileDetailRow.id!, {
+                    name: selected?.name || '',
+                    categoryId: selected?.id || '',
+                    group: selected?.group || mobileDetailEdit.group,
+                  });
+                }}
+                disabled={readOnly}
+                placeholder="Select funded budget item"
+                menuStrategy="inline"
+              />
+            </View>
+            <View className="gap-1">
+              <Text className="text-xs uppercase tracking-wide text-muted-foreground">Amount</Text>
+              <AppInput
+                value={mobileDetailEdit.amount}
+                onChangeText={(value) => setEditField(mobileDetailRow.id!, { amount: value })}
+                keyboardType="decimal-pad"
+                placeholder="0.00"
+                editable={!readOnly}
+              />
+            </View>
+            <View className="gap-1">
+              <Text className="text-xs uppercase tracking-wide text-muted-foreground">Note</Text>
+              <AppInput
+                value={mobileDetailEdit.note}
+                onChangeText={(value) => setEditField(mobileDetailRow.id!, { note: value })}
+                placeholder="Optional note"
+                editable={!readOnly}
+              />
+            </View>
+            <View className="flex-row flex-wrap items-center gap-2">
+              <AppBadge label={mobileDetailBudget?.group || mobileDetailRow.group} variant="outline" />
+              {mobileDetailBudget ? (
+                <AppBadge label={budgetIsFunded(mobileDetailBudget.id) ? 'Funded' : 'Not funded'} variant={budgetIsFunded(mobileDetailBudget.id) ? 'success' : 'danger'} />
+              ) : (
+                <AppBadge label="Budget item required" variant="warning" />
+              )}
+              {mobileDetailEdit.dirty ? <AppBadge label="Unsaved" variant="warning" /> : null}
+            </View>
+            <View className="flex-row justify-end gap-2">
+              {!readOnly ? (
+                <IconActionButton
+                  icon="trash-can-outline"
+                  label="Delete transaction"
+                  variant="danger"
+                  onPress={async () => {
+                    await removeRow(mobileDetailRow.id);
+                    setMobileDetailId(null);
+                  }}
+                />
+              ) : null}
+              <AppButton variant="outline" label="Close" onPress={closeMobileDetail} />
+              {!readOnly ? (
+                <AppButton
+                  label={mobileDetailEdit.saving ? 'Saving...' : 'Save'}
+                  onPress={() => saveRow(mobileDetailRow)}
+                  disabled={!mobileDetailEdit.dirty || mobileDetailEdit.saving}
+                />
+              ) : null}
+            </View>
+          </View>
+        ) : (
+          <Text className="text-sm text-muted-foreground">No transaction selected.</Text>
+        )}
+      </AppModal>
     </ScrollView>
   );
 }

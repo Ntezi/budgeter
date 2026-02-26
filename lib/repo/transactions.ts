@@ -1,5 +1,5 @@
 import {
-  addDoc, setDoc, doc, collection, onSnapshot, orderBy, query,
+  addDoc, setDoc, doc, collection, getDocs, onSnapshot, orderBy, query,
   serverTimestamp, updateDoc, deleteDoc,
 } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -19,6 +19,10 @@ export type Tx = {
   shoppingListName?: string;
   shoppingItemId?: string;
   shoppingItemName?: string;
+};
+
+export type TxWithPeriod = Tx & {
+  periodId: string;
 };
 
 export const txCol = (userId: string, pid: string) =>
@@ -78,4 +82,28 @@ export async function putTransactionWithId(
     ...tx,
     createdAt: serverTimestamp(),
   }) as any, { merge: true });
+}
+
+export async function listAllTransactions(userId: string): Promise<TxWithPeriod[]> {
+  const periodsSnap = await getDocs(collection(db, 'users', userId, 'periods'));
+  const rows: TxWithPeriod[] = [];
+
+  for (const period of periodsSnap.docs) {
+    const txSnap = await getDocs(collection(db, 'users', userId, 'periods', period.id, 'transactions'));
+    txSnap.forEach((d) => {
+      rows.push({
+        id: d.id,
+        periodId: period.id,
+        ...(d.data() as Omit<Tx, 'id'>),
+      });
+    });
+  }
+
+  rows.sort((a, b) => {
+    const periodDiff = a.periodId.localeCompare(b.periodId);
+    if (periodDiff !== 0) return periodDiff;
+    return String(a.date || '').localeCompare(String(b.date || ''));
+  });
+
+  return rows;
 }

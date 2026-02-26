@@ -19,16 +19,12 @@ import {
   updateAccount,
   watchAccounts,
 } from '@/lib/repo/accounts';
-import { listAllAllocations, type Allocation, watchAllocations } from '@/lib/repo/allocations';
-import { watchIncomeItems, type IncomeItem } from '@/lib/repo/income';
-import { type PlanItem, watchPlanTotals } from '@/lib/repo/plans';
+import { type Allocation, watchAllocations } from '@/lib/repo/allocations';
+import { type Tx, watchTransactions } from '@/lib/repo/transactions';
+import { watchIncomeItems } from '@/lib/repo/income';
+import { type PlanGroup, type PlanItem, watchPlanTotals } from '@/lib/repo/plans';
 import { cn } from '@/lib/cn';
-
-const GROUP_ORDER: Record<PlanItem['group'], number> = {
-  NEED: 0,
-  SAVINGS_DEBT: 1,
-  WANT: 2,
-};
+import { sumSpendingByAccount } from '@/lib/accounting';
 
 type AccountDraft = {
   name: string;
@@ -46,6 +42,30 @@ type EditingAccount = {
   dailyReminderEnabled: boolean;
 };
 
+type AssignedPlanItemRow = {
+  id: string;
+  name: string;
+  allocated: number;
+  spent: number;
+  remaining: number;
+};
+
+type SpendFlag = 'NOT_SPENT' | 'PARTIAL_SPENT' | 'SPENT';
+
+const RECONCILE_PINNED_GROUP_ORDER: Record<PlanGroup, number> = {
+  NEED: 0,
+  SAVINGS_DEBT: 1,
+  WANT: 2,
+};
+
+function computeSpendFlag(spent: number, planned: number): SpendFlag {
+  const safeSpent = Math.max(0, Number(spent || 0));
+  const safePlanned = Math.max(0, Number(planned || 0));
+  if (safeSpent <= 0) return 'NOT_SPENT';
+  if (safePlanned > 0 && safeSpent >= safePlanned) return 'SPENT';
+  return 'PARTIAL_SPENT';
+}
+
 export default function AccountsScreen() {
   const uid = useWorkspaceUid();
   const { activePeriodId } = useWorkspace();
@@ -56,11 +76,10 @@ export default function AccountsScreen() {
   }, [activePeriodId]);
 
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [incomeTotal, setIncomeTotal] = useState(0);
+  const [planItems, setPlanItems] = useState<PlanItem[]>([]);
   const [allocations, setAllocations] = useState<Allocation[]>([]);
-  const [allTimeAllocations, setAllTimeAllocations] = useState<(Allocation & { periodId: string })[]>([]);
-  const [periodIncomeItems, setPeriodIncomeItems] = useState<IncomeItem[]>([]);
-  const [periodActiveIncomeTotal, setPeriodActiveIncomeTotal] = useState(0);
-  const [periodPlanItems, setPeriodPlanItems] = useState<PlanItem[]>([]);
+  const [transactions, setTransactions] = useState<Tx[]>([]);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [createError, setCreateError] = useState('');
@@ -87,59 +106,91 @@ export default function AccountsScreen() {
 
   useEffect(() => {
     if (!uid || !selectedPid) return;
-    const unIncome = watchIncomeItems(uid, selectedPid, (rows, activeTotal) => {
-      setPeriodIncomeItems(rows);
-      setPeriodActiveIncomeTotal(activeTotal);
-    });
-    const unPlan = watchPlanTotals(uid, selectedPid, (_totals, rows) => setPeriodPlanItems(rows));
-    return () => {
-      unIncome();
-      unPlan();
-    };
+    return watchTransactions(uid, selectedPid, setTransactions);
   }, [uid, selectedPid]);
 
   useEffect(() => {
-    if (!uid) return;
-    listAllAllocations(uid).then(setAllTimeAllocations);
-  }, [uid, allocations]);
+    if (!uid || !selectedPid) return;
+    return watchPlanTotals(uid, selectedPid, (_totals, items) => {
+      setPlanItems(items);
+    });
+  }, [uid, selectedPid]);
 
-  const totalByAccount = useMemo(() => {
-    const map = new Map<string, number>();
-    allTimeAllocations.forEach((row) => {
-      map.set(row.accountId, (map.get(row.accountId) ?? 0) + (row.amount || 0));
+  useEffect(() => {
+    if (!uid || !selectedPid) return;
+    return watchIncomeItems(uid, selectedPid, (_items, activeTotal) => {
+      setIncomeTotal(activeTotal);
+    });
+  }, [uid, selectedPid]);
+
+  const planAccountByItemId = useMemo(() => {
+    const map = new Map<string, string>();
+    allocations.forEach((row) => {
+      if (row.sourceType !== 'PLAN') return;
+      const sourceItemId = String(row.sourceItemId || '').trim();
+      const accountId = String(row.accountId || '').trim();
+      if (!sourceItemId || !accountId) return;
+      map.set(sourceItemId, accountId);
     });
     return map;
-  }, [allTimeAllocations]);
+  }, [allocations]);
 
-  const editingAllocated = useMemo(() => {
-    if (!editing) return 0;
-    return totalByAccount.get(editing.id) ?? 0;
-  }, [editing, totalByAccount]);
+  const planWithPriority = useMemo(() => {
+    return planItems
+      .filter((row): row is PlanItem & { id: string } => Boolean(row.id))
+      .map((row, index) => ({
+        ...row,
+        id: row.id!,
+        priority: Number.isFinite(Number(row.priority)) ? Number(row.priority) : index + 1,
+      }));
+  }, [planItems]);
 
-  const editingRemaining = useMemo(() => {
-    if (!editing) return 0;
-    return editing.currentAmount || 0;
-  }, [editing]);
+  const periodAllocatedByAccount = useMemo(() => {
+    const map = new Map<string, number>();
+    planWithPriority.forEach((row) => {
+      const accountId = planAccountByItemId.get(row.id) || '';
+      if (!accountId) return;
+      map.set(accountId, (map.get(accountId) ?? 0) + Math.max(0, Number(row.amount || 0)));
+    });
+    return map;
+  }, [planAccountByItemId, planWithPriority]);
 
-  const hasInactiveIncome = useMemo(() => periodIncomeItems.some((row) => row.active === false), [periodIncomeItems]);
+  const periodSpentByPlanId = useMemo(() => {
+    const map = new Map<string, number>();
+    transactions.forEach((row) => {
+      const planId = String(row.categoryId || '').trim();
+      if (!planId) return;
+      map.set(planId, (map.get(planId) ?? 0) + Math.max(0, Number(row.amount || 0)));
+    });
+    return map;
+  }, [transactions]);
 
-  const planWithPriority = useMemo(
-    () =>
-      [...periodPlanItems]
-        .filter((row): row is PlanItem & { id: string } => Boolean(row.id))
-        .map((row, index) => ({ ...row, priority: Number((row as any).priority) || index + 1 })),
-    [periodPlanItems]
-  );
+  const spendFlagByPlanId = useMemo(() => {
+    const map = new Map<string, SpendFlag>();
+    const itemIds = new Set<string>();
+    planWithPriority.forEach((row) => itemIds.add(row.id));
+    periodSpentByPlanId.forEach((_amount, itemId) => itemIds.add(itemId));
+    itemIds.forEach((itemId) => {
+      const spent = periodSpentByPlanId.get(itemId) ?? 0;
+      const planned = planWithPriority.find((row) => row.id === itemId)?.amount ?? 0;
+      map.set(itemId, computeSpendFlag(spent, planned));
+    });
+    return map;
+  }, [periodSpentByPlanId, planWithPriority]);
 
   const fundingOrder = useMemo(() => {
     const rows = [...planWithPriority];
     rows.sort((a, b) => {
-      const aPinned = (a as any).reconcilePinned === true;
-      const bPinned = (b as any).reconcilePinned === true;
-      if (aPinned !== bPinned) return aPinned ? -1 : 1;
+      const aSpendFlag = spendFlagByPlanId.get(a.id) || 'NOT_SPENT';
+      const bSpendFlag = spendFlagByPlanId.get(b.id) || 'NOT_SPENT';
+      const aPrioritized =
+        aSpendFlag === 'PARTIAL_SPENT' || (a.reconcilePinned === true && aSpendFlag !== 'SPENT');
+      const bPrioritized =
+        bSpendFlag === 'PARTIAL_SPENT' || (b.reconcilePinned === true && bSpendFlag !== 'SPENT');
+      if (aPrioritized !== bPrioritized) return aPrioritized ? -1 : 1;
 
-      if (aPinned && bPinned) {
-        const groupDiff = GROUP_ORDER[a.group] - GROUP_ORDER[b.group];
+      if (aPrioritized && bPrioritized) {
+        const groupDiff = RECONCILE_PINNED_GROUP_ORDER[a.group] - RECONCILE_PINNED_GROUP_ORDER[b.group];
         if (groupDiff !== 0) return groupDiff;
       }
 
@@ -147,74 +198,106 @@ export default function AccountsScreen() {
       return a.name.localeCompare(b.name);
     });
     return rows;
-  }, [planWithPriority]);
+  }, [planWithPriority, spendFlagByPlanId]);
 
-  const unfundedByPlanId = useMemo(() => {
+  const fundedByPlanId = useMemo(() => {
+    let remaining = Math.max(0, Number(incomeTotal || 0));
     const map = new Map<string, number>();
-    let remaining = periodActiveIncomeTotal;
     fundingOrder.forEach((row) => {
-      const amount = row.amount || 0;
+      const amount = Math.max(0, Number(row.amount || 0));
       const funded = Math.min(amount, Math.max(remaining, 0));
-      const unfunded = Math.max(0, amount - funded);
-      map.set(row.id, unfunded);
+      map.set(row.id, funded);
       remaining = Math.max(0, remaining - amount);
     });
     return map;
-  }, [fundingOrder, periodActiveIncomeTotal]);
+  }, [fundingOrder, incomeTotal]);
 
-  const periodAllocatedByAccount = useMemo(() => {
+  const periodFundedByAccount = useMemo(() => {
     const map = new Map<string, number>();
-    allocations.forEach((row) => {
-      map.set(row.accountId, (map.get(row.accountId) ?? 0) + (row.amount || 0));
+    planWithPriority.forEach((row) => {
+      const accountId = planAccountByItemId.get(row.id) || '';
+      if (!accountId) return;
+      map.set(accountId, (map.get(accountId) ?? 0) + (fundedByPlanId.get(row.id) ?? 0));
     });
     return map;
-  }, [allocations]);
+  }, [fundedByPlanId, planAccountByItemId, planWithPriority]);
 
-  const unfundedDeductionByAccount = useMemo(() => {
-    const map = new Map<string, number>();
-    allocations.forEach((row) => {
-      if (row.sourceType !== 'PLAN' || !row.sourceItemId) return;
-      const unfunded = unfundedByPlanId.get(row.sourceItemId) ?? 0;
-      if (unfunded <= 0) return;
-      const deduction = Math.min(unfunded, row.amount || 0);
-      map.set(row.accountId, (map.get(row.accountId) ?? 0) + deduction);
-    });
-    return map;
-  }, [allocations, unfundedByPlanId]);
+  const periodSpentByAccount = useMemo(() => {
+    if (!selectedPid) return new Map<string, number>();
+    return sumSpendingByAccount(
+      transactions.map((row) => ({ ...row, periodId: selectedPid })),
+      allocations.map((row) => ({ ...row, periodId: selectedPid }))
+    );
+  }, [allocations, selectedPid, transactions]);
 
   const assignedPlanItemsByAccount = useMemo(() => {
-    const map = new Map<string, { id: string; name: string; amount: number; unfunded: number }[]>();
-    allocations.forEach((row) => {
-      if (row.sourceType !== 'PLAN' || !row.accountId) return;
-      const itemId = row.sourceItemId || '';
-      const unfunded = itemId ? Math.min(unfundedByPlanId.get(itemId) ?? 0, row.amount || 0) : 0;
-      const entry = {
-        id: itemId || `allocation-${row.id || row.accountId}-${row.amount || 0}`,
-        name: row.sourceItemName || 'Budget item',
-        amount: row.amount || 0,
-        unfunded,
+    const map = new Map<string, AssignedPlanItemRow[]>();
+    planWithPriority.forEach((row) => {
+      const accountId = planAccountByItemId.get(row.id) || '';
+      if (!accountId) return;
+      const spent = periodSpentByPlanId.get(row.id) ?? 0;
+      const funded = fundedByPlanId.get(row.id) ?? 0;
+      const allocated = Math.max(0, Number(row.amount || 0));
+
+      const entry: AssignedPlanItemRow = {
+        id: row.id,
+        name: row.name || 'Budget item',
+        allocated,
+        spent,
+        remaining: funded - spent,
       };
-      const current = map.get(row.accountId) ?? [];
+
+      const current = map.get(accountId) ?? [];
       current.push(entry);
-      map.set(row.accountId, current);
+      map.set(accountId, current);
     });
+
     map.forEach((rows, accountId) => {
       rows.sort((a, b) => a.name.localeCompare(b.name));
       map.set(accountId, rows);
     });
     return map;
-  }, [allocations, unfundedByPlanId]);
+  }, [fundedByPlanId, periodSpentByPlanId, planAccountByItemId, planWithPriority]);
 
   const assignedItemsViewerRows = useMemo(() => {
     if (!assignedItemsViewer) return [];
     return assignedPlanItemsByAccount.get(assignedItemsViewer.accountId) ?? [];
   }, [assignedItemsViewer, assignedPlanItemsByAccount]);
 
+  const editingAllocated = useMemo(() => {
+    if (!editing) return 0;
+    return periodAllocatedByAccount.get(editing.id) ?? 0;
+  }, [periodAllocatedByAccount, editing]);
+
+  const editingFunded = useMemo(() => {
+    if (!editing) return 0;
+    return periodFundedByAccount.get(editing.id) ?? 0;
+  }, [periodFundedByAccount, editing]);
+
+  const editingSpent = useMemo(() => {
+    if (!editing) return 0;
+    return periodSpentByAccount.get(editing.id) ?? 0;
+  }, [periodSpentByAccount, editing]);
+
+  const editingRemaining = useMemo(() => {
+    if (!editing) return 0;
+    return editingFunded - editingSpent;
+  }, [editingFunded, editingSpent, editing]);
+
+  const editingUnfunded = useMemo(() => {
+    if (!editing) return 0;
+    return editingAllocated - editingFunded;
+  }, [editingAllocated, editingFunded, editing]);
+
   function railColor(type?: WalletType) {
     if (type === 'BANK') return 'bg-blue-500';
     if (type === 'MOMO') return 'bg-emerald-500';
     if (type === 'CASH') return 'bg-amber-500';
     return 'bg-zinc-500';
+  }
+
+  function isNearEqual(a: number, b: number) {
+    return Math.abs(a - b) < 0.0001;
   }
 
   function resetDraft() {
@@ -264,7 +347,7 @@ export default function AccountsScreen() {
     await updateAccount(uid, editing.id, {
       name: editing.name.trim(),
       type: editing.type,
-      openingBalance: (editing.currentAmount || 0) - editingAllocated,
+      openingBalance: editing.currentAmount || 0,
       dailyReminderEnabled: editing.dailyReminderEnabled,
       archived: editing.archived,
     });
@@ -290,9 +373,26 @@ export default function AccountsScreen() {
       <View className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
         {accounts.map((row) => {
           const id = row.id ?? '';
-          const periodAllocated = periodAllocatedByAccount.get(id) ?? 0;
-          const remainingUnfunded = hasInactiveIncome ? unfundedDeductionByAccount.get(id) ?? 0 : 0;
-          const currentBalance = periodAllocated - remainingUnfunded;
+          const allocatedAmount = periodAllocatedByAccount.get(id) ?? 0;
+          const fundedAmount = periodFundedByAccount.get(id) ?? 0;
+          const spentAmount = periodSpentByAccount.get(id) ?? 0;
+          const currentAmount = Number(row.openingBalance || 0);
+          const remainingTarget = fundedAmount - spentAmount;
+          const isDeficit = remainingTarget > currentAmount;
+          const isSurplus = remainingTarget < currentAmount;
+          const remainingAmount = isDeficit
+            ? -Math.abs(remainingTarget - currentAmount)
+            : isSurplus
+              ? remainingTarget + currentAmount
+              : remainingTarget;
+          const unfundedAmount = allocatedAmount - fundedAmount;
+          const remainingColorClass = isDeficit
+            ? 'text-red-700 dark:text-red-300'
+            : isSurplus
+              ? 'text-emerald-700 dark:text-emerald-300'
+              : isNearEqual(fundedAmount, remainingTarget)
+                ? 'text-foreground dark:text-zinc-50'
+                : 'text-amber-700 dark:text-amber-300';
           const assignedItems = assignedPlanItemsByAccount.get(id) ?? [];
           const reminderEnabled = row.dailyReminderEnabled === true;
 
@@ -319,7 +419,7 @@ export default function AccountsScreen() {
                             id: row.id,
                             name: row.name,
                             type: (row.type ?? 'OTHER') as WalletType,
-                            currentAmount: currentBalance,
+                            currentAmount,
                             archived: row.archived === true,
                             dailyReminderEnabled: reminderEnabled,
                           })
@@ -329,28 +429,64 @@ export default function AccountsScreen() {
                     </View>
                   </View>
 
-                  <Text className={cn('mt-2 text-3xl font-bold', currentBalance < 0 ? 'text-red-600 dark:text-red-300' : 'text-foreground dark:text-zinc-50')}>
-                    {fmtMoney(currentBalance)}
+                  <Text className={cn('mt-2 text-3xl font-bold', remainingColorClass)}>
+                    {fmtMoney(remainingAmount)}
                   </Text>
                   <Text className="text-xs text-muted-foreground">
-                    Current Allocated
+                    Remaining Amount (Funded - Spent{isDeficit ? ' · Deficit' : isSurplus ? ' · Surplus' : ''})
                   </Text>
-                  <Text className="text-xs text-muted-foreground">Allocated this period {fmtMoney(periodAllocated)}</Text>
-                  {hasInactiveIncome && remainingUnfunded > 0 ? (
-                    <Text className="text-xs text-amber-700 dark:text-amber-300">
-                      Unfunded amount -{fmtMoney(remainingUnfunded)}
-                    </Text>
-                  ) : null}
+
+                  <View className="mt-1 gap-1 rounded-md border border-border bg-muted/20 px-2 py-2 dark:border-zinc-800 dark:bg-zinc-800/30">
+                    <View className="flex-row items-center justify-between gap-2">
+                      <Text className="text-xs text-muted-foreground">Allocated</Text>
+                      <Text className="text-xs font-medium text-foreground dark:text-zinc-50">{fmtMoney(allocatedAmount)}</Text>
+                    </View>
+                    <View className="flex-row items-center justify-between gap-2">
+                      <Text className="text-xs text-muted-foreground">Funded</Text>
+                      <Text className="text-xs font-medium text-foreground dark:text-zinc-50">{fmtMoney(fundedAmount)}</Text>
+                    </View>
+                    <View className="flex-row items-center justify-between gap-2">
+                      <Text className="text-xs text-muted-foreground">Spent</Text>
+                      <Text className="text-xs font-medium text-foreground dark:text-zinc-50">{fmtMoney(spentAmount)}</Text>
+                    </View>
+                    <View className="flex-row items-center justify-between gap-2">
+                      <Text className="text-xs text-muted-foreground">Remaining</Text>
+                      <Text className={cn('text-xs font-medium', remainingColorClass)}>{fmtMoney(remainingAmount)}</Text>
+                    </View>
+                    <View className="flex-row items-center justify-between gap-2">
+                      <Text className="text-xs text-muted-foreground">Unfunded</Text>
+                      <Text
+                        className={cn(
+                          'text-xs font-medium',
+                          unfundedAmount > 0
+                            ? 'text-amber-700 dark:text-amber-300'
+                            : 'text-foreground dark:text-zinc-50'
+                        )}
+                      >
+                        {fmtMoney(unfundedAmount)}
+                      </Text>
+                    </View>
+                    <View className="flex-row items-center justify-between gap-2">
+                      <Text className="text-xs text-muted-foreground">Current</Text>
+                      <Text
+                        className={cn(
+                          'text-xs font-medium',
+                          currentAmount < 0
+                            ? 'text-red-700 dark:text-red-300'
+                            : 'text-foreground dark:text-zinc-50'
+                        )}
+                      >
+                        {fmtMoney(currentAmount)}
+                      </Text>
+                    </View>
+                  </View>
+
                   <View className="mt-1 flex-row items-center justify-between rounded-md border border-border bg-muted/20 px-2 py-1.5 dark:border-zinc-800 dark:bg-zinc-800/30">
-                    <Text className="text-xs text-muted-foreground">
-                      Assigned items {assignedItems.length}
-                    </Text>
+                    <Text className="text-xs text-muted-foreground">Assigned items {assignedItems.length}</Text>
                     <IconActionButton
                       icon="eye-outline"
                       label="View assigned items"
-                      onPress={() =>
-                        row.id && setAssignedItemsViewer({ accountId: row.id, accountName: row.name })
-                      }
+                      onPress={() => row.id && setAssignedItemsViewer({ accountId: row.id, accountName: row.name })}
                       disabled={!row.id}
                     />
                   </View>
@@ -400,7 +536,7 @@ export default function AccountsScreen() {
           </View>
 
           <View className="gap-1">
-            <Text className="text-xs uppercase tracking-wide text-muted-foreground">Opening Balance</Text>
+            <Text className="text-xs uppercase tracking-wide text-muted-foreground">Current Amount (Real)</Text>
             <AppInput
               value={String(draft.openingBalance || '')}
               onChangeText={(value) => setDraft((prev) => ({ ...prev, openingBalance: parseMoney(value) }))}
@@ -451,7 +587,7 @@ export default function AccountsScreen() {
               />
             </View>
             <View className="gap-1">
-              <Text className="text-xs uppercase tracking-wide text-muted-foreground">Current Amount Allocated</Text>
+              <Text className="text-xs uppercase tracking-wide text-muted-foreground">Current Amount (Real)</Text>
               <AppInput
                 value={String(editing.currentAmount || '')}
                 onChangeText={(value) =>
@@ -463,8 +599,11 @@ export default function AccountsScreen() {
             </View>
             <View className="flex-row flex-wrap gap-2">
               <AppBadge label={`Allocated ${fmtMoney(editingAllocated)}`} variant="outline" />
-              <AppBadge label={`Current ${fmtMoney(editingRemaining)}`} variant="outline" />
-              <AppBadge label={`Remaining ${fmtMoney(editingAllocated - editingRemaining)}`} variant="outline" />
+              <AppBadge label={`Funded ${fmtMoney(editingFunded)}`} variant="outline" />
+              <AppBadge label={`Spent ${fmtMoney(editingSpent)}`} variant="outline" />
+              <AppBadge label={`Remaining ${fmtMoney(editingRemaining)}`} variant="outline" />
+              <AppBadge label={`Unfunded ${fmtMoney(editingUnfunded)}`} variant="outline" />
+              <AppBadge label={`Current ${fmtMoney(editing.currentAmount || 0)}`} variant="outline" />
             </View>
             <View className="flex-row items-center justify-between rounded-lg border border-border bg-muted/30 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/40">
               <Text className="text-sm text-muted-foreground">Daily reminder</Text>
@@ -496,20 +635,26 @@ export default function AccountsScreen() {
       >
         <View className="gap-2">
           {assignedItemsViewerRows.length ? (
-            assignedItemsViewerRows.map((item) => {
-              const funded = item.amount - item.unfunded;
-              return (
-                <View key={item.id} className="flex-row items-center justify-between rounded-md border border-border bg-muted/20 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/30">
-                  <Text className="flex-1 text-sm text-foreground dark:text-zinc-50" numberOfLines={1}>
-                    {item.name}
+            assignedItemsViewerRows.map((item) => (
+              <View key={item.id} className="gap-1 rounded-md border border-border bg-muted/20 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/30">
+                <Text className="text-sm font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>
+                  {item.name}
+                </Text>
+                <View className="flex-row items-center justify-between gap-2">
+                  <Text className="text-xs text-muted-foreground">
+                    Allocated {fmtMoney(item.allocated)} · Spent {fmtMoney(item.spent)}
                   </Text>
-                  <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{fmtMoney(funded)}</Text>
-                  {item.unfunded > 0 ? (
-                    <Text className="text-xs text-amber-700 dark:text-amber-300">-{fmtMoney(item.unfunded)}</Text>
-                  ) : null}
+                  <Text
+                    className={cn(
+                      'text-sm font-semibold',
+                      item.remaining < 0 ? 'text-red-700 dark:text-red-300' : 'text-emerald-700 dark:text-emerald-300'
+                    )}
+                  >
+                    {fmtMoney(item.remaining)}
+                  </Text>
                 </View>
-              );
-            })
+              </View>
+            ))
           ) : (
             <Text className="text-sm text-muted-foreground">No assigned budget items for this account in the current period.</Text>
           )}

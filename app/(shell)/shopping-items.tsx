@@ -29,7 +29,7 @@ import { periodIdFromDate, type PeriodDoc, watchPeriods } from '@/lib/repo/perio
 import { type PlanItem, watchPlanTotals } from '@/lib/repo/plans';
 import { fmtMoney } from '@/lib/format';
 import { planGroupLabel } from '@/lib/groups';
-import { parseTagsInput, tagsLabel, tagsToInput } from '@/lib/tags';
+import { parseTagsInput, tagsToInput } from '@/lib/tags';
 
 type CatalogDraft = {
   name: string;
@@ -220,11 +220,12 @@ export default function ShoppingItemsScreen() {
       const current = edits[editingId];
       if (current?.dirty) {
         setScreenError('Save or cancel the current edited row first.');
-        return;
+        return false;
       }
     }
     setEditingId(id);
     setScreenError('');
+    return true;
   }
 
   function cancelEdit(id: string) {
@@ -358,6 +359,18 @@ export default function ShoppingItemsScreen() {
     value: row.id,
   }));
 
+  function openItemDetail(row: ShoppingCatalogItem) {
+    if (!row.id) return;
+    const canEdit = beginEdit(row.id);
+    if (!canEdit) return;
+    setSelectedItem(row);
+  }
+
+  function closeItemDetail() {
+    if (selectedItem?.id) cancelEdit(selectedItem.id);
+    setSelectedItem(null);
+  }
+
   return (
     <ScrollView className="flex-1" contentContainerClassName="gap-4 pb-8">
       <View className="gap-1">
@@ -488,88 +501,116 @@ export default function ShoppingItemsScreen() {
           />
         </View>
 
-        <ScrollView horizontal showsHorizontalScrollIndicator>
-          <View className={isCompact ? 'min-w-[1120px] flex-1' : 'min-w-[1220px] flex-1'}>
-            <View className="flex-row border-b border-border pb-2 dark:border-zinc-800">
-              <Text className="w-[220px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Name</Text>
-              <Text className="w-[180px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Category</Text>
-              <Text className="w-[420px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Budget Item</Text>
-              <Text className="w-[160px] text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Actions</Text>
+        {!isCompact ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator>
+            <View className="min-w-[1220px] flex-1">
+              <View className="flex-row border-b border-border pb-2 dark:border-zinc-800">
+                <Text className="w-[220px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Name</Text>
+                <Text className="w-[180px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Category</Text>
+                <Text className="w-[420px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Budget Item</Text>
+                <Text className="w-[160px] text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Actions</Text>
+              </View>
+
+              {displayRows.map((row) => {
+                const edit = row.id ? edits[row.id] : null;
+                if (!row.id || !edit) return null;
+                const isEditing = editingId === row.id;
+                return (
+                  <Pressable
+                    key={row.id}
+                    onPress={() => !isEditing && setSelectedItem(row)}
+                    className={`flex-row items-center border-b py-2 dark:border-zinc-800 ${
+                      edit.dirty
+                        ? 'border-primary/40 bg-primary/5 dark:bg-zinc-800/70'
+                        : 'border-border hover:bg-muted/35 dark:hover:bg-zinc-800/55'
+                    }`}
+                  >
+                    <View className="w-[220px] pr-2">
+                      {isEditing ? (
+                        <AppInput value={edit.name} onChangeText={(value) => setEditField(row.id!, { name: value })} className="h-9" />
+                      ) : (
+                        <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{row.name}</Text>
+                      )}
+                    </View>
+                    <View className="w-[180px] pr-2">
+                      {isEditing ? (
+                        <DropdownField
+                          value={edit.category}
+                          options={[{ label: 'No category', value: '' }, ...categoryNames.map((name) => ({ label: name, value: name }))]}
+                          onChange={(value) => setEditField(row.id!, { category: value })}
+                          menuStrategy="inline"
+                        />
+                      ) : (
+                        <Text className="text-xs text-muted-foreground">{row.category || 'No category'}</Text>
+                      )}
+                    </View>
+                    <View className="w-[420px] pr-2">
+                      {isEditing ? (
+                        <DropdownField
+                          value={edit.assignedPlanItemId}
+                          options={[{ label: 'Unassigned', value: '' }, ...planOptions.map((option) => ({ label: option.label, value: option.value }))]}
+                          onChange={(value) => setEditField(row.id!, { assignedPlanItemId: value })}
+                          placeholder="Link to budget item"
+                          menuStrategy="inline"
+                        />
+                      ) : (
+                        <Text className="text-xs text-muted-foreground">
+                          {row.assignedPlanItemName || 'Unassigned'}
+                        </Text>
+                      )}
+                    </View>
+                    <View className="w-[160px] flex-row items-center justify-center gap-2">
+                      {isEditing ? (
+                        <>
+                          {edit.dirty ? <AppBadge label="Unsaved" variant="warning" /> : null}
+                          <IconActionButton icon="content-save-outline" label="Save shopping item" onPress={() => saveCatalogItem(row)} disabled={!edit.dirty || edit.saving} />
+                          <IconActionButton icon="close" label="Cancel edit" variant="muted" onPress={() => cancelEdit(row.id!)} />
+                        </>
+                      ) : (
+                        <>
+                          <IconActionButton icon="pencil-outline" label="Edit shopping item" onPress={() => beginEdit(row.id!)} />
+                          <IconActionButton icon="trash-can-outline" label="Delete shopping item" variant="danger" onPress={() => removeCatalogItem(row)} />
+                        </>
+                      )}
+                    </View>
+                  </Pressable>
+                );
+              })}
+
+              {!displayRows.length ? (
+                <View className="py-4">
+                  <Text className="text-sm text-muted-foreground">No shopping items found for this filter.</Text>
+                </View>
+              ) : null}
             </View>
-
-            {displayRows.map((row) => {
-              const edit = row.id ? edits[row.id] : null;
-              if (!row.id || !edit) return null;
-              const isEditing = editingId === row.id;
-              return (
-                <Pressable
-                  key={row.id}
-                  onPress={() => !isEditing && setSelectedItem(row)}
-                  className={`flex-row items-center border-b py-2 dark:border-zinc-800 ${
-                    edit.dirty
-                      ? 'border-primary/40 bg-primary/5 dark:bg-zinc-800/70'
-                      : 'border-border hover:bg-muted/35 dark:hover:bg-zinc-800/55'
-                  }`}
-                >
-                  <View className="w-[220px] pr-2">
-                    {isEditing ? (
-                      <AppInput value={edit.name} onChangeText={(value) => setEditField(row.id!, { name: value })} className="h-9" />
-                    ) : (
-                      <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{row.name}</Text>
-                    )}
-                  </View>
-                  <View className="w-[180px] pr-2">
-                    {isEditing ? (
-                      <DropdownField
-                        value={edit.category}
-                        options={[{ label: 'No category', value: '' }, ...categoryNames.map((name) => ({ label: name, value: name }))]}
-                        onChange={(value) => setEditField(row.id!, { category: value })}
-                        menuStrategy="inline"
-                      />
-                    ) : (
-                      <Text className="text-xs text-muted-foreground">{row.category || 'No category'}</Text>
-                    )}
-                  </View>
-                  <View className="w-[420px] pr-2">
-                    {isEditing ? (
-                      <DropdownField
-                        value={edit.assignedPlanItemId}
-                        options={[{ label: 'Unassigned', value: '' }, ...planOptions.map((option) => ({ label: option.label, value: option.value }))]}
-                        onChange={(value) => setEditField(row.id!, { assignedPlanItemId: value })}
-                        placeholder="Link to budget item"
-                        menuStrategy="inline"
-                      />
-                    ) : (
-                      <Text className="text-xs text-muted-foreground">
-                        {row.assignedPlanItemName || 'Unassigned'}
-                      </Text>
-                    )}
-                  </View>
-                  <View className="w-[160px] flex-row items-center justify-center gap-2">
-                    {isEditing ? (
-                      <>
-                        {edit.dirty ? <AppBadge label="Unsaved" variant="warning" /> : null}
-                        <IconActionButton icon="content-save-outline" label="Save shopping item" onPress={() => saveCatalogItem(row)} disabled={!edit.dirty || edit.saving} />
-                        <IconActionButton icon="close" label="Cancel edit" variant="muted" onPress={() => cancelEdit(row.id!)} />
-                      </>
-                    ) : (
-                      <>
-                        <IconActionButton icon="pencil-outline" label="Edit shopping item" onPress={() => beginEdit(row.id!)} />
-                        <IconActionButton icon="trash-can-outline" label="Delete shopping item" variant="danger" onPress={() => removeCatalogItem(row)} />
-                      </>
-                    )}
-                  </View>
-                </Pressable>
-              );
-            })}
-
+          </ScrollView>
+        ) : (
+          <View className="overflow-hidden rounded-lg border border-border dark:border-zinc-800">
+            <View className="flex-row border-b border-border bg-muted/30 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/40">
+              <Text className="w-[180px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Name</Text>
+              <Text className="flex-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Category</Text>
+            </View>
+            {displayRows.map((row) => (
+              <Pressable
+                key={row.id}
+                onPress={() => openItemDetail(row)}
+                className="flex-row items-center border-b border-border px-3 py-2 last:border-b-0 dark:border-zinc-800"
+              >
+                <Text className="w-[180px] text-sm font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>
+                  {row.name}
+                </Text>
+                <Text className="flex-1 text-xs text-muted-foreground" numberOfLines={1}>
+                  {row.category || 'No category'}
+                </Text>
+              </Pressable>
+            ))}
             {!displayRows.length ? (
               <View className="py-4">
-                <Text className="text-sm text-muted-foreground">No shopping items found for this filter.</Text>
+                <Text className="text-center text-sm text-muted-foreground">No shopping items found for this filter.</Text>
               </View>
             ) : null}
           </View>
-        </ScrollView>
+        )}
       </AppCard>
 
       <AppCard className="gap-3">
@@ -601,24 +642,67 @@ export default function ShoppingItemsScreen() {
 
       <AppModal
         open={Boolean(selectedItem)}
-        onClose={() => setSelectedItem(null)}
+        onClose={closeItemDetail}
         title={selectedItem?.name || 'Item Details'}
       >
         <View className="gap-4">
-          <View className="flex-row flex-wrap gap-4">
-            <View>
-              <Text className="text-xs text-muted-foreground">Category</Text>
-              <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{selectedItem?.category || 'None'}</Text>
+          {selectedItem?.id && edits[selectedItem.id] ? (
+            <View className="gap-3">
+              <View className="gap-1">
+                <Text className="text-xs text-muted-foreground">Name</Text>
+                <AppInput
+                  value={edits[selectedItem.id].name}
+                  onChangeText={(value) => setEditField(selectedItem.id!, { name: value })}
+                />
+              </View>
+              <View className="gap-1">
+                <Text className="text-xs text-muted-foreground">Category</Text>
+                <DropdownField
+                  value={edits[selectedItem.id].category}
+                  options={[{ label: 'No category', value: '' }, ...categoryNames.map((name) => ({ label: name, value: name }))]}
+                  onChange={(value) => setEditField(selectedItem.id!, { category: value })}
+                  menuStrategy="inline"
+                />
+              </View>
+              <View className="gap-1">
+                <Text className="text-xs text-muted-foreground">Budget Item</Text>
+                <DropdownField
+                  value={edits[selectedItem.id].assignedPlanItemId}
+                  options={[{ label: 'Unassigned', value: '' }, ...planOptions.map((option) => ({ label: option.label, value: option.value }))]}
+                  onChange={(value) => setEditField(selectedItem.id!, { assignedPlanItemId: value })}
+                  placeholder="Link to budget item"
+                  menuStrategy="inline"
+                />
+              </View>
+              <View className="gap-1">
+                <Text className="text-xs text-muted-foreground">Tags</Text>
+                <AppInput
+                  value={edits[selectedItem.id].tagsInput}
+                  onChangeText={(value) => setEditField(selectedItem.id!, { tagsInput: value })}
+                  placeholder="utilities, groceries"
+                />
+              </View>
+              <View className="flex-row flex-wrap items-center gap-2">
+                <AppBadge label={`Last Price ${fmtMoney(selectedItem?.lastPrice || 0)}`} variant="outline" />
+                {edits[selectedItem.id].dirty ? <AppBadge label="Unsaved" variant="warning" /> : null}
+              </View>
             </View>
-            <View>
-              <Text className="text-xs text-muted-foreground">Budget Item</Text>
-              <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{selectedItem?.assignedPlanItemName || 'Unassigned'}</Text>
+          ) : (
+            <View className="flex-row flex-wrap gap-4">
+              <View>
+                <Text className="text-xs text-muted-foreground">Category</Text>
+                <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{selectedItem?.category || 'None'}</Text>
+              </View>
+              <View>
+                <Text className="text-xs text-muted-foreground">Budget Item</Text>
+                <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{selectedItem?.assignedPlanItemName || 'Unassigned'}</Text>
+              </View>
+              <View>
+                <Text className="text-xs text-muted-foreground">Last Price</Text>
+                <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{fmtMoney(selectedItem?.lastPrice || 0)}</Text>
+              </View>
             </View>
-            <View>
-              <Text className="text-xs text-muted-foreground">Last Price</Text>
-              <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{fmtMoney(selectedItem?.lastPrice || 0)}</Text>
-            </View>
-          </View>
+          )}
 
           <View className="gap-2">
             <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Price History</Text>
@@ -640,8 +724,26 @@ export default function ShoppingItemsScreen() {
             </ScrollView>
           </View>
 
-          <View className="flex-row justify-end">
-            <AppButton variant="outline" label="Close" onPress={() => setSelectedItem(null)} />
+          <View className="flex-row justify-end gap-2">
+            {selectedItem ? (
+              <IconActionButton
+                icon="trash-can-outline"
+                label="Delete shopping item"
+                variant="danger"
+                onPress={async () => {
+                  await removeCatalogItem(selectedItem);
+                  setSelectedItem(null);
+                }}
+              />
+            ) : null}
+            <AppButton variant="outline" label="Close" onPress={closeItemDetail} />
+            {selectedItem?.id && edits[selectedItem.id] ? (
+              <AppButton
+                label={edits[selectedItem.id].saving ? 'Saving...' : 'Save'}
+                onPress={() => saveCatalogItem(selectedItem)}
+                disabled={!edits[selectedItem.id].dirty || edits[selectedItem.id].saving}
+              />
+            ) : null}
           </View>
         </View>
       </AppModal>

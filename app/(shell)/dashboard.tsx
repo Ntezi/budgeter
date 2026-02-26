@@ -25,6 +25,8 @@ import { seedBudgetForNewPeriod } from '@/lib/repo/recurring';
 import { watchTransactions, type Tx } from '@/lib/repo/transactions';
 import { planGroupLabel } from '@/lib/groups';
 import { cn } from '@/lib/cn';
+import { fetchAccountsReport, type AccountReport } from '@/lib/repo/reports';
+import { watchAccounts } from '@/lib/repo/accounts';
 
 type CompareMode = 'AUTO' | 'MANUAL';
 
@@ -42,6 +44,8 @@ export default function DashboardScreen() {
   const [transactions, setTransactions] = useState<Tx[]>([]);
   const [allocationTotals, setAllocationTotals] = useState({ needs: 0, wants: 0, savings: 0, total: 0 });
   const [mode, setMode] = useState<CompareMode>('AUTO');
+  const [accountReport, setAccountReport] = useState<AccountReport | null>(null);
+  const [accountsVersion, setAccountsVersion] = useState(0);
 
   const budgetExists = useMemo(() => periods.some((p) => p.id === pid), [periods, pid]);
 
@@ -66,6 +70,35 @@ export default function DashboardScreen() {
       unList();
     };
   }, [uid, pid]);
+
+  useEffect(() => {
+    if (!uid) return;
+    return watchAccounts(
+      uid,
+      () => {
+        setAccountsVersion((prev) => prev + 1);
+      },
+      { includeArchived: true }
+    );
+  }, [uid]);
+
+  useEffect(() => {
+    if (!uid) {
+      setAccountReport(null);
+      return;
+    }
+    let cancelled = false;
+    fetchAccountsReport(uid)
+      .then((report) => {
+        if (!cancelled) setAccountReport(report);
+      })
+      .catch(() => {
+        if (!cancelled) setAccountReport(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [uid, pid, transactions, allocationTotals.total, accountsVersion]);
 
   const actualTotals = useMemo(() => {
     const res = { needs: 0, wants: 0, sd: 0, shopping: 0, uncategorized: 0, total: 0 };
@@ -105,6 +138,10 @@ export default function DashboardScreen() {
   const spentTotal = actualTotals.total;
   const surplus = incomeTotal - spentTotal;
   const savingsRate = incomeTotal > 0 ? Math.round((surplus / incomeTotal) * 100) : 0;
+  const accountsCurrentTotal = accountReport?.totals.current ?? 0;
+  const accountsSpentTotal = accountReport?.totals.spent ?? 0;
+  const accountsOpeningTotal = accountReport?.totals.openingBalance ?? 0;
+  const accountsOverdraftCount = accountReport?.totals.overdraftCount ?? 0;
 
   const currentPeriodTitle = useMemo(() => {
     const current = periods.find((row) => row.id === pid);
@@ -228,11 +265,15 @@ export default function DashboardScreen() {
             </AppCard>
             <AppCard className="gap-1">
               <View className="flex-row items-center justify-between">
-                <Text className="text-xs uppercase tracking-wide text-muted-foreground">Allocated</Text>
-                <MaterialCommunityIcons name="bank-outline" size={16} color="#717182" />
+                <Text className="text-xs uppercase tracking-wide text-muted-foreground">Accounts Current</Text>
+                <MaterialCommunityIcons name="wallet-outline" size={16} color="#717182" />
               </View>
-              <Text className="text-2xl font-bold text-foreground dark:text-zinc-50">{fmtMoney(allocationTotals.total)}</Text>
-              <Text className="text-xs text-muted-foreground">Mapped to accounts</Text>
+              <Text className={cn('text-2xl font-bold', accountsCurrentTotal < 0 ? 'text-red-600 dark:text-red-300' : 'text-foreground dark:text-zinc-50')}>
+                {fmtMoney(accountsCurrentTotal)}
+              </Text>
+              <Text className="text-xs text-muted-foreground">
+                {accountsOverdraftCount > 0 ? `${accountsOverdraftCount} overdrawn account(s)` : 'No overdraft'}
+              </Text>
             </AppCard>
             <AppCard className="gap-1">
               <View className="flex-row items-center justify-between">
@@ -331,11 +372,12 @@ export default function DashboardScreen() {
 
       {budgetExists && (
         <AppCard className="gap-3">
-          <Text className="text-base font-semibold text-foreground dark:text-zinc-50">Account Allocation Snapshot ({pid})</Text>
+          <Text className="text-base font-semibold text-foreground dark:text-zinc-50">Accounts Snapshot</Text>
           <View className="flex-row flex-wrap items-center gap-2">
-            <AppBadge label={`Needs ${fmtMoney(allocationTotals.needs)}`} variant="outline" />
-            <AppBadge label={`Wants ${fmtMoney(allocationTotals.wants)}`} variant="outline" />
-            <AppBadge label={`Savings ${fmtMoney(allocationTotals.savings)}`} variant="outline" />
+            <AppBadge label={`Opening ${fmtMoney(accountsOpeningTotal)}`} variant="outline" />
+            <AppBadge label={`Spent ${fmtMoney(accountsSpentTotal)}`} variant="outline" />
+            <AppBadge label={`Current ${fmtMoney(accountsCurrentTotal)}`} variant={accountsCurrentTotal < 0 ? 'danger' : 'outline'} />
+            <AppBadge label={`Overdrawn ${accountsOverdraftCount}`} variant={accountsOverdraftCount > 0 ? 'warning' : 'secondary'} />
           </View>
         </AppCard>
       )}
