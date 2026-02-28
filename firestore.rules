@@ -64,24 +64,30 @@ service cloud.firestore {
     }
 
     function canWriteUserDoc(ownerUid) {
-      // delete
-      if (request.resource == null) {
-        return hasResourceWorkspaceId()
-          ? isWorkspaceEditorById(resourceWorkspaceId())
-          : canAccessLegacyWorkspace(ownerUid);
-      }
-      // update existing scoped doc (workspaceId is immutable)
-      if (resource != null && hasResourceWorkspaceId()) {
-        return hasRequestWorkspaceId() &&
-          requestWorkspaceId() == resourceWorkspaceId() &&
-          isWorkspaceEditorById(resourceWorkspaceId());
-      }
-      // create new scoped doc
-      if (hasRequestWorkspaceId()) {
-        return isWorkspaceEditorById(requestWorkspaceId());
-      }
-      // create/update legacy doc
-      return canAccessLegacyWorkspace(ownerUid);
+      return request.resource == null
+        ? (
+          hasResourceWorkspaceId()
+            ? isWorkspaceEditorById(resourceWorkspaceId())
+            : canAccessLegacyWorkspace(ownerUid)
+        )
+        : (
+          resource != null && hasResourceWorkspaceId()
+            ? (
+              hasRequestWorkspaceId() &&
+              requestWorkspaceId() == resourceWorkspaceId() &&
+              isWorkspaceEditorById(resourceWorkspaceId())
+            )
+            : (
+              hasRequestWorkspaceId()
+                ? isWorkspaceEditorById(requestWorkspaceId())
+                : canAccessLegacyWorkspace(ownerUid)
+            )
+        );
+    }
+
+    function isOwner() { return isSignedIn() && request.auth.uid == resource.data.ownerId; }
+    function creatingForSelf() {
+      return isSignedIn() && request.auth.uid == request.resource.data.ownerId;
     }
 
     match /workspaceMembers/{membershipId} {
@@ -133,11 +139,6 @@ service cloud.firestore {
         allow read: if canReadUserDoc(uid);
         allow write: if canWriteUserDoc(uid);
       }
-    }
-
-    function isOwner() { return isSignedIn() && request.auth.uid == resource.data.ownerId; }
-    function creatingForSelf() {
-      return isSignedIn() && request.auth.uid == request.resource.data.ownerId;
     }
 
     match /budgets/{budgetId} {
