@@ -35,6 +35,7 @@ type PlanOption = {
   name: string;
   label: string;
   group: PlanItem['group'];
+  plannedAccountId?: string;
 };
 
 type CompletionInput = {
@@ -111,16 +112,21 @@ export default function ShoppingScreen() {
   useEffect(() => {
     if (!uid) return;
     return watchShoppingLists(uid, (rows) => {
-      setLists(rows);
-      if (selectedListId && !rows.some((row) => row.id === selectedListId)) {
-        setSelectedListId(rows[0]?.id || '');
+      const periodScoped = rows.filter((row) => {
+        const pid = String(row.periodId || '').trim();
+        if (!pid) return true;
+        return pid === targetPid;
+      });
+      setLists(periodScoped);
+      if (selectedListId && !periodScoped.some((row) => row.id === selectedListId)) {
+        setSelectedListId(periodScoped[0]?.id || '');
         return;
       }
-      if (!selectedListId && rows.length > 0 && isWide) {
-        setSelectedListId(rows[0].id || '');
+      if (!selectedListId && periodScoped.length > 0 && isWide) {
+        setSelectedListId(periodScoped[0].id || '');
       }
     });
-  }, [uid, selectedListId, isWide]);
+  }, [uid, selectedListId, isWide, targetPid]);
 
   useEffect(() => {
     if (!uid) return;
@@ -158,6 +164,7 @@ export default function ShoppingScreen() {
           name: row.name,
           group: row.group,
           label: `${row.name} · ${fmtMoney(row.amount || 0)} · ${planGroupLabel(row.group)}`,
+          plannedAccountId: String((row as any).plannedAccountId || '').trim(),
         })),
     [planItems]
   );
@@ -291,7 +298,7 @@ export default function ShoppingScreen() {
       return;
     }
 
-    const ref = await addShoppingList(uid, name);
+    const ref = await addShoppingList(uid, name, targetPid);
     setListDraftName('');
     setListError('');
     setCreateListOpen(false);
@@ -303,19 +310,24 @@ export default function ShoppingScreen() {
     const name = String(catalog.name || '').trim();
     if (!name) return;
     const plan = resolvePlanForItemName(name, catalog);
-
-    await addShoppingListItem(uid, selectedListId, {
-      name,
-      quantity: 1,
-      price: catalog.lastPrice || 0,
-      category: catalog.category || '',
-      tags: catalog.tags || [],
-      assignedPlanItemId: plan?.id || '',
-      assignedPlanItemName: plan?.name || '',
-      assignedGroup: plan?.group,
-      bought: false,
-      completed: false,
-    });
+    try {
+      await addShoppingListItem(uid, selectedListId, {
+        name,
+        quantity: 1,
+        price: catalog.lastPrice || 0,
+        category: catalog.category || '',
+        tags: catalog.tags || [],
+        assignedPlanItemId: plan?.id || '',
+        assignedPlanItemName: plan?.name || '',
+        assignedGroup: plan?.group,
+        bought: false,
+        completed: false,
+      });
+      setItemError('');
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      setItemError(message || 'Could not add item.');
+    }
   }
 
   async function addItem() {
@@ -329,21 +341,26 @@ export default function ShoppingScreen() {
     const catalog = catalogRows.find((row) => normalize(row.name || '') === normalize(name));
     const plan = resolvePlanForItemName(name, catalog);
 
-    await addShoppingListItem(uid, selectedListId, {
-      name,
-      quantity: 1,
-      price: catalog?.lastPrice || 0,
-      category: catalog?.category || '',
-      tags: catalog?.tags || [],
-      assignedPlanItemId: plan?.id || '',
-      assignedPlanItemName: plan?.name || '',
-      assignedGroup: plan?.group,
-      bought: false,
-      completed: false,
-    });
+    try {
+      await addShoppingListItem(uid, selectedListId, {
+        name,
+        quantity: 1,
+        price: catalog?.lastPrice || 0,
+        category: catalog?.category || '',
+        tags: catalog?.tags || [],
+        assignedPlanItemId: plan?.id || '',
+        assignedPlanItemName: plan?.name || '',
+        assignedGroup: plan?.group,
+        bought: false,
+        completed: false,
+      });
 
-    setItemDraftName('');
-    setItemError('');
+      setItemDraftName('');
+      setItemError('');
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      setItemError(message || 'Could not add item.');
+    }
   }
 
   async function toggleBought(item: ShoppingListItem) {
@@ -394,16 +411,21 @@ export default function ShoppingScreen() {
     }
 
     const selectedPlan = planById.get(editDraft.planItemId);
-    await updateShoppingListItem(uid, selectedListId, editDraft.id, {
-      name,
-      quantity,
-      assignedPlanItemId: selectedPlan?.id || '',
-      assignedPlanItemName: selectedPlan?.name || '',
-      assignedGroup: selectedPlan?.group,
-    });
+    try {
+      await updateShoppingListItem(uid, selectedListId, editDraft.id, {
+        name,
+        quantity,
+        assignedPlanItemId: selectedPlan?.id || '',
+        assignedPlanItemName: selectedPlan?.name || '',
+        assignedGroup: selectedPlan?.group,
+      });
 
-    setEditItemOpen(false);
-    setEditItemError('');
+      setEditItemOpen(false);
+      setEditItemError('');
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      setEditItemError(message || 'Could not update item.');
+    }
   }
 
   async function saveItemTag() {
@@ -568,7 +590,9 @@ export default function ShoppingScreen() {
           group: plan.group,
           date: new Date().toISOString().slice(0, 10),
           note: `Shopping: ${selectedList.name} · Item: ${item.name}`,
+          planItemId: plan.id,
           categoryId: plan.id,
+          paidFromAccountId: plan.plannedAccountId || '',
           shoppingListId: selectedListId,
           shoppingListName: selectedList.name,
           shoppingItemId: item.id,
@@ -602,29 +626,54 @@ export default function ShoppingScreen() {
   async function importSelected() {
     if (!uid || !selectedListId) return;
     const picks = catalogRows.filter((row) => importSelection[row.id || '']);
+    let addedCount = 0;
+    let duplicateCount = 0;
 
-    for (const row of picks) {
-      const name = String(row.name || '').trim();
-      if (!name) continue;
-      const plan = resolvePlanForItemName(name, row);
-      await addShoppingListItem(uid, selectedListId, {
-        name,
-        quantity: 1,
-        price: row.lastPrice || 0,
-        category: row.category || '',
-        tags: row.tags || [],
-        assignedPlanItemId: plan?.id || '',
-        assignedPlanItemName: plan?.name || '',
-        assignedGroup: plan?.group,
-        bought: false,
-        completed: false,
-      });
+    try {
+      for (const row of picks) {
+        const name = String(row.name || '').trim();
+        if (!name) continue;
+        const plan = resolvePlanForItemName(name, row);
+        try {
+          await addShoppingListItem(uid, selectedListId, {
+            name,
+            quantity: 1,
+            price: row.lastPrice || 0,
+            category: row.category || '',
+            tags: row.tags || [],
+            assignedPlanItemId: plan?.id || '',
+            assignedPlanItemName: plan?.name || '',
+            assignedGroup: plan?.group,
+            bought: false,
+            completed: false,
+          });
+          addedCount += 1;
+        } catch (e: unknown) {
+          const message = e instanceof Error ? e.message : String(e);
+          if (message === 'Item already exists in this shopping list.') {
+            duplicateCount += 1;
+            continue;
+          }
+          throw e;
+        }
+      }
+
+      setImportOpen(false);
+      setImportSearch('');
+      setImportCategoryFilter('ALL');
+      setImportSelection({});
+      setItemError('');
+
+      if (duplicateCount > 0) {
+        Alert.alert(
+          'Import complete',
+          `Added ${addedCount} item${addedCount === 1 ? '' : 's'}. Skipped ${duplicateCount} duplicate${duplicateCount === 1 ? '' : 's'}.`
+        );
+      }
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      Alert.alert('Import failed', message || 'Could not import selected items.');
     }
-
-    setImportOpen(false);
-    setImportSearch('');
-    setImportCategoryFilter('ALL');
-    setImportSelection({});
   }
 
   const renderLists = () => (

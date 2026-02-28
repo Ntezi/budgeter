@@ -5,7 +5,6 @@ import {
   doc,
   getDocs,
   onSnapshot,
-  orderBy,
   query,
   serverTimestamp,
   setDoc,
@@ -13,11 +12,14 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import type { Group } from './periods';
+import { docMatchesActiveScope, withWorkspaceWrite } from './scope';
 
 export type ShoppingList = {
   id?: string;
   name: string;
   archived?: boolean;
+  workspaceId?: string;
+  periodId?: string;
   createdAt?: unknown;
   updatedAt?: unknown;
 };
@@ -40,6 +42,8 @@ export type ShoppingListItem = {
   assignedPlanItemName?: string;
   assignedGroup?: Group;
   assignedTxId?: string;
+  workspaceId?: string;
+  periodId?: string;
   createdAt?: unknown;
   updatedAt?: unknown;
 };
@@ -53,6 +57,7 @@ export type ShoppingCatalogItem = {
   assignedPlanItemId?: string;
   assignedPlanItemName?: string;
   assignedGroup?: Group;
+  workspaceId?: string;
   createdAt?: unknown;
   updatedAt?: unknown;
 };
@@ -60,6 +65,7 @@ export type ShoppingCatalogItem = {
 export type ShoppingCategory = {
   id?: string;
   name: string;
+  workspaceId?: string;
   createdAt?: unknown;
   updatedAt?: unknown;
 };
@@ -107,9 +113,32 @@ function normalizeItemTag(input?: string) {
   return value;
 }
 
+function normalizeItemName(input?: string) {
+  return String(input || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
 function normalizeGroup(input?: Group) {
-  if (input === 'NEED' || input === 'WANT' || input === 'SAVINGS_DEBT') return input;
-  return undefined;
+  const value = String(input || '').trim();
+  if (!value) return undefined;
+  if (value === 'NEED' || value === 'WANT' || value === 'SAVINGS_DEBT') return value;
+  return value as Group;
+}
+
+async function assertShoppingListItemNameAvailable(uid: string, listId: string, name: string, excludeId?: string) {
+  const normalizedName = normalizeItemName(name);
+  if (!normalizedName) throw new Error('Item name is required.');
+
+  const snap = await getDocs(shoppingItemsCol(uid, listId));
+  for (const row of snap.docs) {
+    if (excludeId && row.id === excludeId) continue;
+    const data = row.data() as Omit<ShoppingListItem, 'id'>;
+    if (!docMatchesActiveScope(data as any)) continue;
+    if (normalizeItemName(data.name) !== normalizedName) continue;
+    throw new Error('Item already exists in this shopping list.');
+  }
 }
 
 function catalogDocId(name: string) {
@@ -143,37 +172,48 @@ function parseCsvRecord(line: string): string[] {
 }
 
 export function watchShoppingLists(uid: string, cb: (rows: ShoppingList[]) => void) {
-  const q = query(shoppingListsCol(uid), orderBy('createdAt', 'asc'));
+  const q = query(shoppingListsCol(uid));
   return onSnapshot(q, (snap) => {
     const rows: ShoppingList[] = [];
-    snap.forEach((d) => rows.push({ id: d.id, ...(d.data() as Omit<ShoppingList, 'id'>) }));
+    snap.forEach((d) => {
+      const row = { id: d.id, ...(d.data() as Omit<ShoppingList, 'id'>) };
+      if (!docMatchesActiveScope(row as any)) return;
+      rows.push(row);
+    });
+    rows.sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
     cb(rows);
   });
 }
 
 export function watchShoppingListItems(uid: string, listId: string, cb: (rows: ShoppingListItem[]) => void) {
-  const q = query(shoppingItemsCol(uid, listId), orderBy('createdAt', 'asc'));
+  const q = query(shoppingItemsCol(uid, listId));
   return onSnapshot(q, (snap) => {
     const rows: ShoppingListItem[] = [];
-    snap.forEach((d) => rows.push({ id: d.id, ...(d.data() as Omit<ShoppingListItem, 'id'>) }));
+    snap.forEach((d) => {
+      const row = { id: d.id, ...(d.data() as Omit<ShoppingListItem, 'id'>) };
+      if (!docMatchesActiveScope(row as any)) return;
+      rows.push(row);
+    });
+    rows.sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
     cb(rows);
   });
 }
 
-export async function addShoppingList(uid: string, name: string) {
-  return addDoc(shoppingListsCol(uid), {
+export async function addShoppingList(uid: string, name: string, periodId?: string) {
+  return addDoc(shoppingListsCol(uid), withWorkspaceWrite({
     name: name.trim(),
+    periodId: String(periodId || '').trim(),
     archived: false,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
-  });
+  }));
 }
 
 export async function updateShoppingList(uid: string, id: string, patch: Partial<ShoppingList>) {
-  return updateDoc(doc(shoppingListsCol(uid), id), {
+  return updateDoc(doc(shoppingListsCol(uid), id), withWorkspaceWrite({
     ...patch,
     updatedAt: serverTimestamp(),
-  } as Partial<ShoppingList>);
+  } as Partial<ShoppingList>));
 }
 
 export async function deleteShoppingList(uid: string, id: string) {
@@ -187,14 +227,22 @@ export async function deleteShoppingList(uid: string, id: string) {
 export async function listShoppingLists(uid: string) {
   const snap = await getDocs(shoppingListsCol(uid));
   const rows: ShoppingList[] = [];
-  snap.forEach((d) => rows.push({ id: d.id, ...(d.data() as Omit<ShoppingList, 'id'>) }));
+  snap.forEach((d) => {
+    const row = { id: d.id, ...(d.data() as Omit<ShoppingList, 'id'>) };
+    if (!docMatchesActiveScope(row as any)) return;
+    rows.push(row);
+  });
   return rows;
 }
 
 export async function listShoppingListItems(uid: string, listId: string) {
   const snap = await getDocs(shoppingItemsCol(uid, listId));
   const rows: ShoppingListItem[] = [];
-  snap.forEach((d) => rows.push({ id: d.id, ...(d.data() as Omit<ShoppingListItem, 'id'>) }));
+  snap.forEach((d) => {
+    const row = { id: d.id, ...(d.data() as Omit<ShoppingListItem, 'id'>) };
+    if (!docMatchesActiveScope(row as any)) return;
+    rows.push(row);
+  });
   return rows;
 }
 
@@ -203,25 +251,41 @@ export async function addShoppingListItem(
   listId: string,
   input: Omit<ShoppingListItem, 'id' | 'createdAt' | 'updatedAt'>
 ) {
+  const name = String(input.name || '').trim();
+  if (!name) throw new Error('Item name is required.');
+  await assertShoppingListItemNameAvailable(uid, listId, name);
   const price = Math.max(0, Number(input.price || 0));
   const tag = normalizeItemTag(input.tag);
-  return addDoc(shoppingItemsCol(uid, listId), compactFields({
-    ...input,
-    ownerUid: uid,
-    name: input.name.trim(),
-    quantity: Math.max(1, Number(input.quantity || 1)),
-    price,
-    category: normalizeCategory(input.category),
-    tags: normalizeTags(input.tags),
-    ...(tag !== undefined ? { tag } : {}),
-    bought: input.bought === true,
-    completed: input.completed === true,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  }) as any);
+  return addDoc(
+    shoppingItemsCol(uid, listId),
+    withWorkspaceWrite(
+      compactFields({
+        ...input,
+        ownerUid: uid,
+        name,
+        quantity: Math.max(1, Number(input.quantity || 1)),
+        price,
+        category: normalizeCategory(input.category),
+        tags: normalizeTags(input.tags),
+        ...(tag !== undefined ? { tag } : {}),
+        bought: input.bought === true,
+        completed: input.completed === true,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      }) as any
+    )
+  );
 }
 
 export async function updateShoppingListItem(uid: string, listId: string, id: string, patch: Partial<ShoppingListItem>) {
+  const name =
+    patch.name === undefined
+      ? undefined
+      : String(patch.name || '').trim();
+  if (name !== undefined) {
+    if (!name) throw new Error('Item name is required.');
+    await assertShoppingListItemNameAvailable(uid, listId, name, id);
+  }
   const tags = Array.isArray(patch.tags) ? normalizeTags(patch.tags) : patch.tags;
   const tag = patch.tag === undefined ? undefined : normalizeItemTag(patch.tag);
   const quantity =
@@ -230,15 +294,21 @@ export async function updateShoppingListItem(uid: string, listId: string, id: st
     patch.price === undefined ? undefined : Math.max(0, Number(patch.price || 0));
   const category =
     patch.category === undefined ? undefined : normalizeCategory(patch.category);
-  return updateDoc(doc(shoppingItemsCol(uid, listId), id), compactFields({
-    ...patch,
-    ...(quantity !== undefined ? { quantity } : {}),
-    ...(price !== undefined ? { price } : {}),
-    ...(category !== undefined ? { category } : {}),
-    ...(tags ? { tags } : {}),
-    ...(tag !== undefined ? { tag } : {}),
-    updatedAt: serverTimestamp(),
-  }) as any);
+  return updateDoc(
+    doc(shoppingItemsCol(uid, listId), id),
+    withWorkspaceWrite(
+      compactFields({
+        ...patch,
+        ...(name !== undefined ? { name } : {}),
+        ...(quantity !== undefined ? { quantity } : {}),
+        ...(price !== undefined ? { price } : {}),
+        ...(category !== undefined ? { category } : {}),
+        ...(tags ? { tags } : {}),
+        ...(tag !== undefined ? { tag } : {}),
+        updatedAt: serverTimestamp(),
+      }) as any
+    )
+  );
 }
 
 export async function deleteShoppingListItem(uid: string, listId: string, id: string) {
@@ -246,10 +316,15 @@ export async function deleteShoppingListItem(uid: string, listId: string, id: st
 }
 
 export function watchShoppingCatalog(uid: string, cb: (rows: ShoppingCatalogItem[]) => void) {
-  const q = query(shoppingCatalogCol(uid), orderBy('name', 'asc'));
+  const q = query(shoppingCatalogCol(uid));
   return onSnapshot(q, (snap) => {
     const rows: ShoppingCatalogItem[] = [];
-    snap.forEach((d) => rows.push({ id: d.id, ...(d.data() as Omit<ShoppingCatalogItem, 'id'>) }));
+    snap.forEach((d) => {
+      const row = { id: d.id, ...(d.data() as Omit<ShoppingCatalogItem, 'id'>) };
+      if (!docMatchesActiveScope(row as any)) return;
+      rows.push(row);
+    });
+    rows.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
     cb(rows);
   });
 }
@@ -271,17 +346,19 @@ export async function upsertShoppingCatalogItem(
   const docRef = doc(shoppingCatalogCol(uid), id);
   await setDoc(
     docRef,
-    compactFields({
-      name,
-      category,
-      tags,
-      lastPrice: input.price,
-      assignedPlanItemId,
-      assignedPlanItemName,
-      assignedGroup: storedAssignedGroup as any,
-      updatedAt: serverTimestamp(),
-      createdAt: serverTimestamp(),
-    }),
+    withWorkspaceWrite(
+      compactFields({
+        name,
+        category,
+        tags,
+        lastPrice: input.price,
+        assignedPlanItemId,
+        assignedPlanItemName,
+        assignedGroup: storedAssignedGroup as any,
+        updatedAt: serverTimestamp(),
+        createdAt: serverTimestamp(),
+      })
+    ),
     { merge: true }
   );
 
@@ -306,15 +383,20 @@ export async function updateShoppingCatalogItem(uid: string, id: string, patch: 
   const assignedGroup = patch.assignedGroup !== undefined ? normalizeGroup(patch.assignedGroup) ?? null : undefined;
   const normalizedAssignedGroup =
     assignedPlanItemId !== undefined && !assignedPlanItemId ? null : assignedGroup;
-  return updateDoc(doc(shoppingCatalogCol(uid), id), compactFields({
-    ...patch,
-    ...(tags ? { tags } : {}),
-    ...(category !== undefined ? { category } : {}),
-    ...(assignedPlanItemId !== undefined ? { assignedPlanItemId } : {}),
-    ...(assignedPlanItemName !== undefined ? { assignedPlanItemName } : {}),
-    ...(normalizedAssignedGroup !== undefined ? { assignedGroup: normalizedAssignedGroup as any } : {}),
-    updatedAt: serverTimestamp(),
-  }) as any);
+  return updateDoc(
+    doc(shoppingCatalogCol(uid), id),
+    withWorkspaceWrite(
+      compactFields({
+        ...patch,
+        ...(tags ? { tags } : {}),
+        ...(category !== undefined ? { category } : {}),
+        ...(assignedPlanItemId !== undefined ? { assignedPlanItemId } : {}),
+        ...(assignedPlanItemName !== undefined ? { assignedPlanItemName } : {}),
+        ...(normalizedAssignedGroup !== undefined ? { assignedGroup: normalizedAssignedGroup as any } : {}),
+        updatedAt: serverTimestamp(),
+      }) as any
+    )
+  );
 }
 
 export async function deleteShoppingCatalogItem(uid: string, id: string) {
@@ -322,10 +404,15 @@ export async function deleteShoppingCatalogItem(uid: string, id: string) {
 }
 
 export function watchShoppingCategories(uid: string, cb: (rows: ShoppingCategory[]) => void) {
-  const q = query(shoppingCategoriesCol(uid), orderBy('name', 'asc'));
+  const q = query(shoppingCategoriesCol(uid));
   return onSnapshot(q, (snap) => {
     const rows: ShoppingCategory[] = [];
-    snap.forEach((d) => rows.push({ id: d.id, ...(d.data() as Omit<ShoppingCategory, 'id'>) }));
+    snap.forEach((d) => {
+      const row = { id: d.id, ...(d.data() as Omit<ShoppingCategory, 'id'>) };
+      if (!docMatchesActiveScope(row as any)) return;
+      rows.push(row);
+    });
+    rows.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
     cb(rows);
   });
 }
@@ -336,11 +423,11 @@ export async function addShoppingCategory(uid: string, name: string) {
   const id = catalogDocId(clean);
   await setDoc(
     doc(shoppingCategoriesCol(uid), id),
-    {
+    withWorkspaceWrite({
       name: clean,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
-    },
+    }),
     { merge: true }
   );
   return id;
@@ -404,7 +491,7 @@ export type PriceHistoryEntry = {
 };
 
 export function watchPriceHistory(uid: string, itemId: string, cb: (rows: PriceHistoryEntry[]) => void) {
-  const q = query(collection(db, 'users', uid, 'shoppingCatalog', itemId, 'priceHistory'), orderBy('createdAt', 'asc'));
+  const q = query(collection(db, 'users', uid, 'shoppingCatalog', itemId, 'priceHistory'));
   return onSnapshot(q, (snap) => {
     const rows: PriceHistoryEntry[] = [];
     snap.forEach((d) => {
@@ -416,6 +503,7 @@ export function watchPriceHistory(uid: string, itemId: string, cb: (rows: PriceH
         createdAt: data.createdAt?.toMillis?.() ?? Date.now(),
       });
     });
+    rows.sort((a, b) => a.createdAt - b.createdAt);
     cb(rows);
   });
 }
