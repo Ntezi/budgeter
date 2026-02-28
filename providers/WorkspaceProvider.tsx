@@ -1,30 +1,56 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuthUser } from './AuthProvider';
-import { watchMyWorkspaceMemberships, type WorkspaceMember } from '@/lib/repo/collaboration';
+import {
+  createWorkspace as createWorkspaceDoc,
+  defaultWorkspaceIdFor,
+  monthlyGroupDefs,
+  seedDefaultWorkspaceIfMissing,
+  setUserWorkspacePrefs,
+  type WorkspaceDoc,
+  type WorkspaceGroupDef,
+  watchMyWorkspaces,
+  watchUserWorkspacePrefs,
+} from '@/lib/repo/workspaces';
+import { setActiveRepoScope, type WorkspaceMode } from '@/lib/repo/scope';
 
 export type WorkspaceOption = {
+  workspaceId: string;
   ownerUid: string;
   ownerEmail?: string;
   label: string;
   shared: boolean;
+  mode: WorkspaceMode;
+  legacyMode: boolean;
 };
 
 type WorkspaceContextValue = {
   ready: boolean;
+  // Backward-compatible alias used by existing screens/repos as data owner uid.
   workspaceUid: string | null;
+  activeWorkspaceId: string | null;
+  activeWorkspace: WorkspaceDoc | null;
+  workspaceMode: WorkspaceMode;
+  groupDefs: WorkspaceGroupDef[];
+  legacyMode: boolean;
   activePeriodId: string;
   setActivePeriodId: (pid: string) => Promise<void>;
   workspaceOptions: WorkspaceOption[];
-  setWorkspaceUid: (ownerUid: string) => Promise<void>;
-  sharedMemberships: WorkspaceMember[];
+  // Backward-compatible setter (accepts ownerUid or workspaceId).
+  setWorkspaceUid: (value: string) => Promise<void>;
+  setActiveWorkspaceId: (workspaceId: string) => Promise<void>;
+  createWorkspace: (input: {
+    name: string;
+    mode: WorkspaceMode;
+    currency: string;
+    periodPolicy: { type: 'MONTHLY' | 'DATE_RANGE'; startDate?: string; endDate?: string };
+    groupDefs?: WorkspaceGroupDef[];
+    template?: 'WEDDING';
+  }) => Promise<string>;
+  sharedMemberships: any[];
 };
 
 const WorkspaceCtx = createContext<WorkspaceContextValue | undefined>(undefined);
-
-function storageKeyFor(uid: string) {
-  return `budgeter:workspace:${uid}`;
-}
 
 function periodStorageKeyFor(uid: string) {
   return `budgeter:activePeriod:${uid}`;
@@ -34,126 +60,221 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const user = useAuthUser();
 
   const [ready, setReady] = useState(false);
-  const [workspaceUid, setWorkspaceUidState] = useState<string | null>(null);
+  const [workspaces, setWorkspaces] = useState<WorkspaceDoc[]>([]);
+  const [activeWorkspaceIdState, setActiveWorkspaceIdState] = useState<string | null>(null);
   const [activePeriodId, setActivePeriodIdState] = useState<string>('');
-  const [sharedMemberships, setSharedMemberships] = useState<WorkspaceMember[]>([]);
-  const [storageInitialized, setStorageInitialized] = useState(false);
-  const [manualWorkspaceSelectionThisSession, setManualWorkspaceSelectionThisSession] = useState(false);
+  const [storageReady, setStorageReady] = useState(false);
 
   useEffect(() => {
     if (!user?.uid) {
-      setWorkspaceUidState(null);
+      setWorkspaces([]);
+      setActiveWorkspaceIdState(null);
       setActivePeriodIdState('');
-      setSharedMemberships([]);
-      setStorageInitialized(false);
-      setManualWorkspaceSelectionThisSession(false);
       setReady(true);
+      setStorageReady(false);
+      setActiveRepoScope({ workspaceId: null, legacyMode: true });
       return;
     }
 
     let mounted = true;
     setReady(false);
-    setStorageInitialized(false);
-    setManualWorkspaceSelectionThisSession(false);
+    setStorageReady(false);
 
-    Promise.all([
-      AsyncStorage.getItem(storageKeyFor(user.uid)),
-      AsyncStorage.getItem(periodStorageKeyFor(user.uid)),
-    ])
-      .then(([storedUid, storedPid]) => {
+    AsyncStorage.getItem(periodStorageKeyFor(user.uid))
+      .then((storedPid) => {
         if (!mounted) return;
-        setWorkspaceUidState(storedUid?.trim() || user.uid);
-        setActivePeriodIdState(storedPid?.trim() || '');
+        setActivePeriodIdState(String(storedPid || '').trim());
       })
       .finally(() => {
-        if (mounted) {
-          setStorageInitialized(true);
-          setReady(true);
-        }
+        if (mounted) setStorageReady(true);
       });
 
-    const unsubs = watchMyWorkspaceMemberships(user.uid, setSharedMemberships);
+    seedDefaultWorkspaceIfMissing(user.uid, user.email || '').catch(() => undefined);
+
+    const unsubWorkspaces = watchMyWorkspaces(user.uid, (rows) => {
+      if (!mounted) return;
+      setWorkspaces(rows);
+    });
+
+    const unsubPrefs = watchUserWorkspacePrefs(user.uid, (prefs) => {
+      if (!mounted) return;
+      if (prefs.activeWorkspaceId !== undefined) {
+        setActiveWorkspaceIdState(prefs.activeWorkspaceId || null);
+      }
+      if (prefs.activePeriodId !== undefined && prefs.activePeriodId !== null) {
+        setActivePeriodIdState(String(prefs.activePeriodId || '').trim());
+      }
+    });
+
     return () => {
       mounted = false;
-      unsubs();
+      unsubWorkspaces();
+      unsubPrefs();
     };
-  }, [user?.uid]);
+  }, [user?.uid, user?.email]);
+
+  const defaultWorkspaceId = useMemo(
+    () => (user?.uid ? defaultWorkspaceIdFor(user.uid) : null),
+    [user?.uid]
+  );
+
+  const activeWorkspaceId = useMemo(() => {
+    if (!user?.uid) return null;
+    const preferred = String(activeWorkspaceIdState || '').trim();
+    if (preferred && workspaces.some((row) => row.id === preferred)) return preferred;
+    if (defaultWorkspaceId && workspaces.some((row) => row.id === defaultWorkspaceId)) return defaultWorkspaceId;
+    return workspaces[0]?.id || defaultWorkspaceId || null;
+  }, [activeWorkspaceIdState, defaultWorkspaceId, user?.uid, workspaces]);
+
+  const activeWorkspace = useMemo(() => {
+    if (!activeWorkspaceId) return null;
+    return workspaces.find((row) => row.id === activeWorkspaceId) || null;
+  }, [activeWorkspaceId, workspaces]);
+
+  const legacyMode = useMemo(() => {
+    if (!activeWorkspace) return true;
+    return activeWorkspace.legacyMode === true;
+  }, [activeWorkspace]);
+
+  const workspaceUid = useMemo(() => {
+    if (!user?.uid) return null;
+    return activeWorkspace?.ownerId || user.uid;
+  }, [activeWorkspace?.ownerId, user?.uid]);
+
+  const workspaceMode = useMemo<WorkspaceMode>(() => {
+    if (activeWorkspace?.mode) return activeWorkspace.mode;
+    return 'MONTHLY_3_BUCKET';
+  }, [activeWorkspace?.mode]);
+
+  const groupDefs = useMemo<WorkspaceGroupDef[]>(() => {
+    if (Array.isArray(activeWorkspace?.groupDefs) && activeWorkspace.groupDefs.length) {
+      return [...activeWorkspace.groupDefs].sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
+    }
+    return monthlyGroupDefs();
+  }, [activeWorkspace?.groupDefs]);
 
   const workspaceOptions = useMemo<WorkspaceOption[]>(() => {
-    if (!user?.uid) return [];
-
-    const ownLabel = user.email ? `My Workspace (${user.email})` : 'My Workspace';
-    const map = new Map<string, WorkspaceOption>();
-    map.set(user.uid, {
-      ownerUid: user.uid,
-      ownerEmail: user.email ?? '',
-      label: ownLabel,
-      shared: false,
-    });
-
-    sharedMemberships.forEach((membership) => {
-      if (!membership.ownerUid || membership.ownerUid === user.uid) return;
-      const label = membership.ownerName || membership.ownerEmail || `Shared (${membership.ownerUid.slice(0, 8)})`;
-      map.set(membership.ownerUid, {
-        ownerUid: membership.ownerUid,
-        ownerEmail: membership.ownerEmail,
+    return workspaces.map((workspace) => {
+      const ownerUid = workspace.ownerId;
+      const label = workspace.name || (workspace.legacyMode ? 'Default Workspace' : `Workspace ${String(workspace.id || '').slice(0, 8)}`);
+      return {
+        workspaceId: workspace.id || '',
+        ownerUid,
+        ownerEmail: '',
         label,
-        shared: true,
-      });
+        shared: Boolean(user?.uid && ownerUid && ownerUid !== user.uid),
+        mode: workspace.mode || 'MONTHLY_3_BUCKET',
+        legacyMode: workspace.legacyMode === true,
+      };
     });
-
-    return [...map.values()];
-  }, [sharedMemberships, user?.email, user?.uid]);
+  }, [user?.uid, workspaces]);
 
   useEffect(() => {
-    if (!user?.uid) return;
-    if (!storageInitialized || manualWorkspaceSelectionThisSession) return;
-    // Default invited users to the first shared workspace when they log in.
-    const firstSharedOwnerUid = sharedMemberships.find((membership) => membership.ownerUid && membership.ownerUid !== user.uid)?.ownerUid;
-    if (firstSharedOwnerUid && workspaceUid !== firstSharedOwnerUid) {
-      setWorkspaceUidState(firstSharedOwnerUid);
-      AsyncStorage.setItem(storageKeyFor(user.uid), firstSharedOwnerUid).catch(() => undefined);
-    }
-  }, [manualWorkspaceSelectionThisSession, sharedMemberships, storageInitialized, user?.uid, workspaceUid]);
+    if (!user?.uid || !activeWorkspaceId || !storageReady) return;
+    setUserWorkspacePrefs(user.uid, {
+      activeWorkspaceId,
+      activePeriodId: activePeriodId || null,
+    }).catch(() => undefined);
+  }, [activePeriodId, activeWorkspaceId, storageReady, user?.uid]);
 
   useEffect(() => {
+    if (!user?.uid || !activeWorkspaceId || !storageReady) return;
+    setReady(true);
+  }, [activeWorkspaceId, storageReady, user?.uid]);
+
+  useEffect(() => {
+    setActiveRepoScope({
+      workspaceId: legacyMode ? null : activeWorkspaceId,
+      legacyMode,
+    });
+  }, [activeWorkspaceId, legacyMode]);
+
+  async function setActiveWorkspaceId(workspaceId: string) {
     if (!user?.uid) return;
-    if (!workspaceOptions.length) {
-      setWorkspaceUidState(user.uid);
+    const next = String(workspaceId || '').trim();
+    if (!next) return;
+    const option = workspaceOptions.find((row) => row.workspaceId === next);
+    setActiveRepoScope({
+      workspaceId: option?.legacyMode ? null : next,
+      legacyMode: option?.legacyMode === true,
+    });
+    setActiveWorkspaceIdState(next);
+    await setUserWorkspacePrefs(user.uid, { activeWorkspaceId: next });
+  }
+
+  // Compatibility helper used by existing settings screen (accepts ownerUid or workspaceId).
+  async function setWorkspaceUid(value: string) {
+    if (!user?.uid) return;
+    const needle = String(value || '').trim();
+    if (!needle) return;
+
+    const byWorkspaceId = workspaceOptions.find((row) => row.workspaceId === needle);
+    if (byWorkspaceId?.workspaceId) {
+      await setActiveWorkspaceId(byWorkspaceId.workspaceId);
       return;
     }
-    const exists = workspaceOptions.some((option) => option.ownerUid === workspaceUid);
-    if (!exists) {
-      setWorkspaceUidState(user.uid);
-      AsyncStorage.setItem(storageKeyFor(user.uid), user.uid).catch(() => undefined);
+
+    const byOwner = workspaceOptions.find((row) => row.ownerUid === needle);
+    if (byOwner?.workspaceId) {
+      await setActiveWorkspaceId(byOwner.workspaceId);
+      return;
     }
-  }, [workspaceOptions, workspaceUid, user?.uid]);
+  }
 
-  const setWorkspaceUid = useCallback(async (ownerUid: string) => {
+  async function setActivePeriodId(pid: string) {
     if (!user?.uid) return;
-    const next = ownerUid || user.uid;
-    setManualWorkspaceSelectionThisSession(true);
-    setWorkspaceUidState(next);
-    await AsyncStorage.setItem(storageKeyFor(user.uid), next);
-  }, [user?.uid]);
+    const next = String(pid || '').trim();
+    setActivePeriodIdState(next);
+    await AsyncStorage.setItem(periodStorageKeyFor(user.uid), next);
+    await setUserWorkspacePrefs(user.uid, { activePeriodId: next || null });
+  }
 
-  const setActivePeriodId = useCallback(async (pid: string) => {
-    if (!user?.uid) return;
-    setActivePeriodIdState(pid);
-    await AsyncStorage.setItem(periodStorageKeyFor(user.uid), pid);
-  }, [user?.uid]);
+  async function createWorkspace(input: {
+    name: string;
+    mode: WorkspaceMode;
+    currency: string;
+    periodPolicy: { type: 'MONTHLY' | 'DATE_RANGE'; startDate?: string; endDate?: string };
+    groupDefs?: WorkspaceGroupDef[];
+    template?: 'WEDDING';
+  }) {
+    if (!user?.uid) throw new Error('Not authenticated.');
+    const workspaceId = await createWorkspaceDoc(user.uid, input);
+    setActiveRepoScope({
+      workspaceId,
+      legacyMode: false,
+    });
+    await setActiveWorkspaceId(workspaceId);
+    return workspaceId;
+  }
 
   const value = useMemo<WorkspaceContextValue>(
     () => ({
       ready,
       workspaceUid,
+      activeWorkspaceId,
+      activeWorkspace,
+      workspaceMode,
+      groupDefs,
+      legacyMode,
       activePeriodId,
       setActivePeriodId,
       workspaceOptions,
       setWorkspaceUid,
-      sharedMemberships,
+      setActiveWorkspaceId,
+      createWorkspace,
+      sharedMemberships: [],
     }),
-    [ready, workspaceUid, activePeriodId, setActivePeriodId, workspaceOptions, sharedMemberships, setWorkspaceUid]
+    [
+      ready,
+      workspaceUid,
+      activeWorkspaceId,
+      activeWorkspace,
+      workspaceMode,
+      groupDefs,
+      legacyMode,
+      activePeriodId,
+      workspaceOptions,
+    ]
   );
 
   return <WorkspaceCtx.Provider value={value}>{children}</WorkspaceCtx.Provider>;

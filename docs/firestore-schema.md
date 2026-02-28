@@ -35,6 +35,9 @@ This document describes collections used by the app and invariants expected by r
   - `name: string`
   - `amount: number`
   - `group: 'NEED' | 'WANT' | 'SAVINGS_DEBT'`
+  - `plannedAccountId?: string`
+  - `rolloverMode?: 'NONE' | 'CARRY_LEFTOVER' | 'CARRY_OVERSPEND' | 'CARRY_BOTH' | 'CAPPED'`
+  - `rolloverCapAmount?: number`
   - `createdAt?: Timestamp`
 
 ### `users/{uid}/periods/{pid}/transactions/{txId}`
@@ -43,7 +46,14 @@ This document describes collections used by the app and invariants expected by r
   - `name?: string`
   - `amount: number`
   - `group: 'NEED' | 'WANT' | 'SAVINGS_DEBT'`
+  - `type?: 'EXPENSE' | 'INCOME' | 'TRANSFER' | 'ADJUSTMENT' | 'REFUND'` (default `EXPENSE`)
+  - `paidFromAccountId?: string`
+  - `toAccountId?: string` (`TRANSFER`)
+  - `transferGroupId?: string`
+  - `planItemId?: string`
+  - `originalTransactionId?: string` (`REFUND`)
   - `date?: string` (`YYYY-MM-DD`)
+  - `accountId?: string` (legacy alias of `paidFromAccountId`)
   - `categoryId?: string`
   - `note?: string`
   - `fromTemplateId?: string`

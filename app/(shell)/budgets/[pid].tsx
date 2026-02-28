@@ -39,6 +39,7 @@ import { fmtMoney, parseMoney, parsePct100 } from '@/lib/format';
 import { planGroupLabel, PLAN_GROUP_OPTIONS, planGroupToTag } from '@/lib/groups';
 import { cn } from '@/lib/cn';
 import { parseTagsInput, tagsLabel, tagsToInput } from '@/lib/tags';
+import { transactionSignedBudgetAmount } from '@/lib/accounting';
 
 import { addTransaction, watchTransactions, type Tx } from '@/lib/repo/transactions';
 
@@ -176,9 +177,9 @@ export default function BudgetDetailScreen() {
   const spentByItemId = useMemo(() => {
     const totals: Record<string, number> = {};
     transactions.forEach((row) => {
-      const categoryId = String(row.categoryId || '').trim();
+      const categoryId = String(row.planItemId || row.categoryId || '').trim();
       if (!categoryId) return;
-      totals[categoryId] = (totals[categoryId] || 0) + Number(row.amount || 0);
+      totals[categoryId] = (totals[categoryId] || 0) + transactionSignedBudgetAmount(row);
     });
     return totals;
   }, [transactions]);
@@ -759,6 +760,7 @@ export default function BudgetDetailScreen() {
 
     if (!accountId) {
       if (existing?.id) await deleteAllocation(uid, pid, existing.id);
+      await updatePlanItem(uid, pid, item.id, { plannedAccountId: '' } as any);
       return;
     }
 
@@ -771,6 +773,7 @@ export default function BudgetDetailScreen() {
       tag: planGroupToTag(item.group),
       note: existing?.note ?? '',
     });
+    await updatePlanItem(uid, pid, item.id, { plannedAccountId: accountId } as any);
   }
 
   async function markSpent(row: ReconcileRow) {
@@ -796,7 +799,9 @@ export default function BudgetDetailScreen() {
         amount: spentAmount,
         group: row.group,
         date: new Date().toISOString().slice(0, 10),
+        paidFromAccountId: allocation.accountId,
         accountId: allocation.accountId,
+        planItemId: row.id,
         categoryId: row.id,
         note: `Spent from budget: ${row.name}`,
       } as any);

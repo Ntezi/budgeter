@@ -33,14 +33,20 @@ Conventions:
 
 - `watchTransactions(userId, pid, cb): Unsubscribe`
 - `addTransaction(userId, pid, tx): Promise<DocumentReference>`
-  - Side effect: adds `createdAt`; defaults `date` to today.
-  - Throws if period is `DECIDED`.
+  - Side effect: adds `createdAt`; defaults `date` to today; defaults `type` to `EXPENSE`.
+  - Mirrors legacy/new fields during migration:
+    - `accountId <-> paidFromAccountId`
+    - `categoryId <-> planItemId`
+- Throws if period is `DECIDED`.
 - `setTransaction(userId, pid, id, patch): Promise<void>`
   - Throws if period is `DECIDED`.
 - `delTransaction(userId, pid, id): Promise<void>`
   - Throws if period is `DECIDED`.
 - `putTransactionWithId(userId, pid, id, tx): Promise<void>`
   - Idempotent deterministic upsert (`setDoc(..., {merge:true})`).
+- `addTransferTransaction(userId, pid, input): Promise<DocumentReference>`
+  - Creates transfer ledger entry (`type=TRANSFER`) with `paidFromAccountId`, `toAccountId`, `transferGroupId`.
+  - Throws if period is `DECIDED`.
 
 ## `lib/repo/income.ts`
 

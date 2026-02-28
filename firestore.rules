@@ -3,13 +3,85 @@ service cloud.firestore {
   match /databases/{database}/documents {
     function isSignedIn() { return request.auth != null; }
     function isSelf(uid) { return isSignedIn() && request.auth.uid == uid; }
+
     function membershipDocId(ownerUid, memberUid) { return ownerUid + "_" + memberUid; }
-    function isWorkspaceMember(ownerUid) {
+    function isLegacyWorkspaceMember(ownerUid) {
       return isSignedIn() &&
         exists(/databases/$(database)/documents/workspaceMembers/$(membershipDocId(ownerUid, request.auth.uid)));
     }
-    function canAccessWorkspace(ownerUid) {
-      return isSelf(ownerUid) || isWorkspaceMember(ownerUid);
+
+    // Legacy owner-scoped collaboration model (existing behavior).
+    function canAccessLegacyWorkspace(ownerUid) {
+      return isSelf(ownerUid) || isLegacyWorkspaceMember(ownerUid);
+    }
+
+    function workspacePath(workspaceId) {
+      return /databases/$(database)/documents/workspaces/$(workspaceId);
+    }
+    function workspaceExists(workspaceId) {
+      return isSignedIn() && exists(workspacePath(workspaceId));
+    }
+    function isWorkspaceMemberById(workspaceId) {
+      return workspaceExists(workspaceId) &&
+        request.auth.uid in get(workspacePath(workspaceId)).data.memberIds;
+    }
+    function workspaceRole(workspaceId) {
+      return workspaceExists(workspaceId)
+        ? get(workspacePath(workspaceId)).data.rolesByUserId[request.auth.uid]
+        : null;
+    }
+    function isWorkspaceEditorById(workspaceId) {
+      let role = workspaceRole(workspaceId);
+      return role == 'OWNER' || role == 'EDITOR';
+    }
+    function isWorkspaceOwnerById(workspaceId) {
+      return workspaceRole(workspaceId) == 'OWNER';
+    }
+
+    function resourceWorkspaceId() {
+      return resource != null && resource.data.workspaceId is string
+        ? resource.data.workspaceId
+        : '';
+    }
+    function requestWorkspaceId() {
+      return request.resource != null && request.resource.data.workspaceId is string
+        ? request.resource.data.workspaceId
+        : '';
+    }
+    function hasResourceWorkspaceId() {
+      return resourceWorkspaceId() != '';
+    }
+    function hasRequestWorkspaceId() {
+      return requestWorkspaceId() != '';
+    }
+
+    // If workspaceId exists on doc, enforce new workspace membership rules.
+    // Otherwise keep legacy owner-scoped semantics.
+    function canReadUserDoc(ownerUid) {
+      return hasResourceWorkspaceId()
+        ? isWorkspaceMemberById(resourceWorkspaceId())
+        : canAccessLegacyWorkspace(ownerUid);
+    }
+
+    function canWriteUserDoc(ownerUid) {
+      // delete
+      if (request.resource == null) {
+        return hasResourceWorkspaceId()
+          ? isWorkspaceEditorById(resourceWorkspaceId())
+          : canAccessLegacyWorkspace(ownerUid);
+      }
+      // update existing scoped doc (workspaceId is immutable)
+      if (resource != null && hasResourceWorkspaceId()) {
+        return hasRequestWorkspaceId() &&
+          requestWorkspaceId() == resourceWorkspaceId() &&
+          isWorkspaceEditorById(resourceWorkspaceId());
+      }
+      // create new scoped doc
+      if (hasRequestWorkspaceId()) {
+        return isWorkspaceEditorById(requestWorkspaceId());
+      }
+      // create/update legacy doc
+      return canAccessLegacyWorkspace(ownerUid);
     }
 
     match /workspaceMembers/{membershipId} {
@@ -21,34 +93,51 @@ service cloud.firestore {
       allow update, delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
     }
 
-    function isOwner() { return isSignedIn() && request.auth.uid == resource.data.ownerId; }
-    function creatingForSelf() {
-      return isSignedIn() && request.auth.uid == request.resource.data.ownerId;
+    match /workspaces/{workspaceId} {
+      allow read: if isWorkspaceMemberById(workspaceId);
+      allow create: if isSignedIn() &&
+        request.resource.data.ownerId == request.auth.uid &&
+        request.resource.data.memberIds is list &&
+        request.auth.uid in request.resource.data.memberIds &&
+        request.resource.data.rolesByUserId is map;
+      // Workspace settings/model changes are owner-only.
+      allow update, delete: if isWorkspaceOwnerById(workspaceId);
     }
 
     // Lock each user to their own subtree (if you store per-user docs here)
     match /users/{uid} {
-      allow read, write: if canAccessWorkspace(uid);
+      // Keep legacy semantics for the user root doc.
+      allow read, write: if canAccessLegacyWorkspace(uid);
 
       match /accounts/{accountId} {
-        allow read, write: if canAccessWorkspace(uid);
+        allow read: if canReadUserDoc(uid);
+        allow write: if canWriteUserDoc(uid);
       }
 
       match /allocationDefaults/{defaultId} {
-        allow read, write: if canAccessWorkspace(uid);
+        allow read: if canReadUserDoc(uid);
+        allow write: if canWriteUserDoc(uid);
       }
 
       match /settings/{settingsId} {
-        allow read, write: if canAccessWorkspace(uid);
+        allow read: if canReadUserDoc(uid);
+        allow write: if canWriteUserDoc(uid);
       }
 
       match /periods/{periodId}/allocations/{allocationId} {
-        allow read, write: if canAccessWorkspace(uid);
+        allow read: if canReadUserDoc(uid);
+        allow write: if canWriteUserDoc(uid);
       }
 
       match /{sub=**} {
-        allow read, write: if canAccessWorkspace(uid);
+        allow read: if canReadUserDoc(uid);
+        allow write: if canWriteUserDoc(uid);
       }
+    }
+
+    function isOwner() { return isSignedIn() && request.auth.uid == resource.data.ownerId; }
+    function creatingForSelf() {
+      return isSignedIn() && request.auth.uid == request.resource.data.ownerId;
     }
 
     match /budgets/{budgetId} {

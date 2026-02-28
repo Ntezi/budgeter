@@ -17,15 +17,37 @@ import {
   type WorkspaceMember,
 } from '@/lib/repo/collaboration';
 import { setReminderSettings, watchReminderSettings } from '@/lib/repo/settings';
-import { watchPeriods, type PeriodDoc, setPeriodStatus, createPeriod, periodTitleFromId } from '@/lib/repo/periods';
+import {
+  watchPeriods,
+  type PeriodDoc,
+  setPeriodStatus,
+  createPeriod,
+  nextMonthIdFromPeriodId,
+  periodIdFromDate,
+  periodTitleFromId,
+} from '@/lib/repo/periods';
 import { seedBudgetForNewPeriod } from '@/lib/repo/recurring';
 import { applyAllocationDefaultsForPeriod } from '@/lib/repo/allocations';
+import type { WorkspaceMode } from '@/lib/repo/scope';
+import type { WorkspaceGroupDef } from '@/lib/repo/workspaces';
 
 export default function SettingsScreen() {
   const user = useAuthUser();
   const { signOut } = useAuth();
   const { theme, setTheme } = useThemeMode();
-  const { workspaceUid, workspaceOptions, setWorkspaceUid, sharedMemberships, activePeriodId, setActivePeriodId } = useWorkspace();
+  const {
+    workspaceUid,
+    activeWorkspaceId,
+    activeWorkspace,
+    workspaceMode,
+    groupDefs,
+    workspaceOptions,
+    setActiveWorkspaceId,
+    createWorkspace,
+    sharedMemberships,
+    activePeriodId,
+    setActivePeriodId,
+  } = useWorkspace();
   const activeWorkspaceOwnerUid = workspaceUid ?? user?.uid ?? '';
   const activeWorkspaceOwnedByMe = Boolean(user?.uid && activeWorkspaceOwnerUid === user.uid);
 
@@ -56,6 +78,16 @@ export default function SettingsScreen() {
   const [reminderError, setReminderError] = useState('');
   const [reminderSuccess, setReminderSuccess] = useState('');
   const [isClosingPeriod, setIsClosingPeriod] = useState(false);
+  const [workspaceCreateBusy, setWorkspaceCreateBusy] = useState(false);
+  const [workspaceCreateError, setWorkspaceCreateError] = useState('');
+  const [workspaceCreateSuccess, setWorkspaceCreateSuccess] = useState('');
+  const [newWorkspaceName, setNewWorkspaceName] = useState('');
+  const [newWorkspaceMode, setNewWorkspaceMode] = useState<WorkspaceMode>('MONTHLY_3_BUCKET');
+  const [newWorkspaceTemplate, setNewWorkspaceTemplate] = useState<'WEDDING' | 'NONE'>('WEDDING');
+  const [newWorkspaceCurrency, setNewWorkspaceCurrency] = useState('GHS');
+  const [newWorkspaceStartDate, setNewWorkspaceStartDate] = useState('');
+  const [newWorkspaceEndDate, setNewWorkspaceEndDate] = useState('');
+  const [newWorkspaceGroups, setNewWorkspaceGroups] = useState('');
 
   useEffect(() => {
     if (!activeWorkspaceOwnerUid || !activeWorkspaceOwnedByMe) {
@@ -75,9 +107,123 @@ export default function SettingsScreen() {
   }, [workspaceUid, user?.email]);
 
   const workspaceLabel = useMemo(
-    () => workspaceOptions.find((opt) => opt.ownerUid === workspaceUid)?.label || 'My Workspace',
-    [workspaceOptions, workspaceUid]
+    () => workspaceOptions.find((opt) => opt.workspaceId === activeWorkspaceId)?.label || 'My Workspace',
+    [activeWorkspaceId, workspaceOptions]
   );
+
+  const workspaceModeOptions = [
+    { label: 'Monthly 3-bucket', value: 'MONTHLY_3_BUCKET' },
+    { label: 'Event Budget', value: 'EVENT' },
+    { label: 'Custom Budget', value: 'CUSTOM' },
+  ] as const;
+
+  const workspaceTemplateOptions = [
+    { label: 'Wedding preset', value: 'WEDDING' },
+    { label: 'Blank event groups', value: 'NONE' },
+  ] as const;
+
+  const requiresDateRange = newWorkspaceMode !== 'MONTHLY_3_BUCKET';
+  const requiresGroupInput = newWorkspaceMode === 'CUSTOM' || (newWorkspaceMode === 'EVENT' && newWorkspaceTemplate === 'NONE');
+  const activePeriodCanRollForward = useMemo(
+    () => workspaceMode === 'MONTHLY_3_BUCKET' && Boolean(nextMonthIdFromPeriodId(activePeriodId)),
+    [activePeriodId, workspaceMode]
+  );
+
+  function parseGroupDefs(input: string): WorkspaceGroupDef[] {
+    const out: WorkspaceGroupDef[] = [];
+    const seen = new Set<string>();
+    input
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .forEach((name, index) => {
+        const id = name
+          .toUpperCase()
+          .replace(/[^A-Z0-9]+/g, '_')
+          .replace(/^_+|_+$/g, '')
+          .slice(0, 32);
+        const safeId = id || `GROUP_${index + 1}`;
+        if (seen.has(safeId)) return;
+        seen.add(safeId);
+        out.push({
+          id: safeId,
+          name,
+          order: out.length,
+        });
+      });
+    return out;
+  }
+
+  function isIsoDate(value: string) {
+    return /^\d{4}-\d{2}-\d{2}$/.test(value);
+  }
+
+  async function createWorkspaceFromSettings() {
+    if (!user?.uid) return;
+    setWorkspaceCreateError('');
+    setWorkspaceCreateSuccess('');
+    setWorkspaceCreateBusy(true);
+    try {
+      const name = newWorkspaceName.trim() || (newWorkspaceMode === 'MONTHLY_3_BUCKET' ? 'Monthly Workspace' : 'Workspace');
+      const currency = newWorkspaceCurrency.trim().toUpperCase() || 'GHS';
+      const startDate = newWorkspaceStartDate.trim();
+      const endDate = newWorkspaceEndDate.trim();
+
+      if (requiresDateRange) {
+        if (!isIsoDate(startDate) || !isIsoDate(endDate)) {
+          throw new Error('Start and end dates are required in YYYY-MM-DD format for Event/Custom workspaces.');
+        }
+        if (startDate > endDate) {
+          throw new Error('Start date must be earlier than or equal to end date.');
+        }
+      }
+
+      const groupDefs = requiresGroupInput ? parseGroupDefs(newWorkspaceGroups) : undefined;
+      if (requiresGroupInput && (!groupDefs || groupDefs.length === 0)) {
+        throw new Error('Provide at least one group for this workspace mode.');
+      }
+
+      await createWorkspace({
+        name,
+        mode: newWorkspaceMode,
+        currency,
+        periodPolicy:
+          newWorkspaceMode === 'MONTHLY_3_BUCKET'
+            ? { type: 'MONTHLY' }
+            : { type: 'DATE_RANGE', startDate, endDate },
+        groupDefs,
+        template: newWorkspaceMode === 'EVENT' && newWorkspaceTemplate === 'WEDDING' ? 'WEDDING' : undefined,
+      });
+
+      const initialPeriodId =
+        newWorkspaceMode === 'MONTHLY_3_BUCKET' ? periodIdFromDate() : `evt_${Date.now().toString(36)}`;
+      await createPeriod(
+        user.uid,
+        initialPeriodId,
+        newWorkspaceMode === 'MONTHLY_3_BUCKET' ? periodTitleFromId(initialPeriodId) : `${name} Budget`,
+        {
+          type: newWorkspaceMode === 'MONTHLY_3_BUCKET' ? 'MONTHLY' : newWorkspaceMode === 'EVENT' ? 'EVENT' : 'CUSTOM',
+          startDate: requiresDateRange ? startDate : undefined,
+          endDate: requiresDateRange ? endDate : undefined,
+          mode: newWorkspaceMode,
+        }
+      );
+      await setActivePeriodId(initialPeriodId);
+
+      setWorkspaceCreateSuccess(`Workspace "${name}" created.`);
+      setNewWorkspaceName('');
+      setNewWorkspaceGroups('');
+      if (newWorkspaceMode !== 'MONTHLY_3_BUCKET') {
+        setNewWorkspaceStartDate('');
+        setNewWorkspaceEndDate('');
+      }
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      setWorkspaceCreateError(message || 'Failed to create workspace.');
+    } finally {
+      setWorkspaceCreateBusy(false);
+    }
+  }
 
   async function addMember() {
     if (!user?.uid || !activeWorkspaceOwnerUid) return;
@@ -148,23 +294,13 @@ export default function SettingsScreen() {
     setReminderSuccess('Reminder settings saved.');
   }
 
-  function getNextPeriodId(currentPid: string) {
-    const [yearRaw, monthRaw] = currentPid.split('-');
-    const year = Number(yearRaw);
-    const month = Number(monthRaw);
-    if (!Number.isFinite(year) || !Number.isFinite(month)) return '';
-    const dt = new Date(year, month - 1, 1);
-    dt.setMonth(dt.getMonth() + 1);
-    return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
-  }
-
   async function closeAndStartNext() {
-    if (!workspaceUid || !activePeriodId || isClosingPeriod) return;
+    if (!workspaceUid || !activePeriodId || isClosingPeriod || !activePeriodCanRollForward) return;
 
     setIsClosingPeriod(true);
     try {
       await setPeriodStatus(workspaceUid, activePeriodId, 'DECIDED');
-      const nextPid = getNextPeriodId(activePeriodId);
+      const nextPid = nextMonthIdFromPeriodId(activePeriodId);
       if (!nextPid) throw new Error('Could not determine next period ID.');
       await createPeriod(workspaceUid, nextPid, periodTitleFromId(nextPid));
       try {
@@ -208,26 +344,139 @@ export default function SettingsScreen() {
 
       <AppCard className="gap-3 border-border dark:border-zinc-800 bg-card dark:bg-zinc-900">
         <View className="gap-1">
-          <Text className="text-base font-semibold text-foreground dark:text-zinc-50">Family Collaboration</Text>
-          <Text className="text-sm text-muted-foreground dark:text-zinc-400">Invite members and switch active workspace.</Text>
+          <Text className="text-base font-semibold text-foreground dark:text-zinc-50">Workspaces & Modes</Text>
+          <Text className="text-sm text-muted-foreground dark:text-zinc-400">
+            Switch workspace context, pick the active period, and create monthly/event/custom workspaces.
+          </Text>
         </View>
 
         <View className="gap-1">
-          <Text className="text-xs uppercase tracking-wide text-muted-foreground dark:text-zinc-400">Your Collaborator ID</Text>
-          <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{user?.uid ?? '-'}</Text>
+          <Text className="text-xs uppercase tracking-wide text-muted-foreground dark:text-zinc-400">Available workspaces</Text>
+          <View className="flex-row flex-wrap gap-2">
+            {workspaceOptions.map((option) => (
+              <AppBadge
+                key={option.workspaceId}
+                label={`${option.label} · ${option.mode}`}
+                variant={option.workspaceId === activeWorkspaceId ? 'success' : 'outline'}
+              />
+            ))}
+          </View>
         </View>
 
         <View className="gap-1">
           <Text className="text-xs uppercase tracking-wide text-muted-foreground dark:text-zinc-400">Active Workspace</Text>
           <DropdownField
-            value={workspaceUid ?? user?.uid ?? ''}
-            options={workspaceOptions.map((option) => ({ label: option.label, value: option.ownerUid }))}
-            onChange={(value) => void setWorkspaceUid(value)}
+            value={activeWorkspaceId || ''}
+            options={workspaceOptions.map((option) => ({ label: option.label, value: option.workspaceId }))}
+            onChange={(value) => void setActiveWorkspaceId(value)}
             placeholder="Select workspace"
             menuStrategy="inline"
             triggerClassName="bg-background dark:bg-zinc-950 border-border dark:border-zinc-800"
           />
           <Text className="text-xs text-muted-foreground dark:text-zinc-400">Current: {workspaceLabel}</Text>
+        </View>
+
+        <View className="gap-1">
+          <Text className="text-xs uppercase tracking-wide text-muted-foreground dark:text-zinc-400">Active Period</Text>
+          <DropdownField
+            value={activePeriodId}
+            options={periodOptions}
+            onChange={(value) => void setActivePeriodId(value)}
+            placeholder="Select active period"
+            menuStrategy="inline"
+            triggerClassName="bg-background dark:bg-zinc-950 border-border dark:border-zinc-800"
+          />
+        </View>
+
+        <View className="gap-1">
+          <Text className="text-xs uppercase tracking-wide text-muted-foreground dark:text-zinc-400">Active groups</Text>
+          <View className="flex-row flex-wrap gap-2">
+            {groupDefs.map((group) => (
+              <AppBadge key={group.id} label={group.name} variant="outline" />
+            ))}
+          </View>
+          {activeWorkspace?.legacyMode ? (
+            <Text className="text-xs text-muted-foreground dark:text-zinc-400">
+              Legacy workspace uses unfiltered queries so docs without `workspaceId` continue to appear.
+            </Text>
+          ) : null}
+        </View>
+
+        <View className="gap-2 rounded-lg border border-border bg-muted/30 p-3 dark:border-zinc-800 dark:bg-zinc-800/40">
+          <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Create workspace</Text>
+          <AppInput
+            value={newWorkspaceName}
+            onChangeText={setNewWorkspaceName}
+            placeholder="Workspace name"
+          />
+          <DropdownField
+            value={newWorkspaceMode}
+            options={[...workspaceModeOptions]}
+            onChange={(value) => setNewWorkspaceMode(value as WorkspaceMode)}
+            placeholder="Select mode"
+            menuStrategy="inline"
+            triggerClassName="bg-background dark:bg-zinc-950 border-border dark:border-zinc-800"
+          />
+          {newWorkspaceMode === 'EVENT' ? (
+            <DropdownField
+              value={newWorkspaceTemplate}
+              options={[...workspaceTemplateOptions]}
+              onChange={(value) => setNewWorkspaceTemplate(value as 'WEDDING' | 'NONE')}
+              placeholder="Select event template"
+              menuStrategy="inline"
+              triggerClassName="bg-background dark:bg-zinc-950 border-border dark:border-zinc-800"
+            />
+          ) : null}
+          <AppInput
+            value={newWorkspaceCurrency}
+            onChangeText={setNewWorkspaceCurrency}
+            placeholder="Currency (e.g. GHS, USD)"
+            autoCapitalize="characters"
+          />
+          {requiresDateRange ? (
+            <>
+              <AppInput
+                value={newWorkspaceStartDate}
+                onChangeText={setNewWorkspaceStartDate}
+                placeholder="Start date (YYYY-MM-DD)"
+                autoCapitalize="none"
+              />
+              <AppInput
+                value={newWorkspaceEndDate}
+                onChangeText={setNewWorkspaceEndDate}
+                placeholder="End date (YYYY-MM-DD)"
+                autoCapitalize="none"
+              />
+            </>
+          ) : null}
+          {requiresGroupInput ? (
+            <AppInput
+              value={newWorkspaceGroups}
+              onChangeText={setNewWorkspaceGroups}
+              placeholder="Groups comma-separated (e.g. Venue,Catering,Attire)"
+              autoCapitalize="words"
+            />
+          ) : null}
+          <AppButton onPress={createWorkspaceFromSettings} disabled={workspaceCreateBusy}>
+            <View className="flex-row items-center gap-2">
+              <MaterialCommunityIcons name={workspaceCreateBusy ? 'loading' : 'briefcase-plus-outline'} size={16} color="#FFFFFF" />
+              <Text className="text-sm font-medium text-primary-foreground">{workspaceCreateBusy ? 'Creating...' : 'Create Workspace'}</Text>
+            </View>
+          </AppButton>
+          {workspaceCreateError ? <Text className="text-xs text-destructive">{workspaceCreateError}</Text> : null}
+          {workspaceCreateSuccess ? <Text className="text-xs text-emerald-600 dark:text-emerald-300">{workspaceCreateSuccess}</Text> : null}
+        </View>
+      </AppCard>
+
+      <AppCard className="gap-3 border-border dark:border-zinc-800 bg-card dark:bg-zinc-900">
+        <View className="gap-1">
+          <Text className="text-base font-semibold text-foreground dark:text-zinc-50">Family Collaboration</Text>
+          <Text className="text-sm text-muted-foreground dark:text-zinc-400">Invite members to owner-scoped collaboration.</Text>
+        </View>
+
+        <View className="gap-1">
+          <Text className="text-xs uppercase tracking-wide text-muted-foreground dark:text-zinc-400">Your Collaborator ID</Text>
+          <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{user?.uid ?? '-'}</Text>
         </View>
 
         <View className="gap-2 rounded-lg border border-border bg-muted/30 p-3 dark:border-zinc-800 dark:bg-zinc-800/40">
@@ -300,22 +549,15 @@ export default function SettingsScreen() {
 
       <AppCard className="gap-3 border-border dark:border-zinc-800 bg-card dark:bg-zinc-900">
         <Text className="text-base font-semibold text-foreground dark:text-zinc-50">Period Management</Text>
-        <Text className="text-sm text-muted-foreground dark:text-zinc-400">Manage which period is currently active for accounting and tracking.</Text>
-        
-        <View className="gap-1">
-          <Text className="text-xs uppercase tracking-wide text-muted-foreground dark:text-zinc-400">Active Period</Text>
-          <DropdownField
-            value={activePeriodId}
-            options={periodOptions}
-            onChange={(value) => void setActivePeriodId(value)}
-            placeholder="Select active period"
-            menuStrategy="inline"
-            triggerClassName="bg-background dark:bg-zinc-950 border-border dark:border-zinc-800"
-          />
-          <Text className="text-xs text-muted-foreground dark:text-zinc-400">Account balances reflect this period&apos;s allocations.</Text>
-        </View>
-
-        {activePeriodId ? (
+        <Text className="text-sm text-muted-foreground dark:text-zinc-400">
+          Active period: {activePeriodId || 'None selected'}.
+        </Text>
+        {workspaceMode !== 'MONTHLY_3_BUCKET' ? (
+          <Text className="text-xs text-muted-foreground dark:text-zinc-400">
+            Close & Start Next is available only in Monthly 3-bucket mode.
+          </Text>
+        ) : null}
+        {activePeriodId && activePeriodCanRollForward ? (
           <AppButton onPress={closeAndStartNext} variant="outline" className="mt-2" disabled={isClosingPeriod}>
             <View className="flex-row items-center gap-2">
               <MaterialCommunityIcons name={isClosingPeriod ? "loading" : "calendar-check"} size={18} color="#717182" />

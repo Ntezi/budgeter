@@ -1,4 +1,4 @@
-import {doc, getDoc, getDocs, orderBy, query} from 'firebase/firestore';
+import {doc, getDoc, getDocs, query} from 'firebase/firestore';
 import {db} from '../firebase';
 import {accountsCol, type Account} from './accounts';
 import {
@@ -14,7 +14,14 @@ import {planCol, type PlanItem} from './plans';
 import {listAllTransactions, txCol, type Tx} from './transactions';
 import type {PeriodDoc} from './periods';
 import type {WalletTag} from '../domain';
-import {sumSpendingByAccount, type AllocationWithPeriod} from '../accounting';
+import {
+  getAccountCurrentAmount,
+  sumCashMovementByAccount,
+  sumSpendingByAccount,
+  transactionSignedBudgetAmount,
+  type AllocationWithPeriod,
+} from '../accounting';
+import { docMatchesActiveScope, scopedPeriodDocId } from './scope';
 
 export type BudgetTotals = {
   incomeTotal: number;
@@ -40,12 +47,14 @@ export type AccountReport = {
   allocations: (Allocation & {periodId: string})[];
   totalsByAccount: Record<string, number>;
   spendingByAccount: Record<string, number>;
+  cashMovementByAccount: Record<string, number>;
   currentByAccount: Record<string, number>;
   totalsByTag: Record<WalletTag, number>;
   totals: {
     openingBalance: number;
     allocated: number;
     spent: number;
+    cashMovement: number;
     current: number;
     computed: number;
     activeCount: number;
@@ -64,16 +73,17 @@ export async function fetchPeriodReport(uid: string, pid: string): Promise<Perio
     walletSnap,
     accountsSnap,
   ] = await Promise.all([
-    getDoc(doc(db, 'users', uid, 'periods', pid)),
-    getDocs(query(incomeCol(uid, pid), orderBy('createdAt', 'asc'))),
-    getDocs(query(planCol(uid, pid), orderBy('createdAt', 'asc'))),
-    getDocs(query(txCol(uid, pid), orderBy('date', 'asc'))),
-    getDocs(query(allocationsCol(uid, pid), orderBy('createdAt', 'asc'))),
-    getDocs(query(periodWalletAccountsCol(uid, pid), orderBy('createdAt', 'asc'))),
-    getDocs(query(accountsCol(uid), orderBy('createdAt', 'asc'))),
+    getDoc(doc(db, 'users', uid, 'periods', scopedPeriodDocId(pid))),
+    getDocs(query(incomeCol(uid, pid))),
+    getDocs(query(planCol(uid, pid))),
+    getDocs(query(txCol(uid, pid))),
+    getDocs(query(allocationsCol(uid, pid))),
+    getDocs(query(periodWalletAccountsCol(uid, pid))),
+    getDocs(query(accountsCol(uid))),
   ]);
 
-  const period = periodSnap.exists() ? (periodSnap.data() as PeriodDoc) : null;
+  const periodRow = periodSnap.exists() ? (periodSnap.data() as PeriodDoc) : null;
+  const period = periodRow && docMatchesActiveScope(periodRow as any) ? periodRow : null;
   const incomeItems: IncomeItem[] = [];
   const planItems: PlanItem[] = [];
   const transactions: Tx[] = [];
@@ -81,18 +91,39 @@ export async function fetchPeriodReport(uid: string, pid: string): Promise<Perio
   const walletAccounts: PeriodWalletAccount[] = [];
   const accounts: Account[] = [];
 
-  incomeSnap.forEach((d) => incomeItems.push({id: d.id, ...(d.data() as IncomeItem)}));
-  planSnap.forEach((d) => planItems.push({id: d.id, ...(d.data() as PlanItem)}));
-  txSnap.forEach((d) => transactions.push({id: d.id, ...(d.data() as Tx)}));
-  allocSnap.forEach((d) => allocations.push({id: d.id, ...(d.data() as Allocation)}));
+  incomeSnap.forEach((d) => {
+    const row = {id: d.id, ...(d.data() as IncomeItem)};
+    if (!docMatchesActiveScope(row as any)) return;
+    incomeItems.push(row);
+  });
+  planSnap.forEach((d) => {
+    const row = {id: d.id, ...(d.data() as PlanItem)};
+    if (!docMatchesActiveScope(row as any)) return;
+    planItems.push(row);
+  });
+  txSnap.forEach((d) => {
+    const row = {id: d.id, ...(d.data() as Tx)};
+    if (!docMatchesActiveScope(row as any)) return;
+    transactions.push(row);
+  });
+  allocSnap.forEach((d) => {
+    const row = {id: d.id, ...(d.data() as Allocation)};
+    if (!docMatchesActiveScope(row as any)) return;
+    allocations.push(row);
+  });
   walletSnap.forEach((d) => {
     const row = {id: d.id, ...(d.data() as PeriodWalletAccount)};
+    if (!docMatchesActiveScope(row as any)) return;
     walletAccounts.push({
       ...row,
       accountId: row.accountId || d.id,
     });
   });
-  accountsSnap.forEach((d) => accounts.push({id: d.id, ...(d.data() as Account)}));
+  accountsSnap.forEach((d) => {
+    const row = {id: d.id, ...(d.data() as Account)};
+    if (!docMatchesActiveScope(row as any)) return;
+    accounts.push(row);
+  });
 
   let incomeTotal = 0;
   for (const item of incomeItems) {
@@ -109,9 +140,11 @@ export async function fetchPeriodReport(uid: string, pid: string): Promise<Perio
 
   const txTotals = {needs: 0, wants: 0, sd: 0};
   for (const item of transactions) {
-    if (item.group === 'NEED') txTotals.needs += item.amount || 0;
-    else if (item.group === 'WANT') txTotals.wants += item.amount || 0;
-    else txTotals.sd += item.amount || 0;
+    const amount = transactionSignedBudgetAmount(item);
+    if (!amount) continue;
+    if (item.group === 'NEED') txTotals.needs += amount;
+    else if (item.group === 'WANT') txTotals.wants += amount;
+    else txTotals.sd += amount;
   }
 
   const allocationTotals = toAllocationTotals(allocations);
@@ -142,13 +175,17 @@ export async function fetchPeriodReport(uid: string, pid: string): Promise<Perio
 
 export async function fetchAccountsReport(uid: string): Promise<AccountReport> {
   const [accountsSnap, allocations, transactions] = await Promise.all([
-    getDocs(query(accountsCol(uid), orderBy('createdAt', 'asc'))),
+    getDocs(query(accountsCol(uid))),
     listAllAllocations(uid),
     listAllTransactions(uid),
   ]);
 
   const accounts: Account[] = [];
-  accountsSnap.forEach((d) => accounts.push({id: d.id, ...(d.data() as Account)}));
+  accountsSnap.forEach((d) => {
+    const row = {id: d.id, ...(d.data() as Account)};
+    if (!docMatchesActiveScope(row as any)) return;
+    accounts.push(row);
+  });
 
   const totalsByAccount: Record<string, number> = {};
   const totalsByTag: Record<WalletTag, number> = {
@@ -157,6 +194,7 @@ export async function fetchAccountsReport(uid: string): Promise<AccountReport> {
     SAVINGS: 0,
   };
   const spendingByAccount: Record<string, number> = {};
+  const cashMovementByAccount: Record<string, number> = {};
   const currentByAccount: Record<string, number> = {};
   let allocated = 0;
 
@@ -178,10 +216,18 @@ export async function fetchAccountsReport(uid: string): Promise<AccountReport> {
   spendingMap.forEach((amount, accountId) => {
     spendingByAccount[accountId] = amount;
   });
+  const cashMovementMap = sumCashMovementByAccount(transactions);
+  cashMovementMap.forEach((amount, accountId) => {
+    cashMovementByAccount[accountId] = amount;
+  });
 
   let spent = 0;
   Object.values(spendingByAccount).forEach((amount) => {
     spent += amount;
+  });
+  let cashMovement = 0;
+  Object.values(cashMovementByAccount).forEach((amount) => {
+    cashMovement += amount;
   });
 
   let openingBalance = 0;
@@ -192,7 +238,7 @@ export async function fetchAccountsReport(uid: string): Promise<AccountReport> {
   for (const account of accounts) {
     const accountId = String(account.id || '').trim();
     openingBalance += account.openingBalance || 0;
-    const accountCurrent = Number(account.openingBalance || 0);
+    const accountCurrent = getAccountCurrentAmount(account, cashMovementByAccount[accountId] || 0);
     if (accountId) currentByAccount[accountId] = accountCurrent;
     current += accountCurrent;
     if (accountCurrent < 0) overdraftCount += 1;
@@ -205,12 +251,14 @@ export async function fetchAccountsReport(uid: string): Promise<AccountReport> {
     allocations,
     totalsByAccount,
     spendingByAccount,
+    cashMovementByAccount,
     currentByAccount,
     totalsByTag,
     totals: {
       openingBalance,
       allocated,
       spent,
+      cashMovement,
       current,
       computed: current,
       activeCount,

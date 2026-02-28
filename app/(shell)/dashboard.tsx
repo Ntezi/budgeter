@@ -27,6 +27,7 @@ import { planGroupLabel } from '@/lib/groups';
 import { cn } from '@/lib/cn';
 import { fetchAccountsReport, type AccountReport } from '@/lib/repo/reports';
 import { watchAccounts } from '@/lib/repo/accounts';
+import { transactionSignedBudgetAmount } from '@/lib/accounting';
 
 type CompareMode = 'AUTO' | 'MANUAL';
 
@@ -103,7 +104,8 @@ export default function DashboardScreen() {
   const actualTotals = useMemo(() => {
     const res = { needs: 0, wants: 0, sd: 0, shopping: 0, uncategorized: 0, total: 0 };
     transactions.forEach((tx) => {
-      const amt = tx.amount || 0;
+      const amt = transactionSignedBudgetAmount(tx);
+      if (!amt) return;
       res.total += amt;
       if (tx.group === 'NEED') res.needs += amt;
       else if (tx.group === 'WANT') res.wants += amt;

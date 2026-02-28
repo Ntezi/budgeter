@@ -16,6 +16,8 @@ import { periodIdFromDate, type Group, type PeriodDoc, type PeriodStatus, watchP
 import { type PlanItem, watchPlanTotals } from '@/lib/repo/plans';
 import { addTransaction, delTransaction, setTransaction, type Tx, watchTransactions } from '@/lib/repo/transactions';
 import { useWorkspaceUid } from '@/providers/WorkspaceProvider';
+import { type Allocation, watchAllocations } from '@/lib/repo/allocations';
+import { transactionSignedBudgetAmount } from '@/lib/accounting';
 
 type Filter = 'ALL' | Group;
 
@@ -58,6 +60,7 @@ export default function TransactionsScreen() {
 
   const [transactions, setTransactions] = useState<Tx[]>([]);
   const [planItems, setPlanItems] = useState<PlanItem[]>([]);
+  const [allocations, setAllocations] = useState<Allocation[]>([]);
   const [activeIncomeTotal, setActiveIncomeTotal] = useState(0);
 
   const [txEdits, setTxEdits] = useState<Record<string, TxEditState>>({});
@@ -106,6 +109,11 @@ export default function TransactionsScreen() {
 
   useEffect(() => {
     if (!uid || !selectedPid) return;
+    return watchAllocations(uid, selectedPid, (rows) => setAllocations(rows));
+  }, [uid, selectedPid]);
+
+  useEffect(() => {
+    if (!uid || !selectedPid) return;
     return watchIncomeItems(uid, selectedPid, (_rows, activeTotal) => {
       setActiveIncomeTotal(activeTotal);
     });
@@ -139,6 +147,24 @@ export default function TransactionsScreen() {
     return map;
   }, [budgetOptions]);
 
+  const plannedAccountByPlanId = useMemo(() => {
+    const map = new Map<string, string>();
+    allocations.forEach((row) => {
+      if (row.sourceType !== 'PLAN') return;
+      const planId = String(row.sourceItemId || '').trim();
+      const accountId = String(row.accountId || '').trim();
+      if (!planId || !accountId) return;
+      map.set(planId, accountId);
+    });
+    planItems.forEach((row) => {
+      const planId = String(row.id || '').trim();
+      const accountId = String((row as any).plannedAccountId || '').trim();
+      if (!planId || !accountId) return;
+      map.set(planId, accountId);
+    });
+    return map;
+  }, [allocations, planItems]);
+
   const fundedByBudgetId = useMemo(
     () =>
       computeFundedBudgetByItemId(
@@ -162,17 +188,24 @@ export default function TransactionsScreen() {
     [budgetOptions, fundedByBudgetId]
   );
 
+  const budgetTransactions = useMemo(
+    () => transactions.filter((row) => transactionSignedBudgetAmount(row) !== 0),
+    [transactions]
+  );
+
   const filteredTransactions = useMemo(
-    () => (filter === 'ALL' ? transactions : transactions.filter((row) => row.group === filter)),
-    [transactions, filter]
+    () => (filter === 'ALL' ? budgetTransactions : budgetTransactions.filter((row) => row.group === filter)),
+    [budgetTransactions, filter]
   );
 
   const totals = useMemo(() => {
     const next = { needs: 0, wants: 0, sd: 0, total: 0 };
     transactions.forEach((row) => {
-      if (row.group === 'NEED') next.needs += row.amount || 0;
-      else if (row.group === 'WANT') next.wants += row.amount || 0;
-      else next.sd += row.amount || 0;
+      const amount = transactionSignedBudgetAmount(row);
+      if (!amount) return;
+      if (row.group === 'NEED') next.needs += amount;
+      else if (row.group === 'WANT') next.wants += amount;
+      else next.sd += amount;
     });
     next.total = next.needs + next.wants + next.sd;
     return next;
@@ -181,7 +214,7 @@ export default function TransactionsScreen() {
   useEffect(() => {
     setTxEdits((prev) => {
       const next: Record<string, TxEditState> = {};
-      transactions.forEach((row) => {
+      budgetTransactions.forEach((row) => {
         if (!row.id) return;
         const existing = prev[row.id];
         if (existing?.dirty || existing?.saving) {
@@ -201,7 +234,7 @@ export default function TransactionsScreen() {
       });
       return next;
     });
-  }, [transactions]);
+  }, [budgetTransactions]);
 
   function resolveBudget(name: string, categoryId?: string) {
     const byId = String(categoryId || '').trim();
@@ -217,7 +250,7 @@ export default function TransactionsScreen() {
   }
 
   function setEditField(id: string, patch: Partial<TxEditState>) {
-    const source = transactions.find((row) => row.id === id);
+    const source = budgetTransactions.find((row) => row.id === id);
     if (!source) return;
     setTxEdits((prev) => {
       const existing =
@@ -245,7 +278,7 @@ export default function TransactionsScreen() {
   }
 
   function resetEditFromSource(id: string) {
-    const source = transactions.find((row) => row.id === id);
+    const source = budgetTransactions.find((row) => row.id === id);
     if (!source) return;
     setTxEdits((prev) => ({
       ...prev,
@@ -306,10 +339,12 @@ export default function TransactionsScreen() {
     await addTransaction(uid, selectedPid, {
       name: budget.name,
       categoryId: budget.id,
+      planItemId: budget.id,
       group: budget.group,
       amount: draft.amount,
       date: todayDate,
       note: draft.note,
+      paidFromAccountId: plannedAccountByPlanId.get(budget.id) || '',
     });
 
     setDraft((prev) => ({ ...prev, name: '', categoryId: '', amount: 0, group: 'NEED' }));
@@ -349,9 +384,11 @@ export default function TransactionsScreen() {
         date,
         name: budget.name,
         categoryId: budget.id,
+        planItemId: budget.id,
         group: budget.group,
         amount,
         note: edit.note.trim(),
+        paidFromAccountId: plannedAccountByPlanId.get(budget.id) || '',
       });
       setTxEdits((prev) => ({
         ...prev,

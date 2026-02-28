@@ -1,6 +1,6 @@
 // lib/repo/recurring.ts
 import {
-    addDoc, collection, deleteDoc, doc, onSnapshot, orderBy, query,
+    addDoc, collection, deleteDoc, doc, onSnapshot, query,
     serverTimestamp, updateDoc, getDocs, deleteField,
 } from 'firebase/firestore';
 import {db} from '../firebase';
@@ -8,6 +8,7 @@ import {assertPeriodEditable, type Group} from './periods';
 import {putTransactionWithId} from './transactions';
 import {incomeCol, putIncomeWithId} from './income';
 import {planCol, putPlanWithId} from './plans';
+import { docMatchesActiveScope, withWorkspaceWrite } from './scope';
 
 export type RecurringFlow = 'EXPENSE' | 'INCOME';
 
@@ -23,6 +24,7 @@ export type Recurring = {
     start?: string;              // YYYY-MM inclusive
     end?: string;                // YYYY-MM inclusive
     note?: string;
+    workspaceId?: string;
 };
 
 export const recCol = (uid: string) => collection(db, 'users', uid, 'recurring');
@@ -149,20 +151,30 @@ function toFirestorePatch(patch: Partial<Recurring>) {
 }
 
 export function watchRecurring(uid: string, cb: (rows: Recurring[]) => void) {
-    const q = query(recCol(uid), orderBy('createdAt', 'asc'));
+    const q = query(recCol(uid));
     return onSnapshot(q, (snap) => {
         const out: Recurring[] = [];
-        snap.forEach((d) => out.push({id: d.id, ...(d.data() as any)}));
+        snap.forEach((d) => {
+            const row = {id: d.id, ...(d.data() as any)};
+            if (!docMatchesActiveScope(row)) return;
+            out.push(row);
+        });
+        out.sort((a, b) => {
+            const at = (a as any).createdAt?.toMillis?.() ?? 0;
+            const bt = (b as any).createdAt?.toMillis?.() ?? 0;
+            if (at !== bt) return at - bt;
+            return String(a.id || '').localeCompare(String(b.id || ''));
+        });
         cb(out);
     });
 }
 
 export async function addRecurring(uid: string, r: Omit<Recurring, 'id'>) {
-    return addDoc(recCol(uid), {...toFirestoreWrite(r), createdAt: serverTimestamp()});
+    return addDoc(recCol(uid), withWorkspaceWrite({...toFirestoreWrite(r), createdAt: serverTimestamp()}));
 }
 
 export async function updateRecurring(uid: string, id: string, patch: Partial<Recurring>) {
-    return updateDoc(doc(recCol(uid), id), toFirestorePatch(patch));
+    return updateDoc(doc(recCol(uid), id), withWorkspaceWrite(toFirestorePatch(patch)));
 }
 
 export async function deleteRecurring(uid: string, id: string) {
@@ -172,7 +184,17 @@ export async function deleteRecurring(uid: string, id: string) {
 export async function listRecurring(uid: string) {
     const snap = await getDocs(recCol(uid));
     const out: Recurring[] = [];
-    snap.forEach((d) => out.push({id: d.id, ...(d.data() as any)}));
+    snap.forEach((d) => {
+        const row = {id: d.id, ...(d.data() as any)};
+        if (!docMatchesActiveScope(row)) return;
+        out.push(row);
+    });
+    out.sort((a, b) => {
+        const at = (a as any).createdAt?.toMillis?.() ?? 0;
+        const bt = (b as any).createdAt?.toMillis?.() ?? 0;
+        if (at !== bt) return at - bt;
+        return String(a.id || '').localeCompare(String(b.id || ''));
+    });
     return out;
 }
 

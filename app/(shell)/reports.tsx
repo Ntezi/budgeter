@@ -15,6 +15,7 @@ import { Colors } from '@/lib/budget';
 import { walletTagLabel } from '@/lib/domain';
 import { cn } from '@/lib/cn';
 import { useThemeMode } from '@/providers/ThemeProvider';
+import { transactionSignedBudgetAmount } from '@/lib/accounting';
 
 import { DropdownField } from '@/components/ui/DropdownField';
 import { LineChart } from '@/components/components/LineChart';
@@ -102,7 +103,8 @@ function analyzePeriodBehavior(report: PeriodReport): PeriodBehaviorInsight {
   let shoppingTxAmount = 0;
 
   report.transactions.forEach((row) => {
-    const amount = Math.max(0, Number(row.amount || 0));
+    const amount = Math.max(0, transactionSignedBudgetAmount(row));
+    if (!amount) return;
     const budgetId = String(row.categoryId || '').trim();
     const txName = String(row.name || '').trim() || 'Uncategorized';
     if (budgetId && byBudgetId.has(budgetId)) {
@@ -194,10 +196,13 @@ function buildBudgetWorkbookRows(report: PeriodReport): BudgetWorkbookRows {
   });
 
   const transactionRows = report.transactions.map((row) => ({
+    Type: row.type || 'EXPENSE',
     Date: row.date ?? '',
     Name: row.name ?? '',
     Group: row.group,
-    'Budget Item ID': row.categoryId ?? '',
+    'Budget Item ID': row.planItemId ?? row.categoryId ?? '',
+    'Paid From Account': row.paidFromAccountId ?? row.accountId ?? '',
+    'Transfer To Account': row.toAccountId ?? '',
     Amount: row.amount || 0,
     Note: row.note ?? '',
     'Shopping List': row.shoppingListName ?? '',
