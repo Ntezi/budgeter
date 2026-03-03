@@ -11,6 +11,20 @@ service cloud.firestore {
     function canAccessWorkspace(ownerUid) {
       return isSelf(ownerUid) || isWorkspaceMember(ownerUid);
     }
+    function isPublicShoppingList(ownerUid, listId) {
+      return exists(/databases/$(database)/documents/users/$(ownerUid)/shoppingLists/$(listId)) &&
+        get(/databases/$(database)/documents/users/$(ownerUid)/shoppingLists/$(listId)).data.visibility == 'PUBLIC';
+    }
+    function isWeeklyGroceriesShoppingList(ownerUid, listId) {
+      return exists(/databases/$(database)/documents/users/$(ownerUid)/shoppingLists/$(listId)) &&
+        get(/databases/$(database)/documents/users/$(ownerUid)/shoppingLists/$(listId)).data.name == 'Weekly Groceries';
+    }
+    function isReadablePublicShoppingList(ownerUid, listId) {
+      return isPublicShoppingList(ownerUid, listId) || isWeeklyGroceriesShoppingList(ownerUid, listId);
+    }
+    function isPublicShoppingOwner(ownerUid) {
+      return exists(/databases/$(database)/documents/publicShoppingOwners/$(ownerUid));
+    }
 
     match /workspaceMembers/{membershipId} {
       allow create: if isSignedIn() &&
@@ -24,6 +38,34 @@ service cloud.firestore {
     function isOwner() { return isSignedIn() && request.auth.uid == resource.data.ownerId; }
     function creatingForSelf() {
       return isSignedIn() && request.auth.uid == request.resource.data.ownerId;
+    }
+
+    match /publicShoppingLists/{entryId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() &&
+        request.resource.data.ownerUid is string &&
+        request.resource.data.listId is string &&
+        (canAccessWorkspace(request.resource.data.ownerUid) ||
+          isReadablePublicShoppingList(request.resource.data.ownerUid, request.resource.data.listId));
+      allow update: if isSignedIn() &&
+        resource.data.ownerUid is string &&
+        resource.data.listId is string &&
+        request.resource.data.ownerUid == resource.data.ownerUid &&
+        request.resource.data.listId == resource.data.listId &&
+        (canAccessWorkspace(resource.data.ownerUid) ||
+          isReadablePublicShoppingList(resource.data.ownerUid, resource.data.listId));
+      allow delete: if isSignedIn() &&
+        resource.data.ownerUid is string &&
+        canAccessWorkspace(resource.data.ownerUid);
+    }
+
+    match /publicShoppingOwners/{ownerUid} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() &&
+        request.resource.data.ownerUid == ownerUid &&
+        request.resource.data.sourceListId is string &&
+        (canAccessWorkspace(ownerUid) || isReadablePublicShoppingList(ownerUid, request.resource.data.sourceListId));
+      allow delete: if isSignedIn() && canAccessWorkspace(ownerUid);
     }
 
     // Lock each user to their own subtree (if you store per-user docs here)
@@ -44,6 +86,22 @@ service cloud.firestore {
 
       match /periods/{periodId}/allocations/{allocationId} {
         allow read, write: if canAccessWorkspace(uid);
+      }
+
+      match /shoppingLists/{listId} {
+        allow read: if canAccessWorkspace(uid) ||
+          (isSignedIn() && (resource.data.visibility == 'PUBLIC' || resource.data.name == 'Weekly Groceries'));
+        allow create, update, delete: if canAccessWorkspace(uid);
+
+        match /items/{itemId} {
+          allow read, write: if canAccessWorkspace(uid) ||
+            (isSignedIn() && (isPublicShoppingList(uid, listId) || isWeeklyGroceriesShoppingList(uid, listId)));
+        }
+      }
+
+      match /shoppingCatalog/{itemId} {
+        allow read: if canAccessWorkspace(uid) || (isSignedIn() && isPublicShoppingOwner(uid));
+        allow write: if canAccessWorkspace(uid);
       }
 
       match /{sub=**} {

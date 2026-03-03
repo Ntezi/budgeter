@@ -449,10 +449,12 @@ export default function BudgetDetailScreen() {
     rows.sort((a, b) => {
       const aSpendFlag = spendFlagByItemId[a.id] || 'NOT_SPENT';
       const bSpendFlag = spendFlagByItemId[b.id] || 'NOT_SPENT';
-      const aPrioritized =
-        aSpendFlag === 'PARTIAL_SPENT' || (a.reconcilePinned === true && aSpendFlag !== 'SPENT');
-      const bPrioritized =
-        bSpendFlag === 'PARTIAL_SPENT' || (b.reconcilePinned === true && bSpendFlag !== 'SPENT');
+      const aIsSpent = aSpendFlag === 'SPENT';
+      const bIsSpent = bSpendFlag === 'SPENT';
+      const aPinned = a.reconcilePinned === true && !aIsSpent;
+      const bPinned = b.reconcilePinned === true && !bIsSpent;
+      const aPrioritized = aIsSpent || aPinned;
+      const bPrioritized = bIsSpent || bPinned;
       if (aPrioritized !== bPrioritized) return aPrioritized ? -1 : 1;
 
       if (aPrioritized && bPrioritized) {
@@ -470,11 +472,11 @@ export default function BudgetDetailScreen() {
     let remaining = incomeTotal;
     return fundingOrder.map((item, index) => {
       const amount = item.amount || 0;
-      const funded = Math.min(amount, Math.max(remaining, 0));
-      remaining = Math.max(0, remaining - amount);
       const spendFlag = spendFlagByItemId[item.id] || 'NOT_SPENT';
-      const prioritized =
-        spendFlag === 'PARTIAL_SPENT' || (item.reconcilePinned === true && spendFlag !== 'SPENT');
+      const isSpent = spendFlag === 'SPENT';
+      const funded = isSpent ? amount : Math.min(amount, Math.max(remaining, 0));
+      remaining = Math.max(0, remaining - amount);
+      const prioritized = isSpent || item.reconcilePinned === true;
       return {
         ...item,
         fundingOrder: index + 1,
@@ -1593,9 +1595,9 @@ export default function BudgetDetailScreen() {
             </View>
 
             <Text className="text-xs text-muted-foreground">
-              Partial spent rows are auto-prioritized. You can also toggle rows to prioritize funding in this order: Needs → Savings-Debt → Wants, then by item priority.
+              Toggle rows to prioritize funding in this order: Needs → Savings-Debt → Wants, then by item priority.
             </Text>
-            <Text className="text-xs text-muted-foreground">Fully spent rows are no longer available for prioritization.</Text>
+            <Text className="text-xs text-muted-foreground">Spent rows are auto-prioritized, fully funded, and their prioritize toggle is disabled.</Text>
           </AppCard>
 
           {PLAN_GROUP_OPTIONS.map((group) => {
@@ -1648,6 +1650,8 @@ export default function BudgetDetailScreen() {
                             : row.spendFlag === 'PARTIAL_SPENT'
                               ? 'warning'
                               : 'secondary';
+                        const canPrioritize = row.spendFlag !== 'SPENT';
+                        const prioritizeValue = row.spendFlag === 'SPENT' ? true : row.reconcilePinned === true;
                         return (
                           <View
                             key={row.id}
@@ -1689,7 +1693,7 @@ export default function BudgetDetailScreen() {
                             <View className="w-[100px] items-center">
                               {isSpent ? (
                                 <AppBadge label="Spent" variant="success" />
-                              ) : row.funded > 0 && row.prioritized ? (
+                              ) : row.funded > 0 ? (
                                 <IconActionButton
                                   icon={markingSpent === row.id ? "loading" : "cash-check"}
                                   label="Mark Spent"
@@ -1702,21 +1706,16 @@ export default function BudgetDetailScreen() {
 
                             <View className="w-[100px] items-center">
                               {readOnly ? (
-                                row.spendFlag === 'PARTIAL_SPENT' ? (
-                                  <AppBadge label="Auto" variant="warning" />
-                                ) : row.spendFlag === 'SPENT' ? (
-                                  <AppBadge label="Spent" variant="secondary" />
-                                ) : (
-                                  <AppBadge label={row.reconcilePinned ? 'On' : 'Off'} variant={row.reconcilePinned ? 'success' : 'secondary'} />
-                                )
+                                <AppBadge
+                                  label={prioritizeValue ? 'On' : 'Off'}
+                                  variant={prioritizeValue ? 'success' : 'secondary'}
+                                />
                               ) : (
-                                row.spendFlag === 'PARTIAL_SPENT' ? (
-                                  <AppBadge label="Auto" variant="warning" />
-                                ) : row.spendFlag === 'SPENT' ? (
-                                  <AppBadge label="Spent" variant="secondary" />
-                                ) : (
-                                  <Switch value={row.reconcilePinned === true} onValueChange={(value) => void toggleReconcilePinned(row, value)} />
-                                )
+                                <Switch
+                                  value={prioritizeValue}
+                                  onValueChange={(value) => void toggleReconcilePinned(row, value)}
+                                  disabled={!canPrioritize}
+                                />
                               )}
                             </View>
                           </View>
@@ -1907,9 +1906,9 @@ export default function BudgetDetailScreen() {
               <View className="flex-row items-center justify-between rounded-md border border-border bg-muted/20 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/30">
                 <Text className="text-sm text-muted-foreground">Prioritize</Text>
                 <Switch
-                  value={mobileReconcileRow.reconcilePinned === true}
+                  value={mobileReconcileRow.spendFlag === 'SPENT' ? true : mobileReconcileRow.reconcilePinned === true}
                   onValueChange={(value) => void toggleReconcilePinned(mobileReconcileRow, value)}
-                  disabled={readOnly || mobileReconcileRow.spendFlag !== 'NOT_SPENT'}
+                  disabled={readOnly || mobileReconcileRow.spendFlag === 'SPENT'}
                 />
               </View>
               <View className="flex-row justify-end gap-2">
@@ -1917,7 +1916,7 @@ export default function BudgetDetailScreen() {
                   <AppButton
                     label={markingSpent === mobileReconcileRow.id ? 'Recording...' : 'Mark Spent'}
                     onPress={() => markSpent(mobileReconcileRow)}
-                    disabled={markingSpent !== null || !(mobileReconcileRow.funded > 0 && mobileReconcileRow.prioritized)}
+                    disabled={markingSpent !== null || !(mobileReconcileRow.funded > 0)}
                   />
                 ) : null}
                 <AppButton variant="outline" label="Close" onPress={closeMobileDetail} />

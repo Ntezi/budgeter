@@ -1,23 +1,30 @@
 import {
   addDoc,
   collection,
+  collectionGroup,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
   onSnapshot,
   query,
   serverTimestamp,
   setDoc,
   updateDoc,
+  where,
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import type { Group } from './periods';
 import { docMatchesActiveScope, withWorkspaceWrite } from './scope';
 
+export type ShoppingListVisibility = 'PRIVATE' | 'PUBLIC';
+
 export type ShoppingList = {
   id?: string;
   name: string;
   archived?: boolean;
+  visibility?: ShoppingListVisibility;
+  ownerUid?: string;
   workspaceId?: string;
   periodId?: string;
   createdAt?: unknown;
@@ -86,6 +93,18 @@ export function shoppingCategoriesCol(uid: string) {
   return collection(db, 'users', uid, 'shoppingCategories');
 }
 
+function publicShoppingListsCol() {
+  return collection(db, 'publicShoppingLists');
+}
+
+function publicShoppingOwnersCol() {
+  return collection(db, 'publicShoppingOwners');
+}
+
+function publicShoppingListDocId(ownerUid: string, listId: string) {
+  return `${ownerUid}__${listId}`;
+}
+
 function compactFields<T extends Record<string, unknown>>(input: T): Partial<T> {
   const out: Record<string, unknown> = {};
   Object.entries(input).forEach(([key, value]) => {
@@ -97,6 +116,12 @@ function compactFields<T extends Record<string, unknown>>(input: T): Partial<T> 
 function normalizeCategory(input?: string) {
   const value = String(input || '').trim();
   return value || '';
+}
+
+function normalizeShoppingListVisibility(input?: ShoppingListVisibility | string) {
+  const value = String(input || '').trim().toUpperCase();
+  if (value === 'PUBLIC') return 'PUBLIC' as const;
+  return 'PRIVATE' as const;
 }
 
 function normalizeTags(input?: string[]) {
@@ -127,7 +152,25 @@ function normalizeGroup(input?: Group) {
   return value as Group;
 }
 
-async function assertShoppingListItemNameAvailable(uid: string, listId: string, name: string, excludeId?: string) {
+type ShoppingListScopeOptions = {
+  skipScopeFilter?: boolean;
+};
+
+function withShoppingListItemWriteScope<T extends Record<string, unknown>>(
+  input: T,
+  options?: ShoppingListScopeOptions
+): T {
+  if (options?.skipScopeFilter) return input;
+  return withWorkspaceWrite(input) as T;
+}
+
+async function assertShoppingListItemNameAvailable(
+  uid: string,
+  listId: string,
+  name: string,
+  excludeId?: string,
+  options?: ShoppingListScopeOptions
+) {
   const normalizedName = normalizeItemName(name);
   if (!normalizedName) throw new Error('Item name is required.');
 
@@ -135,7 +178,7 @@ async function assertShoppingListItemNameAvailable(uid: string, listId: string, 
   for (const row of snap.docs) {
     if (excludeId && row.id === excludeId) continue;
     const data = row.data() as Omit<ShoppingListItem, 'id'>;
-    if (!docMatchesActiveScope(data as any)) continue;
+    if (!options?.skipScopeFilter && !docMatchesActiveScope(data as any)) continue;
     if (normalizeItemName(data.name) !== normalizedName) continue;
     throw new Error('Item already exists in this shopping list.');
   }
@@ -171,6 +214,87 @@ function parseCsvRecord(line: string): string[] {
   return out.map((s) => s.trim());
 }
 
+function sortShoppingListsByNameThenId(rows: ShoppingList[]) {
+  rows.sort((a, b) => {
+    const nameCompare = String(a.name || '').localeCompare(String(b.name || ''));
+    if (nameCompare !== 0) return nameCompare;
+    const ownerCompare = String(a.ownerUid || '').localeCompare(String(b.ownerUid || ''));
+    if (ownerCompare !== 0) return ownerCompare;
+    return String(a.id || '').localeCompare(String(b.id || ''));
+  });
+}
+
+function toMillis(value: unknown) {
+  if (!value) return 0;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'object' && value && 'toMillis' in (value as any)) {
+    const millis = (value as any).toMillis?.();
+    return typeof millis === 'number' && Number.isFinite(millis) ? millis : 0;
+  }
+  return 0;
+}
+
+function dedupeShoppingListsByOwnerAndName(rows: ShoppingList[]) {
+  const byKey = new Map<string, ShoppingList>();
+  rows.forEach((row) => {
+    const ownerUid = String(row.ownerUid || '').trim();
+    const nameKey = String(row.name || '').trim().toLowerCase();
+    const key = `${ownerUid}::${nameKey}`;
+    const prev = byKey.get(key);
+    if (!prev) {
+      byKey.set(key, row);
+      return;
+    }
+    const prevMillis = toMillis(prev.updatedAt) || toMillis(prev.createdAt);
+    const nextMillis = toMillis(row.updatedAt) || toMillis(row.createdAt);
+    if (nextMillis >= prevMillis) byKey.set(key, row);
+  });
+  return Array.from(byKey.values());
+}
+
+async function upsertPublicShoppingList(uid: string, listId: string, name: string) {
+  await setDoc(
+    doc(publicShoppingListsCol(), publicShoppingListDocId(uid, listId)),
+    {
+      ownerUid: uid,
+      listId,
+      name: String(name || '').trim(),
+      visibility: 'PUBLIC',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
+}
+
+async function upsertPublicShoppingOwner(uid: string, sourceListId: string) {
+  await setDoc(
+    doc(publicShoppingOwnersCol(), uid),
+    {
+      ownerUid: uid,
+      sourceListId: String(sourceListId || '').trim(),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
+}
+
+async function syncPublicShoppingOwnerMarker(uid: string) {
+  const snap = await getDocs(query(shoppingListsCol(uid), where('visibility', '==', 'PUBLIC')));
+  if (snap.empty) {
+    await deleteDoc(doc(publicShoppingOwnersCol(), uid)).catch(() => undefined);
+    return;
+  }
+  const firstPublicListId = String(snap.docs[0]?.id || '').trim();
+  if (!firstPublicListId) return;
+  await upsertPublicShoppingOwner(uid, firstPublicListId).catch(() => undefined);
+}
+
+async function removePublicShoppingList(uid: string, listId: string) {
+  await deleteDoc(doc(publicShoppingListsCol(), publicShoppingListDocId(uid, listId)));
+}
+
 export function watchShoppingLists(uid: string, cb: (rows: ShoppingList[]) => void) {
   const q = query(shoppingListsCol(uid));
   return onSnapshot(q, (snap) => {
@@ -180,18 +304,139 @@ export function watchShoppingLists(uid: string, cb: (rows: ShoppingList[]) => vo
       if (!docMatchesActiveScope(row as any)) return;
       rows.push(row);
     });
-    rows.sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
+    sortShoppingListsByNameThenId(rows);
     cb(rows);
   });
 }
 
-export function watchShoppingListItems(uid: string, listId: string, cb: (rows: ShoppingListItem[]) => void) {
+export function watchPublicShoppingLists(cb: (rows: ShoppingList[]) => void) {
+  const indexedRows = new Map<string, ShoppingList>();
+  const publicRows = new Map<string, ShoppingList>();
+  const weeklyRows = new Map<string, ShoppingList>();
+
+  function emit() {
+    const merged = new Map<string, ShoppingList>();
+    indexedRows.forEach((row, key) => merged.set(key, row));
+    publicRows.forEach((row, key) => merged.set(key, row));
+    weeklyRows.forEach((row, key) => merged.set(key, row));
+    const rows = dedupeShoppingListsByOwnerAndName(Array.from(merged.values()));
+    rows.forEach((row) => {
+      const ownerUid = String(row.ownerUid || '').trim();
+      const listId = String(row.id || '').trim();
+      if (!ownerUid || !listId) return;
+      void upsertPublicShoppingOwner(ownerUid, listId).catch(() => undefined);
+    });
+    sortShoppingListsByNameThenId(rows);
+    cb(rows);
+  }
+
+  const unsubIndex = onSnapshot(query(publicShoppingListsCol()), (snap) => {
+    indexedRows.clear();
+    snap.forEach((d) => {
+      const data = d.data() as {
+        ownerUid?: string;
+        listId?: string;
+        name?: string;
+        visibility?: string;
+        createdAt?: unknown;
+        updatedAt?: unknown;
+      };
+      const ownerUid = String(data.ownerUid || '').trim();
+      const listId = String(data.listId || '').trim();
+      if (!ownerUid || !listId) return;
+      const visibility = normalizeShoppingListVisibility(data.visibility);
+      if (visibility !== 'PUBLIC') return;
+      const key = `${ownerUid}::${listId}`;
+      indexedRows.set(key, {
+        id: listId,
+        ownerUid,
+        name: String(data.name || '').trim(),
+        visibility,
+        createdAt: data.createdAt,
+        updatedAt: data.updatedAt,
+      });
+    });
+    emit();
+  });
+
+  function toListRowFromGroupDoc(d: { id: string; ref: { path: string }; data: () => Record<string, unknown> }) {
+    const pathParts = d.ref.path.split('/');
+    if (pathParts.length < 4 || pathParts[0] !== 'users' || pathParts[2] !== 'shoppingLists') return null;
+    const ownerUid = String(pathParts[1] || '').trim();
+    if (!ownerUid) return null;
+      const data = d.data() as Record<string, unknown>;
+      return {
+        key: `${ownerUid}::${d.id}`,
+        row: {
+          id: d.id,
+          ownerUid,
+          name: String(data.name || '').trim(),
+          visibility: normalizeShoppingListVisibility(String(data.visibility || '').trim()),
+          createdAt: data.createdAt,
+          updatedAt: data.updatedAt,
+        } as ShoppingList,
+      };
+    }
+
+  const unsubPublic = onSnapshot(
+    query(collectionGroup(db, 'shoppingLists'), where('visibility', '==', 'PUBLIC')),
+    (snap) => {
+      publicRows.clear();
+      snap.forEach((d) => {
+        const parsed = toListRowFromGroupDoc(d);
+        if (!parsed) return;
+        publicRows.set(parsed.key, parsed.row);
+        if (parsed.row.ownerUid && parsed.row.id) {
+          void upsertPublicShoppingList(parsed.row.ownerUid, parsed.row.id, parsed.row.name || '').catch(() => undefined);
+        }
+      });
+      emit();
+    },
+    () => {
+      publicRows.clear();
+      emit();
+    }
+  );
+
+  const unsubWeekly = onSnapshot(
+    query(collectionGroup(db, 'shoppingLists'), where('name', '==', 'Weekly Groceries')),
+    (snap) => {
+      weeklyRows.clear();
+      snap.forEach((d) => {
+        const parsed = toListRowFromGroupDoc(d);
+        if (!parsed) return;
+        weeklyRows.set(parsed.key, parsed.row);
+        if (parsed.row.ownerUid && parsed.row.id) {
+          void upsertPublicShoppingList(parsed.row.ownerUid, parsed.row.id, parsed.row.name || '').catch(() => undefined);
+        }
+      });
+      emit();
+    },
+    () => {
+      weeklyRows.clear();
+      emit();
+    }
+  );
+
+  return () => {
+    unsubIndex();
+    unsubPublic();
+    unsubWeekly();
+  };
+}
+
+export function watchShoppingListItems(
+  uid: string,
+  listId: string,
+  cb: (rows: ShoppingListItem[]) => void,
+  options?: ShoppingListScopeOptions
+) {
   const q = query(shoppingItemsCol(uid, listId));
   return onSnapshot(q, (snap) => {
     const rows: ShoppingListItem[] = [];
     snap.forEach((d) => {
       const row = { id: d.id, ...(d.data() as Omit<ShoppingListItem, 'id'>) };
-      if (!docMatchesActiveScope(row as any)) return;
+      if (!options?.skipScopeFilter && !docMatchesActiveScope(row as any)) return;
       rows.push(row);
     });
     rows.sort((a, b) => String(a.id || '').localeCompare(String(b.id || '')));
@@ -199,21 +444,51 @@ export function watchShoppingListItems(uid: string, listId: string, cb: (rows: S
   });
 }
 
-export async function addShoppingList(uid: string, name: string, periodId?: string) {
-  return addDoc(shoppingListsCol(uid), withWorkspaceWrite({
-    name: name.trim(),
+export async function addShoppingList(
+  uid: string,
+  name: string,
+  periodId?: string,
+  visibility: ShoppingListVisibility = 'PRIVATE'
+) {
+  const cleanName = name.trim();
+  const cleanVisibility = normalizeShoppingListVisibility(visibility);
+  const ref = await addDoc(shoppingListsCol(uid), withWorkspaceWrite({
+    name: cleanName,
     periodId: String(periodId || '').trim(),
+    ownerUid: uid,
+    visibility: cleanVisibility,
     archived: false,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   }));
+  if (cleanVisibility === 'PUBLIC') {
+    await upsertPublicShoppingList(uid, ref.id, cleanName).catch(() => undefined);
+    await upsertPublicShoppingOwner(uid, ref.id).catch(() => undefined);
+  }
+  return ref;
 }
 
 export async function updateShoppingList(uid: string, id: string, patch: Partial<ShoppingList>) {
-  return updateDoc(doc(shoppingListsCol(uid), id), withWorkspaceWrite({
+  const visibility =
+    patch.visibility === undefined ? undefined : normalizeShoppingListVisibility(patch.visibility);
+  const listRef = doc(shoppingListsCol(uid), id);
+  await updateDoc(listRef, withWorkspaceWrite({
     ...patch,
+    ...(visibility !== undefined ? { visibility } : {}),
     updatedAt: serverTimestamp(),
   } as Partial<ShoppingList>));
+  const latest = await getDoc(listRef);
+  if (!latest.exists()) return;
+  const data = latest.data() as Omit<ShoppingList, 'id'>;
+  const latestVisibility = normalizeShoppingListVisibility(data.visibility);
+  const latestName = String(data.name || '').trim();
+  if (latestVisibility === 'PUBLIC') {
+    await upsertPublicShoppingList(uid, id, latestName).catch(() => undefined);
+    await upsertPublicShoppingOwner(uid, id).catch(() => undefined);
+  } else {
+    await removePublicShoppingList(uid, id).catch(() => undefined);
+    await syncPublicShoppingOwnerMarker(uid).catch(() => undefined);
+  }
 }
 
 export async function deleteShoppingList(uid: string, id: string) {
@@ -221,7 +496,9 @@ export async function deleteShoppingList(uid: string, id: string) {
   for (const item of itemsSnap.docs) {
     await deleteDoc(item.ref);
   }
-  return deleteDoc(doc(shoppingListsCol(uid), id));
+  await deleteDoc(doc(shoppingListsCol(uid), id));
+  await removePublicShoppingList(uid, id).catch(() => undefined);
+  await syncPublicShoppingOwnerMarker(uid).catch(() => undefined);
 }
 
 export async function listShoppingLists(uid: string) {
@@ -232,6 +509,7 @@ export async function listShoppingLists(uid: string) {
     if (!docMatchesActiveScope(row as any)) return;
     rows.push(row);
   });
+  sortShoppingListsByNameThenId(rows);
   return rows;
 }
 
@@ -249,16 +527,17 @@ export async function listShoppingListItems(uid: string, listId: string) {
 export async function addShoppingListItem(
   uid: string,
   listId: string,
-  input: Omit<ShoppingListItem, 'id' | 'createdAt' | 'updatedAt'>
+  input: Omit<ShoppingListItem, 'id' | 'createdAt' | 'updatedAt'>,
+  options?: ShoppingListScopeOptions
 ) {
   const name = String(input.name || '').trim();
   if (!name) throw new Error('Item name is required.');
-  await assertShoppingListItemNameAvailable(uid, listId, name);
+  await assertShoppingListItemNameAvailable(uid, listId, name, undefined, options);
   const price = Math.max(0, Number(input.price || 0));
   const tag = normalizeItemTag(input.tag);
   return addDoc(
     shoppingItemsCol(uid, listId),
-    withWorkspaceWrite(
+    withShoppingListItemWriteScope(
       compactFields({
         ...input,
         ownerUid: uid,
@@ -272,19 +551,26 @@ export async function addShoppingListItem(
         completed: input.completed === true,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-      }) as any
+      }) as any,
+      options
     )
   );
 }
 
-export async function updateShoppingListItem(uid: string, listId: string, id: string, patch: Partial<ShoppingListItem>) {
+export async function updateShoppingListItem(
+  uid: string,
+  listId: string,
+  id: string,
+  patch: Partial<ShoppingListItem>,
+  options?: ShoppingListScopeOptions
+) {
   const name =
     patch.name === undefined
       ? undefined
       : String(patch.name || '').trim();
   if (name !== undefined) {
     if (!name) throw new Error('Item name is required.');
-    await assertShoppingListItemNameAvailable(uid, listId, name, id);
+    await assertShoppingListItemNameAvailable(uid, listId, name, id, options);
   }
   const tags = Array.isArray(patch.tags) ? normalizeTags(patch.tags) : patch.tags;
   const tag = patch.tag === undefined ? undefined : normalizeItemTag(patch.tag);
@@ -296,7 +582,7 @@ export async function updateShoppingListItem(uid: string, listId: string, id: st
     patch.category === undefined ? undefined : normalizeCategory(patch.category);
   return updateDoc(
     doc(shoppingItemsCol(uid, listId), id),
-    withWorkspaceWrite(
+    withShoppingListItemWriteScope(
       compactFields({
         ...patch,
         ...(name !== undefined ? { name } : {}),
@@ -306,7 +592,8 @@ export async function updateShoppingListItem(uid: string, listId: string, id: st
         ...(tags ? { tags } : {}),
         ...(tag !== undefined ? { tag } : {}),
         updatedAt: serverTimestamp(),
-      }) as any
+      }) as any,
+      options
     )
   );
 }
@@ -315,13 +602,17 @@ export async function deleteShoppingListItem(uid: string, listId: string, id: st
   return deleteDoc(doc(shoppingItemsCol(uid, listId), id));
 }
 
-export function watchShoppingCatalog(uid: string, cb: (rows: ShoppingCatalogItem[]) => void) {
+export function watchShoppingCatalog(
+  uid: string,
+  cb: (rows: ShoppingCatalogItem[]) => void,
+  options?: ShoppingListScopeOptions
+) {
   const q = query(shoppingCatalogCol(uid));
   return onSnapshot(q, (snap) => {
     const rows: ShoppingCatalogItem[] = [];
     snap.forEach((d) => {
       const row = { id: d.id, ...(d.data() as Omit<ShoppingCatalogItem, 'id'>) };
-      if (!docMatchesActiveScope(row as any)) return;
+      if (!options?.skipScopeFilter && !docMatchesActiveScope(row as any)) return;
       rows.push(row);
     });
     rows.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));

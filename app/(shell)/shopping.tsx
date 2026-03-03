@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, Switch, Text, View, useWindowDimensions } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { AppButton } from '@/components/ui/AppButton';
@@ -21,8 +21,10 @@ import {
   deleteShoppingListItem,
   type ShoppingList,
   type ShoppingListItem,
+  updateShoppingList,
   updateShoppingListItem,
   upsertShoppingCatalogItem,
+  watchPublicShoppingLists,
   watchShoppingCatalog,
   watchShoppingListItems,
   watchShoppingLists,
@@ -44,13 +46,56 @@ type CompletionInput = {
   planItemId: string;
 };
 
+type AccessibleShoppingList = ShoppingList & {
+  ownerUid: string;
+  listKey: string;
+  fromPublicFeed: boolean;
+};
+
+const PRIORITY_CATEGORY_ORDER = new Map<string, number>([
+  ['produce', 0],
+  ['meat', 1],
+  ['seafood', 2],
+]);
+
 function normalize(input: string) {
   return input.trim().toLowerCase();
+}
+
+function normalizeCategorySortKey(input?: string) {
+  return String(input || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '');
+}
+
+function categorySortRank(input?: string) {
+  const key = normalizeCategorySortKey(input);
+  const rank = PRIORITY_CATEGORY_ORDER.get(key);
+  return rank === undefined ? 99 : rank;
+}
+
+function listKeyFor(ownerUid: string, listId: string) {
+  return `${ownerUid}::${listId}`;
+}
+
+function isWeeklyGroceries(name?: string) {
+  return normalize(String(name || '')) === 'weekly groceries';
 }
 
 function parseQuantity(input: string) {
   const value = parseInt(input, 10);
   return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function timestampMillis(value: unknown) {
+  if (!value) return 0;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'object' && value && 'toMillis' in (value as any)) {
+    const millis = (value as any).toMillis?.();
+    return typeof millis === 'number' && Number.isFinite(millis) ? millis : 0;
+  }
+  return 0;
 }
 
 function normalizeItemTag(input: string) {
@@ -69,9 +114,11 @@ export default function ShoppingScreen() {
   const targetPid = activePeriodId || periodIdFromDate();
 
   const [lists, setLists] = useState<ShoppingList[]>([]);
-  const [selectedListId, setSelectedListId] = useState('');
+  const [publicLists, setPublicLists] = useState<ShoppingList[]>([]);
+  const [selectedListKey, setSelectedListKey] = useState('');
   const [items, setItems] = useState<ShoppingListItem[]>([]);
   const [catalogRows, setCatalogRows] = useState<ShoppingCatalogItem[]>([]);
+  const weeklyAutoPublishAttemptsRef = useRef<Set<string>>(new Set());
 
   const [createListOpen, setCreateListOpen] = useState(false);
   const [listDraftName, setListDraftName] = useState('');
@@ -112,34 +159,112 @@ export default function ShoppingScreen() {
   useEffect(() => {
     if (!uid) return;
     return watchShoppingLists(uid, (rows) => {
-      const periodScoped = rows.filter((row) => {
-        const pid = String(row.periodId || '').trim();
-        if (!pid) return true;
-        return pid === targetPid;
-      });
-      setLists(periodScoped);
-      if (selectedListId && !periodScoped.some((row) => row.id === selectedListId)) {
-        setSelectedListId(periodScoped[0]?.id || '');
-        return;
+      const weeklyList = rows.find(
+        (row) => row.id && isWeeklyGroceries(row.name) && String(row.visibility || '').trim().toUpperCase() !== 'PUBLIC'
+      );
+      const weeklyListId = String(weeklyList?.id || '').trim();
+      if (weeklyListId && !weeklyAutoPublishAttemptsRef.current.has(weeklyListId)) {
+        weeklyAutoPublishAttemptsRef.current.add(weeklyListId);
+        updateShoppingList(uid, weeklyListId, { visibility: 'PUBLIC' }).catch(() => {
+          weeklyAutoPublishAttemptsRef.current.delete(weeklyListId);
+        });
       }
-      if (!selectedListId && periodScoped.length > 0 && isWide) {
-        setSelectedListId(periodScoped[0].id || '');
-      }
+      setLists(rows);
     });
-  }, [uid, selectedListId, isWide, targetPid]);
-
-  useEffect(() => {
-    if (!uid) return;
-    return watchShoppingCatalog(uid, setCatalogRows);
   }, [uid]);
 
   useEffect(() => {
-    if (!uid || !selectedListId) {
-      setItems([]);
+    if (!uid) return;
+    return watchPublicShoppingLists((rows) => {
+      setPublicLists(rows);
+    });
+  }, [uid]);
+
+  const catalogOwnerUids = useMemo(() => {
+    if (!uid) return [] as string[];
+    const owners = new Set<string>();
+    owners.add(uid);
+    publicLists.forEach((row) => {
+      const ownerUid = String(row.ownerUid || '').trim();
+      if (ownerUid) owners.add(ownerUid);
+    });
+    return Array.from(owners.values()).sort((a, b) => a.localeCompare(b));
+  }, [publicLists, uid]);
+
+  useEffect(() => {
+    if (!uid) {
+      setCatalogRows([]);
       return;
     }
-    return watchShoppingListItems(uid, selectedListId, setItems);
-  }, [uid, selectedListId]);
+
+    const ownerRows = new Map<string, ShoppingCatalogItem[]>();
+    const ownerPriority = new Map<string, number>();
+    catalogOwnerUids.forEach((ownerUid, index) => ownerPriority.set(ownerUid, index));
+
+    const emitMergedRows = () => {
+      const mergedByName = new Map<string, { row: ShoppingCatalogItem; sourceOwnerUid: string }>();
+
+      catalogOwnerUids.forEach((ownerUid) => {
+        const rows = ownerRows.get(ownerUid) || [];
+        rows.forEach((row) => {
+          const name = String(row.name || '').trim();
+          const nameKey = normalize(name);
+          if (!nameKey) return;
+
+          const existing = mergedByName.get(nameKey);
+          if (!existing) {
+            mergedByName.set(nameKey, { row, sourceOwnerUid: ownerUid });
+            return;
+          }
+
+          const existingPriority = ownerPriority.get(existing.sourceOwnerUid) ?? Number.MAX_SAFE_INTEGER;
+          const candidatePriority = ownerPriority.get(ownerUid) ?? Number.MAX_SAFE_INTEGER;
+          if (candidatePriority < existingPriority) {
+            mergedByName.set(nameKey, { row, sourceOwnerUid: ownerUid });
+            return;
+          }
+          if (candidatePriority > existingPriority) return;
+
+          const existingMillis = timestampMillis(existing.row.updatedAt) || timestampMillis(existing.row.createdAt);
+          const candidateMillis = timestampMillis(row.updatedAt) || timestampMillis(row.createdAt);
+          if (candidateMillis >= existingMillis) {
+            mergedByName.set(nameKey, { row, sourceOwnerUid: ownerUid });
+          }
+        });
+      });
+
+      const mergedRows = Array.from(mergedByName.values())
+        .map(({ row, sourceOwnerUid }) => {
+          const rowId = String(row.id || '').trim();
+          return {
+            ...row,
+            id: rowId || `${sourceOwnerUid}::${normalize(row.name || '')}`,
+          };
+        })
+        .sort((a, b) => normalize(a.name || '').localeCompare(normalize(b.name || '')));
+
+      setCatalogRows(mergedRows);
+    };
+
+    const unsubs: (() => void)[] = [];
+    catalogOwnerUids.forEach((ownerUid) => {
+      const unsub = watchShoppingCatalog(
+        ownerUid,
+        (rows) => {
+          ownerRows.set(ownerUid, rows);
+          emitMergedRows();
+        },
+        ownerUid === uid ? undefined : { skipScopeFilter: true }
+      );
+      unsubs.push(unsub);
+    });
+
+    if (!unsubs.length) setCatalogRows([]);
+
+    return () => {
+      unsubs.forEach((unsub) => unsub());
+    };
+  }, [catalogOwnerUids, uid]);
 
   useEffect(() => {
     if (!uid || !targetPid) return;
@@ -153,7 +278,104 @@ export default function ShoppingScreen() {
     });
   }, [uid, targetPid]);
 
-  const selectedList = useMemo(() => lists.find((row) => row.id === selectedListId) || null, [lists, selectedListId]);
+  const allLists = useMemo<AccessibleShoppingList[]>(() => {
+    if (!uid) return [];
+    const byKey = new Map<string, AccessibleShoppingList>();
+    const byOwnerNameKey = new Map<string, string>();
+
+    function upsertListRow(row: AccessibleShoppingList) {
+      const ownerUid = String(row.ownerUid || '').trim();
+      const nameKey = normalize(String(row.name || ''));
+      const ownerNameKey = `${ownerUid}::${nameKey}`;
+      const existingListKey = byOwnerNameKey.get(ownerNameKey);
+      if (!existingListKey) {
+        byOwnerNameKey.set(ownerNameKey, row.listKey);
+        byKey.set(row.listKey, row);
+        return;
+      }
+      const existing = byKey.get(existingListKey);
+      if (!existing) {
+        byOwnerNameKey.set(ownerNameKey, row.listKey);
+        byKey.set(row.listKey, row);
+        return;
+      }
+      const existingMillis = timestampMillis(existing.updatedAt) || timestampMillis(existing.createdAt);
+      const nextMillis = timestampMillis(row.updatedAt) || timestampMillis(row.createdAt);
+      if (nextMillis >= existingMillis) {
+        byKey.delete(existingListKey);
+        byKey.set(row.listKey, row);
+        byOwnerNameKey.set(ownerNameKey, row.listKey);
+      }
+    }
+
+    lists.forEach((row) => {
+      const listId = String(row.id || '').trim();
+      if (!listId) return;
+      const key = listKeyFor(uid, listId);
+      upsertListRow({
+        ...row,
+        id: listId,
+        ownerUid: uid,
+        listKey: key,
+        fromPublicFeed: false,
+      });
+    });
+
+    publicLists.forEach((row) => {
+      const listId = String(row.id || '').trim();
+      const ownerUid = String(row.ownerUid || '').trim();
+      if (!listId || !ownerUid) return;
+      const key = listKeyFor(ownerUid, listId);
+      if (byKey.has(key)) return;
+      upsertListRow({
+        ...row,
+        id: listId,
+        ownerUid,
+        listKey: key,
+        fromPublicFeed: true,
+      });
+    });
+
+    return Array.from(byKey.values()).sort((a, b) => {
+      const mineA = a.ownerUid === uid ? 0 : 1;
+      const mineB = b.ownerUid === uid ? 0 : 1;
+      if (mineA !== mineB) return mineA - mineB;
+      const nameCompare = normalize(a.name || '').localeCompare(normalize(b.name || ''));
+      if (nameCompare !== 0) return nameCompare;
+      return a.listKey.localeCompare(b.listKey);
+    });
+  }, [lists, publicLists, uid]);
+
+  useEffect(() => {
+    if (!selectedListKey && allLists.length > 0 && isWide) {
+      setSelectedListKey(allLists[0].listKey);
+      return;
+    }
+    if (selectedListKey && !allLists.some((row) => row.listKey === selectedListKey)) {
+      setSelectedListKey(allLists[0]?.listKey || '');
+    }
+  }, [allLists, isWide, selectedListKey]);
+
+  const selectedList = useMemo(
+    () => allLists.find((row) => row.listKey === selectedListKey) || null,
+    [allLists, selectedListKey]
+  );
+  const selectedListId = selectedList?.id || '';
+  const selectedListOwnerUid = selectedList?.ownerUid || '';
+  const selectedListIsMine = Boolean(uid && selectedListOwnerUid && uid === selectedListOwnerUid);
+  const selectedListIsPublic = String(selectedList?.visibility || '').trim().toUpperCase() === 'PUBLIC';
+  const selectedListNeedsScopeBypass = Boolean(selectedList && !selectedListIsMine);
+  const canToggleSelectedListVisibility = Boolean(selectedListIsMine && selectedListId);
+
+  useEffect(() => {
+    if (!selectedListId || !selectedListOwnerUid) {
+      setItems([]);
+      return;
+    }
+    return watchShoppingListItems(selectedListOwnerUid, selectedListId, setItems, {
+      skipScopeFilter: selectedListNeedsScopeBypass,
+    });
+  }, [selectedListId, selectedListNeedsScopeBypass, selectedListOwnerUid]);
 
   const planOptions = useMemo<PlanOption[]>(
     () =>
@@ -184,6 +406,22 @@ export default function ShoppingScreen() {
     return map;
   }, [planOptions]);
 
+  const groceriesPlanOption = useMemo(
+    () => planOptions.find((row) => normalize(row.name) === 'groceries') || null,
+    [planOptions]
+  );
+
+  const isGroceriesCatalogBudgetItem = useMemo(() => {
+    return (row: ShoppingCatalogItem) => {
+      const assignedName = normalize(String(row.assignedPlanItemName || ''));
+      if (assignedName) return assignedName === 'groceries';
+      const assignedId = String(row.assignedPlanItemId || '').trim();
+      if (!assignedId) return false;
+      const plan = planById.get(assignedId);
+      return normalize(String(plan?.name || '')) === 'groceries';
+    };
+  }, [planById]);
+
   const fundedByPlanId = useMemo(
     () =>
       computeFundedBudgetByItemId(
@@ -203,8 +441,12 @@ export default function ShoppingScreen() {
   );
 
   const fundedPlanOptions = useMemo(
-    () => planOptions.filter((row) => hasFundedAmount(fundedByPlanId, row.id)),
-    [fundedByPlanId, planOptions]
+    () => {
+      const funded = planOptions.filter((row) => hasFundedAmount(fundedByPlanId, row.id));
+      if (!selectedListIsPublic) return funded;
+      return funded.filter((row) => normalize(row.name) === 'groceries');
+    },
+    [fundedByPlanId, planOptions, selectedListIsPublic]
   );
 
   const categoryOptions = useMemo(() => {
@@ -218,8 +460,15 @@ export default function ShoppingScreen() {
 
   const importCandidates = useMemo(() => {
     const q = normalize(importSearch);
+    const existingNames = new Set(
+      items
+        .map((row) => normalize(String(row.name || '')))
+        .filter(Boolean)
+    );
     return catalogRows
       .filter((row) => {
+        if (selectedListIsPublic && !isGroceriesCatalogBudgetItem(row)) return false;
+        if (existingNames.has(normalize(row.name || ''))) return false;
         if (importCategoryFilter !== 'ALL' && normalize(row.category || '') !== normalize(importCategoryFilter)) {
           return false;
         }
@@ -227,17 +476,41 @@ export default function ShoppingScreen() {
         return normalize(row.name || '').includes(q) || normalize(row.category || '').includes(q);
       })
       .slice(0, 80);
-  }, [catalogRows, importCategoryFilter, importSearch]);
+  }, [catalogRows, importCategoryFilter, importSearch, isGroceriesCatalogBudgetItem, items, selectedListIsPublic]);
+
+  const existingItemSuggestions = useMemo(() => {
+    const q = normalize(itemDraftName);
+    if (!q) return [];
+    return items
+      .filter((row) => normalize(String(row.name || '')).includes(q))
+      .slice(0, 6);
+  }, [itemDraftName, items]);
 
   const suggestedRows = useMemo(() => {
     const q = normalize(itemDraftName);
     if (!q) return [];
-    return catalogRows.filter((row) => normalize(row.name || '').includes(q)).slice(0, 10);
-  }, [catalogRows, itemDraftName]);
+    const existingNames = new Set(
+      items
+        .map((row) => normalize(String(row.name || '')))
+        .filter(Boolean)
+    );
+    return catalogRows
+      .filter((row) => normalize(row.name || '').includes(q))
+      .filter((row) => !existingNames.has(normalize(row.name || '')))
+      .filter((row) => (selectedListIsPublic ? isGroceriesCatalogBudgetItem(row) : true))
+      .slice(0, 10);
+  }, [catalogRows, isGroceriesCatalogBudgetItem, itemDraftName, items, selectedListIsPublic]);
 
   const displayItems = useMemo(() => {
     return [...items].sort((a, b) => {
       if (a.bought !== b.bought) return a.bought ? 1 : -1;
+      const categoryRankA = categorySortRank(a.category);
+      const categoryRankB = categorySortRank(b.category);
+      if (categoryRankA !== categoryRankB) return categoryRankA - categoryRankB;
+      const categoryA = normalize(a.category || '');
+      const categoryB = normalize(b.category || '');
+      const categoryCompare = categoryA.localeCompare(categoryB);
+      if (categoryCompare !== 0) return categoryCompare;
       return normalize(a.name || '').localeCompare(normalize(b.name || ''));
     });
   }, [items]);
@@ -298,31 +571,41 @@ export default function ShoppingScreen() {
       return;
     }
 
-    const ref = await addShoppingList(uid, name, targetPid);
+    const visibility = isWeeklyGroceries(name) ? 'PUBLIC' : 'PRIVATE';
+    const ref = await addShoppingList(uid, name, targetPid, visibility);
     setListDraftName('');
     setListError('');
     setCreateListOpen(false);
-    setSelectedListId(ref.id);
+    setSelectedListKey(listKeyFor(uid, ref.id));
+  }
+
+  async function toggleSelectedListVisibility() {
+    if (!uid || !canToggleSelectedListVisibility || !selectedListId) return;
+    const nextVisibility = selectedListIsPublic ? 'PRIVATE' : 'PUBLIC';
+    await updateShoppingList(uid, selectedListId, { visibility: nextVisibility });
   }
 
   async function addItemFromCatalog(catalog: ShoppingCatalogItem) {
-    if (!uid || !selectedListId) return;
+    if (!selectedListId || !selectedListOwnerUid) return;
     const name = String(catalog.name || '').trim();
     if (!name) return;
     const plan = resolvePlanForItemName(name, catalog);
+    const assignedPlanId = selectedListIsPublic ? (groceriesPlanOption?.id || '') : (plan?.id || '');
+    const assignedPlanName = selectedListIsPublic ? (groceriesPlanOption?.name || 'Groceries') : (plan?.name || '');
+    const assignedGroup = selectedListIsPublic ? groceriesPlanOption?.group : plan?.group;
     try {
-      await addShoppingListItem(uid, selectedListId, {
+      await addShoppingListItem(selectedListOwnerUid, selectedListId, {
         name,
         quantity: 1,
         price: catalog.lastPrice || 0,
         category: catalog.category || '',
         tags: catalog.tags || [],
-        assignedPlanItemId: plan?.id || '',
-        assignedPlanItemName: plan?.name || '',
-        assignedGroup: plan?.group,
+        assignedPlanItemId: assignedPlanId,
+        assignedPlanItemName: assignedPlanName,
+        assignedGroup,
         bought: false,
         completed: false,
-      });
+      }, { skipScopeFilter: selectedListNeedsScopeBypass });
       setItemError('');
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
@@ -331,7 +614,7 @@ export default function ShoppingScreen() {
   }
 
   async function addItem() {
-    if (!uid || !selectedListId) return;
+    if (!selectedListId || !selectedListOwnerUid) return;
     const name = itemDraftName.trim();
     if (!name) {
       setItemError('Item name is required.');
@@ -340,20 +623,23 @@ export default function ShoppingScreen() {
 
     const catalog = catalogRows.find((row) => normalize(row.name || '') === normalize(name));
     const plan = resolvePlanForItemName(name, catalog);
+    const assignedPlanId = selectedListIsPublic ? (groceriesPlanOption?.id || '') : (plan?.id || '');
+    const assignedPlanName = selectedListIsPublic ? (groceriesPlanOption?.name || 'Groceries') : (plan?.name || '');
+    const assignedGroup = selectedListIsPublic ? groceriesPlanOption?.group : plan?.group;
 
     try {
-      await addShoppingListItem(uid, selectedListId, {
+      await addShoppingListItem(selectedListOwnerUid, selectedListId, {
         name,
         quantity: 1,
         price: catalog?.lastPrice || 0,
         category: catalog?.category || '',
         tags: catalog?.tags || [],
-        assignedPlanItemId: plan?.id || '',
-        assignedPlanItemName: plan?.name || '',
-        assignedGroup: plan?.group,
+        assignedPlanItemId: assignedPlanId,
+        assignedPlanItemName: assignedPlanName,
+        assignedGroup,
         bought: false,
         completed: false,
-      });
+      }, { skipScopeFilter: selectedListNeedsScopeBypass });
 
       setItemDraftName('');
       setItemError('');
@@ -364,13 +650,19 @@ export default function ShoppingScreen() {
   }
 
   async function toggleBought(item: ShoppingListItem) {
-    if (!uid || !selectedListId || !item.id) return;
-    await updateShoppingListItem(uid, selectedListId, item.id, { bought: !item.bought });
+    if (!selectedListId || !selectedListOwnerUid || !item.id) return;
+    await updateShoppingListItem(
+      selectedListOwnerUid,
+      selectedListId,
+      item.id,
+      { bought: !item.bought },
+      { skipScopeFilter: selectedListNeedsScopeBypass }
+    );
   }
 
   async function removeItem(item: ShoppingListItem) {
-    if (!uid || !selectedListId || !item.id) return;
-    await deleteShoppingListItem(uid, selectedListId, item.id);
+    if (!selectedListId || !selectedListOwnerUid || !item.id) return;
+    await deleteShoppingListItem(selectedListOwnerUid, selectedListId, item.id);
   }
 
   function openEditItem(item: ShoppingListItem) {
@@ -397,7 +689,7 @@ export default function ShoppingScreen() {
   }
 
   async function saveEditedItem() {
-    if (!uid || !selectedListId || !editDraft.id) return;
+    if (!selectedListId || !selectedListOwnerUid || !editDraft.id) return;
     const name = editDraft.name.trim();
     if (!name) {
       setEditItemError('Item name is required.');
@@ -412,13 +704,13 @@ export default function ShoppingScreen() {
 
     const selectedPlan = planById.get(editDraft.planItemId);
     try {
-      await updateShoppingListItem(uid, selectedListId, editDraft.id, {
+      await updateShoppingListItem(selectedListOwnerUid, selectedListId, editDraft.id, {
         name,
         quantity,
         assignedPlanItemId: selectedPlan?.id || '',
         assignedPlanItemName: selectedPlan?.name || '',
         assignedGroup: selectedPlan?.group,
-      });
+      }, { skipScopeFilter: selectedListNeedsScopeBypass });
 
       setEditItemOpen(false);
       setEditItemError('');
@@ -429,22 +721,26 @@ export default function ShoppingScreen() {
   }
 
   async function saveItemTag() {
-    if (!uid || !selectedListId || !tagDraft.id) return;
+    if (!selectedListId || !selectedListOwnerUid || !tagDraft.id) return;
     const nextTag = normalizeItemTag(tagDraft.tag);
     if (!isValidItemTag(nextTag)) {
       setTagEditError('Tag must be between 5 and 10 characters.');
       return;
     }
 
-    await updateShoppingListItem(uid, selectedListId, tagDraft.id, {
+    await updateShoppingListItem(selectedListOwnerUid, selectedListId, tagDraft.id, {
       tag: nextTag,
-    });
+    }, { skipScopeFilter: selectedListNeedsScopeBypass });
     setTagEditOpen(false);
     setTagEditError('');
   }
 
   function startCompletion() {
     if (savingCompletion || finalizingCompletion) return;
+    if (!selectedListIsMine) {
+      Alert.alert('Owner action required', 'Only the list owner can complete items into budget transactions.');
+      return;
+    }
     if (!completionTargetItems.length) {
       Alert.alert('No items to complete', 'Add shopping items first, then start completion.');
       return;
@@ -456,6 +752,7 @@ export default function ShoppingScreen() {
       const assignedPlanId = String(item.assignedPlanItemId || '').trim();
       const assignedPlanName = String(item.assignedPlanItemName || '').trim();
       const assignedByName = assignedPlanName ? planByName.get(normalize(assignedPlanName)) : null;
+      const defaultPublicPlanId = selectedListIsPublic ? (groceriesPlanOption?.id || '') : '';
 
       const qty = item.quantity || 1;
       const savedTotal = Math.max(0, Number(item.cost || 0));
@@ -465,7 +762,7 @@ export default function ShoppingScreen() {
       nextInputs[item.id] = {
         quantity: String(qty),
         price: total > 0 ? String(total) : '',
-        planItemId: assignedPlanId || assignedByName?.id || '',
+        planItemId: assignedPlanId || assignedByName?.id || defaultPublicPlanId,
       };
     });
     setItemInputs(nextInputs);
@@ -507,7 +804,7 @@ export default function ShoppingScreen() {
 
   async function handleSaveAndBack() {
     if (savingCompletion || finalizingCompletion) return;
-    if (!uid || !selectedListId) return;
+    if (!uid || !selectedListIsMine || !selectedListId || !selectedListOwnerUid) return;
     if (!completionTargetItems.length) {
       setCompleting(false);
       return;
@@ -549,7 +846,13 @@ export default function ShoppingScreen() {
           });
         }
 
-        await updateShoppingListItem(uid, selectedListId, item.id, patch);
+        await updateShoppingListItem(
+          selectedListOwnerUid,
+          selectedListId,
+          item.id,
+          patch,
+          { skipScopeFilter: selectedListNeedsScopeBypass }
+        );
       }
 
       setCompleting(false);
@@ -563,7 +866,7 @@ export default function ShoppingScreen() {
 
   async function handleDoneAndClear() {
     if (savingCompletion || finalizingCompletion) return;
-    if (!uid || !selectedListId || !selectedList) return;
+    if (!uid || !selectedListIsMine || !selectedListId || !selectedListOwnerUid || !selectedList) return;
     if (!completionValidation.ready) {
       Alert.alert(
         'Complete required fields',
@@ -610,12 +913,12 @@ export default function ShoppingScreen() {
           quantity,
         });
 
-        await deleteShoppingListItem(uid, selectedListId, item.id);
+        await deleteShoppingListItem(selectedListOwnerUid, selectedListId, item.id);
       }
 
       setCompleting(false);
       setItemInputs({});
-      if (!isWide) setSelectedListId('');
+      if (!isWide) setSelectedListKey('');
     } catch (e: unknown) {
       Alert.alert('Error', e instanceof Error ? e.message : 'Failed to complete shopping list.');
     } finally {
@@ -624,7 +927,7 @@ export default function ShoppingScreen() {
   }
 
   async function importSelected() {
-    if (!uid || !selectedListId) return;
+    if (!selectedListId || !selectedListOwnerUid) return;
     const picks = catalogRows.filter((row) => importSelection[row.id || '']);
     let addedCount = 0;
     let duplicateCount = 0;
@@ -634,19 +937,22 @@ export default function ShoppingScreen() {
         const name = String(row.name || '').trim();
         if (!name) continue;
         const plan = resolvePlanForItemName(name, row);
+        const assignedPlanId = selectedListIsPublic ? (groceriesPlanOption?.id || '') : (plan?.id || '');
+        const assignedPlanName = selectedListIsPublic ? (groceriesPlanOption?.name || 'Groceries') : (plan?.name || '');
+        const assignedGroup = selectedListIsPublic ? groceriesPlanOption?.group : plan?.group;
         try {
-          await addShoppingListItem(uid, selectedListId, {
+          await addShoppingListItem(selectedListOwnerUid, selectedListId, {
             name,
             quantity: 1,
             price: row.lastPrice || 0,
             category: row.category || '',
             tags: row.tags || [],
-            assignedPlanItemId: plan?.id || '',
-            assignedPlanItemName: plan?.name || '',
-            assignedGroup: plan?.group,
+            assignedPlanItemId: assignedPlanId,
+            assignedPlanItemName: assignedPlanName,
+            assignedGroup,
             bought: false,
             completed: false,
-          });
+          }, { skipScopeFilter: selectedListNeedsScopeBypass });
           addedCount += 1;
         } catch (e: unknown) {
           const message = e instanceof Error ? e.message : String(e);
@@ -683,20 +989,33 @@ export default function ShoppingScreen() {
         <IconActionButton icon="plus" label="New List" onPress={() => setCreateListOpen(true)} />
       </View>
       <ScrollView>
-        {lists.map((list) => (
+        {allLists.map((list) => (
           <Pressable
-            key={list.id}
-            onPress={() => setSelectedListId(list.id || '')}
+            key={list.listKey}
+            onPress={() => setSelectedListKey(list.listKey)}
             className={cn(
               'mb-2 rounded-lg border p-3',
-              selectedListId === list.id
+              selectedListKey === list.listKey
                 ? 'border-primary/30 bg-primary/10 dark:border-primary/40 dark:bg-primary/20'
                 : 'border-transparent bg-muted/30 dark:bg-zinc-800/40'
             )}
           >
-            <Text className="font-medium text-foreground dark:text-zinc-100">{list.name}</Text>
+            <View className="flex-row items-center justify-between gap-2">
+              <Text className="font-medium text-foreground dark:text-zinc-100">{list.name}</Text>
+              {String(list.visibility || '').trim().toUpperCase() === 'PUBLIC' ? (
+                <Text className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">Public</Text>
+              ) : null}
+            </View>
+            {list.ownerUid !== uid ? (
+              <Text className="text-xs text-muted-foreground dark:text-zinc-400">
+                Shared by {list.ownerUid.slice(0, 8)}
+              </Text>
+            ) : null}
           </Pressable>
         ))}
+        {!allLists.length ? (
+          <Text className="py-6 text-center text-xs text-muted-foreground dark:text-zinc-400">No lists yet.</Text>
+        ) : null}
       </ScrollView>
     </AppCard>
   );
@@ -714,14 +1033,26 @@ export default function ShoppingScreen() {
       <View className="flex-1 gap-3">
         {!isWide ? (
           <View className="flex-row items-center justify-between">
-            <Pressable onPress={() => setSelectedListId('')} className="flex-row items-center gap-1">
+            <Pressable onPress={() => setSelectedListKey('')} className="flex-row items-center gap-1">
               <MaterialCommunityIcons name="chevron-left" size={20} color="#717182" />
               <Text className="font-medium text-primary dark:text-blue-400">Lists</Text>
             </Pressable>
             {!completing ? (
               <View className="flex-row gap-2">
+                {canToggleSelectedListVisibility ? (
+                  <AppButton
+                    label={selectedListIsPublic ? 'Private' : 'Public'}
+                    onPress={() => {
+                      void toggleSelectedListVisibility();
+                    }}
+                    variant="outline"
+                    size="sm"
+                  />
+                ) : null}
                 <AppButton label="Import" onPress={() => setImportOpen(true)} variant="outline" size="sm" />
-                <AppButton label="Complete" onPress={startCompletion} variant="outline" size="sm" disabled={isShoppingListEmpty} />
+                {selectedListIsMine ? (
+                  <AppButton label="Complete" onPress={startCompletion} variant="outline" size="sm" disabled={isShoppingListEmpty} />
+                ) : null}
               </View>
             ) : null}
           </View>
@@ -731,6 +1062,14 @@ export default function ShoppingScreen() {
           <View className="mb-3 flex-row items-center justify-between gap-2">
             <View>
               <Text className="text-xl font-bold text-foreground dark:text-zinc-50">{selectedList.name}</Text>
+              <Text className="text-xs font-medium text-muted-foreground">
+                {selectedListIsPublic ? `Public list${selectedListIsMine ? '' : ` · owner ${selectedList.ownerUid.slice(0, 8)}`}` : 'Private list'}
+              </Text>
+              {selectedListIsPublic ? (
+                <Text className="text-xs font-medium text-muted-foreground">
+                  Budget mapping: Groceries only
+                </Text>
+              ) : null}
               {!completing ? (
                 <View>
                   <Text className="text-xs font-medium text-muted-foreground">
@@ -749,8 +1088,20 @@ export default function ShoppingScreen() {
             </View>
             {isWide && !completing ? (
               <View className="flex-row gap-2">
+                {canToggleSelectedListVisibility ? (
+                  <AppButton
+                    label={selectedListIsPublic ? 'Make Private' : 'Make Public'}
+                    onPress={() => {
+                      void toggleSelectedListVisibility();
+                    }}
+                    variant="outline"
+                    size="sm"
+                  />
+                ) : null}
                 <AppButton label="Import" onPress={() => setImportOpen(true)} variant="outline" size="sm" />
-                <AppButton label="Complete" onPress={startCompletion} variant="outline" size="sm" disabled={isShoppingListEmpty} />
+                {selectedListIsMine ? (
+                  <AppButton label="Complete" onPress={startCompletion} variant="outline" size="sm" disabled={isShoppingListEmpty} />
+                ) : null}
               </View>
             ) : null}
           </View>
@@ -768,6 +1119,12 @@ export default function ShoppingScreen() {
                 {itemDraftName.trim().length > 0 ? (
                   <View className="absolute left-0 right-0 top-full mt-1 overflow-hidden rounded-md border border-border bg-card shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
                     <ScrollView keyboardShouldPersistTaps="handled" className="max-h-48">
+                      {existingItemSuggestions.map((row) => (
+                        <View key={`existing-${row.id || row.name}`} className="border-b border-border p-3 dark:border-zinc-800">
+                          <Text className="text-foreground dark:text-zinc-100">{row.name}</Text>
+                          <Text className="text-xs text-amber-700 dark:text-amber-300">Already in this list</Text>
+                        </View>
+                      ))}
                       {suggestedRows.map((row) => (
                         <Pressable
                           key={row.id}
@@ -781,7 +1138,12 @@ export default function ShoppingScreen() {
                           {row.category ? <Text className="text-xs text-muted-foreground">{row.category}</Text> : null}
                         </Pressable>
                       ))}
-                      {!catalogRows.some((row) => normalize(row.name || '') === normalize(itemDraftName)) ? (
+                      {(() => {
+                        const normalizedDraftName = normalize(itemDraftName);
+                        const existsInCatalog = catalogRows.some((row) => normalize(row.name || '') === normalizedDraftName);
+                        const existsInList = items.some((row) => normalize(row.name || '') === normalizedDraftName);
+                        return !existsInCatalog && !existsInList;
+                      })() ? (
                         <Pressable
                           className="p-3 active:bg-muted/50"
                           onPress={() => {
@@ -992,8 +1354,8 @@ export default function ShoppingScreen() {
       ) : null}
 
       <View className={cn('flex-1', isWide ? 'flex-row gap-4' : 'flex-col')}>
-        {!selectedListId || isWide ? renderLists() : null}
-        {selectedListId || isWide ? renderItems() : null}
+        {!selectedListKey || isWide ? renderLists() : null}
+        {selectedListKey || isWide ? renderItems() : null}
       </View>
 
       <AppModal open={createListOpen} onClose={() => setCreateListOpen(false)} title="New Shopping List">

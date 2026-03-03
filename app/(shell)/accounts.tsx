@@ -14,7 +14,6 @@ import { periodIdFromDate, type PeriodDoc, watchPeriods } from '@/lib/repo/perio
 import { walletTypeOptions, type WalletType } from '@/lib/domain';
 import {
   addAccount,
-  deleteAccount,
   type Account,
   updateAccount,
   watchAccounts,
@@ -218,12 +217,6 @@ export default function AccountsScreen() {
     setCreateOpen(false);
   }
 
-  async function removeAccount(accountId: string) {
-    if (!uid || !accountId) return;
-    await deleteAccount(uid, accountId);
-    if (detailsAccountId === accountId) setDetailsAccountId('');
-  }
-
   async function toggleReminder(accountId: string, enabled: boolean) {
     if (!uid || !accountId) return;
     await updateAccount(uid, accountId, { dailyReminderEnabled: enabled });
@@ -231,12 +224,14 @@ export default function AccountsScreen() {
 
   function openEditing(accountId: string) {
     const account = accountById.get(accountId);
+    const accountVm = byAccountId.get(accountId);
     if (!account) return;
+    const editableActualBalance = Number(accountVm?.cash.current ?? account.openingBalance ?? 0);
     setEditing({
       id: accountId,
       name: account.name,
       type: (account.type ?? 'OTHER') as WalletType,
-      openingBalance: Number(account.openingBalance || 0),
+      openingBalance: Number.isFinite(editableActualBalance) ? editableActualBalance : 0,
       archived: account.archived === true,
       dailyReminderEnabled: account.dailyReminderEnabled === true,
     });
@@ -249,13 +244,22 @@ export default function AccountsScreen() {
       setEditError('Account name is required.');
       return;
     }
+    const actualBalance = Number(editing.openingBalance) || 0;
     await updateAccount(uid, editing.id, {
       name: editing.name.trim(),
       type: editing.type,
-      openingBalance: editing.openingBalance || 0,
+      openingBalance: actualBalance,
       dailyReminderEnabled: editing.dailyReminderEnabled,
       archived: editing.archived,
     });
+    if (selectedPid) {
+      await setAccountPeriodCurrentManual(uid, {
+        accountId: editing.id,
+        periodId: selectedPid,
+        currentManual: actualBalance,
+        updatedBy: user?.uid || uid,
+      });
+    }
     setEditing(null);
     setEditError('');
   }
@@ -264,7 +268,7 @@ export default function AccountsScreen() {
     const vm = byAccountId.get(accountId);
     if (!vm) return;
     setAdjustAccountId(accountId);
-    setAdjustCurrentDraft(String(vm.cash.currentManual ?? vm.cash.currentAuto));
+    setAdjustCurrentDraft(String(vm.cash.current));
     setAdjustCurrentError('');
     setAdjustOpen(true);
   }
@@ -475,15 +479,7 @@ export default function AccountsScreen() {
             </View>
 
             <View className="flex-row justify-between gap-2">
-              <View className="flex-row gap-2">
-                <AppButton variant="outline" label="Edit" onPress={() => openEditing(details.accountId)} />
-                <AppButton
-                  variant="outline"
-                  label="Delete"
-                  onPress={() => void removeAccount(details.accountId)}
-                  className="border-destructive"
-                />
-              </View>
+              <AppButton variant="outline" label="Edit" onPress={() => openEditing(details.accountId)} />
               <AppButton variant="outline" label="Close" onPress={() => setDetailsAccountId('')} />
             </View>
           </View>
@@ -628,7 +624,7 @@ export default function AccountsScreen() {
             </View>
 
             <View className="gap-1">
-              <Text className="text-xs uppercase tracking-wide text-muted-foreground">Opening Balance</Text>
+              <Text className="text-xs uppercase tracking-wide text-muted-foreground">Opening Balance (Actual)</Text>
               <AppInput
                 value={String(editing.openingBalance || '')}
                 onChangeText={(value) =>

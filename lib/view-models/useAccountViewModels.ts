@@ -6,21 +6,11 @@ import type { Allocation } from '@/lib/repo/allocations';
 import type { PlanGroup, PlanItem } from '@/lib/repo/plans';
 import type { Tx } from '@/lib/repo/transactions';
 
-type SpendFlag = 'NOT_SPENT' | 'PARTIAL_SPENT' | 'SPENT';
-
 const RECONCILE_PINNED_GROUP_ORDER: Record<string, number> = {
   NEED: 0,
   SAVINGS_DEBT: 1,
   WANT: 2,
 };
-
-function computeSpendFlag(spent: number, planned: number): SpendFlag {
-  const safeSpent = Math.max(0, Number(spent || 0));
-  const safePlanned = Math.max(0, Number(planned || 0));
-  if (safeSpent <= 0) return 'NOT_SPENT';
-  if (safePlanned > 0 && safeSpent >= safePlanned) return 'SPENT';
-  return 'PARTIAL_SPENT';
-}
 
 function normalizeId(value: unknown) {
   return String(value || '').trim();
@@ -224,21 +214,17 @@ function buildAccountViewModels(params: UseAccountViewModelsParams): AccountView
     spentByPlanId.set(planId, (spentByPlanId.get(planId) ?? 0) + transactionSignedBudgetAmount(tx));
   });
 
-  const spendFlagByPlanId = new Map<string, SpendFlag>();
-  const planIds = new Set<string>();
-  planWithPriority.forEach((row) => planIds.add(row.id));
-  spentByPlanId.forEach((_amount, id) => planIds.add(id));
-  planIds.forEach((planId) => {
-    const spent = spentByPlanId.get(planId) ?? 0;
-    const planned = planWithPriority.find((row) => row.id === planId)?.amount ?? 0;
-    spendFlagByPlanId.set(planId, computeSpendFlag(spent, planned));
-  });
-
   const fundingOrder = [...planWithPriority].sort((a, b) => {
-    const aSpendFlag = spendFlagByPlanId.get(a.id) || 'NOT_SPENT';
-    const bSpendFlag = spendFlagByPlanId.get(b.id) || 'NOT_SPENT';
-    const aPrioritized = aSpendFlag === 'PARTIAL_SPENT' || (a.reconcilePinned === true && aSpendFlag !== 'SPENT');
-    const bPrioritized = bSpendFlag === 'PARTIAL_SPENT' || (b.reconcilePinned === true && bSpendFlag !== 'SPENT');
+    const aPlanned = Math.max(0, toAmount(a.amount));
+    const bPlanned = Math.max(0, toAmount(b.amount));
+    const aSpent = Math.max(0, toAmount(spentByPlanId.get(a.id)));
+    const bSpent = Math.max(0, toAmount(spentByPlanId.get(b.id)));
+    const aIsSpent = aPlanned > 0 && aSpent >= aPlanned;
+    const bIsSpent = bPlanned > 0 && bSpent >= bPlanned;
+    const aPinned = a.reconcilePinned === true && !aIsSpent;
+    const bPinned = b.reconcilePinned === true && !bIsSpent;
+    const aPrioritized = aIsSpent || aPinned;
+    const bPrioritized = bIsSpent || bPinned;
     if (aPrioritized !== bPrioritized) return aPrioritized ? -1 : 1;
 
     if (aPrioritized && bPrioritized) {
@@ -255,7 +241,9 @@ function buildAccountViewModels(params: UseAccountViewModelsParams): AccountView
   let remainingIncome = Math.max(0, toAmount(incomeTotal));
   fundingOrder.forEach((row) => {
     const amount = Math.max(0, toAmount(row.amount));
-    const funded = Math.min(amount, Math.max(remainingIncome, 0));
+    const spent = Math.max(0, toAmount(spentByPlanId.get(row.id)));
+    const isSpent = amount > 0 && spent >= amount;
+    const funded = isSpent ? amount : Math.min(amount, Math.max(remainingIncome, 0));
     fundedByPlanId.set(row.id, funded);
     remainingIncome = Math.max(0, remainingIncome - amount);
   });
