@@ -17,9 +17,10 @@ function sanitizeWorkspaceId(workspaceId: string) {
 }
 
 export function setActiveRepoScope(scope: RepoScope) {
+  void scope;
   activeScope = {
-    workspaceId: scope.workspaceId ? String(scope.workspaceId).trim() : null,
-    legacyMode: scope.legacyMode !== false,
+    workspaceId: null,
+    legacyMode: true,
   };
 }
 
@@ -74,4 +75,3 @@ export function logicalPeriodIdFromDocId(docId: string, row?: Record<string, any
   const unwrapped = docId.slice(prefix.length).trim();
   return unwrapped || docId;
 }
-
