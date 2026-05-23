@@ -56,6 +56,21 @@ function periodStorageKeyFor(uid: string) {
   return `budgeter:activePeriod:${uid}`;
 }
 
+function fallbackLegacyWorkspace(uid: string, email?: string | null): WorkspaceDoc {
+  return {
+    id: defaultWorkspaceIdFor(uid),
+    ownerId: uid,
+    name: email ? `Default (${email})` : 'Default Workspace',
+    memberIds: [uid],
+    rolesByUserId: { [uid]: 'OWNER' },
+    mode: 'MONTHLY_3_BUCKET',
+    currency: 'GHS',
+    groupDefs: monthlyGroupDefs(),
+    periodPolicy: { type: 'MONTHLY' },
+    legacyMode: true,
+  };
+}
+
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const user = useAuthUser();
 
@@ -91,20 +106,34 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
     seedDefaultWorkspaceIfMissing(user.uid, user.email || '').catch(() => undefined);
 
-    const unsubWorkspaces = watchMyWorkspaces(user.uid, (rows) => {
-      if (!mounted) return;
-      setWorkspaces(rows);
-    });
+    const unsubWorkspaces = watchMyWorkspaces(
+      user.uid,
+      (rows) => {
+        if (!mounted) return;
+        setWorkspaces(rows);
+      },
+      (error) => {
+        console.error('Failed to load workspaces', error);
+        if (!mounted) return;
+        setWorkspaces([]);
+      }
+    );
 
-    const unsubPrefs = watchUserWorkspacePrefs(user.uid, (prefs) => {
-      if (!mounted) return;
-      if (prefs.activeWorkspaceId !== undefined) {
-        setActiveWorkspaceIdState(prefs.activeWorkspaceId || null);
+    const unsubPrefs = watchUserWorkspacePrefs(
+      user.uid,
+      (prefs) => {
+        if (!mounted) return;
+        if (prefs.activeWorkspaceId !== undefined) {
+          setActiveWorkspaceIdState(prefs.activeWorkspaceId || null);
+        }
+        if (prefs.activePeriodId !== undefined && prefs.activePeriodId !== null) {
+          setActivePeriodIdState(String(prefs.activePeriodId || '').trim());
+        }
+      },
+      (error) => {
+        console.error('Failed to load workspace preferences', error);
       }
-      if (prefs.activePeriodId !== undefined && prefs.activePeriodId !== null) {
-        setActivePeriodIdState(String(prefs.activePeriodId || '').trim());
-      }
-    });
+    );
 
     return () => {
       mounted = false;
@@ -118,18 +147,25 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [user?.uid]
   );
 
+  const effectiveWorkspaces = useMemo(() => {
+    if (!user?.uid) return workspaces;
+    const fallback = fallbackLegacyWorkspace(user.uid, user.email || '');
+    if (workspaces.some((row) => row.id === fallback.id)) return workspaces;
+    return [fallback, ...workspaces];
+  }, [user?.email, user?.uid, workspaces]);
+
   const activeWorkspaceId = useMemo(() => {
     if (!user?.uid) return null;
     const preferred = String(activeWorkspaceIdState || '').trim();
-    if (preferred && workspaces.some((row) => row.id === preferred)) return preferred;
-    if (defaultWorkspaceId && workspaces.some((row) => row.id === defaultWorkspaceId)) return defaultWorkspaceId;
-    return workspaces[0]?.id || defaultWorkspaceId || null;
-  }, [activeWorkspaceIdState, defaultWorkspaceId, user?.uid, workspaces]);
+    if (preferred && effectiveWorkspaces.some((row) => row.id === preferred)) return preferred;
+    if (defaultWorkspaceId && effectiveWorkspaces.some((row) => row.id === defaultWorkspaceId)) return defaultWorkspaceId;
+    return effectiveWorkspaces[0]?.id || defaultWorkspaceId || null;
+  }, [activeWorkspaceIdState, defaultWorkspaceId, effectiveWorkspaces, user?.uid]);
 
   const activeWorkspace = useMemo(() => {
     if (!activeWorkspaceId) return null;
-    return workspaces.find((row) => row.id === activeWorkspaceId) || null;
-  }, [activeWorkspaceId, workspaces]);
+    return effectiveWorkspaces.find((row) => row.id === activeWorkspaceId) || null;
+  }, [activeWorkspaceId, effectiveWorkspaces]);
 
   const legacyMode = useMemo(() => {
     if (!activeWorkspace) return true;
@@ -154,7 +190,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, [activeWorkspace?.groupDefs]);
 
   const workspaceOptions = useMemo<WorkspaceOption[]>(() => {
-    return workspaces.map((workspace) => {
+    return effectiveWorkspaces.map((workspace) => {
       const ownerUid = workspace.ownerId;
       const label = workspace.name || (workspace.legacyMode ? 'Default Workspace' : `Workspace ${String(workspace.id || '').slice(0, 8)}`);
       return {
@@ -167,7 +203,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         legacyMode: workspace.legacyMode === true,
       };
     });
-  }, [user?.uid, workspaces]);
+  }, [effectiveWorkspaces, user?.uid]);
 
   useEffect(() => {
     if (!user?.uid || !activeWorkspaceId || !storageReady) return;

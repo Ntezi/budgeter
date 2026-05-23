@@ -114,21 +114,29 @@ export async function seedDefaultWorkspaceIfMissing(uid: string, email?: string)
   return workspaceId;
 }
 
-export function watchMyWorkspaces(uid: string, cb: (rows: WorkspaceDoc[]) => void): Unsubscribe {
+export function watchMyWorkspaces(
+  uid: string,
+  cb: (rows: WorkspaceDoc[]) => void,
+  onError?: (error: Error) => void
+): Unsubscribe {
   const q = query(collection(db, 'workspaces'), where('memberIds', 'array-contains', uid));
-  return onSnapshot(q, (snap) => {
-    const rows: WorkspaceDoc[] = [];
-    snap.forEach((d) => {
-      const row = { id: d.id, ...(d.data() as Omit<WorkspaceDoc, 'id'>) };
-      rows.push(row);
-    });
-    rows.sort((a, b) => {
-      if (a.legacyMode && !b.legacyMode) return -1;
-      if (!a.legacyMode && b.legacyMode) return 1;
-      return String(a.name || a.id || '').localeCompare(String(b.name || b.id || ''));
-    });
-    cb(rows);
-  });
+  return onSnapshot(
+    q,
+    (snap) => {
+      const rows: WorkspaceDoc[] = [];
+      snap.forEach((d) => {
+        const row = { id: d.id, ...(d.data() as Omit<WorkspaceDoc, 'id'>) };
+        rows.push(row);
+      });
+      rows.sort((a, b) => {
+        if (a.legacyMode && !b.legacyMode) return -1;
+        if (!a.legacyMode && b.legacyMode) return 1;
+        return String(a.name || a.id || '').localeCompare(String(b.name || b.id || ''));
+      });
+      cb(rows);
+    },
+    onError
+  );
 }
 
 export async function createWorkspace(
@@ -188,19 +196,27 @@ export function userPrefsRef(uid: string) {
   return doc(db, 'users', uid, 'prefs', 'workspace');
 }
 
-export function watchUserWorkspacePrefs(uid: string, cb: (prefs: UserWorkspacePrefs) => void): Unsubscribe {
-  return onSnapshot(userPrefsRef(uid), (snap) => {
-    if (!snap.exists()) {
-      cb({ activeWorkspaceId: null, activePeriodId: null });
-      return;
-    }
-    const data = snap.data() as Partial<UserWorkspacePrefs>;
-    cb({
-      activeWorkspaceId: data.activeWorkspaceId ?? null,
-      activePeriodId: data.activePeriodId ?? null,
-      updatedAt: data.updatedAt,
-    });
-  });
+export function watchUserWorkspacePrefs(
+  uid: string,
+  cb: (prefs: UserWorkspacePrefs) => void,
+  onError?: (error: Error) => void
+): Unsubscribe {
+  return onSnapshot(
+    userPrefsRef(uid),
+    (snap) => {
+      if (!snap.exists()) {
+        cb({ activeWorkspaceId: null, activePeriodId: null });
+        return;
+      }
+      const data = snap.data() as Partial<UserWorkspacePrefs>;
+      cb({
+        activeWorkspaceId: data.activeWorkspaceId ?? null,
+        activePeriodId: data.activePeriodId ?? null,
+        updatedAt: data.updatedAt,
+      });
+    },
+    onError
+  );
 }
 
 export async function setUserWorkspacePrefs(uid: string, patch: Partial<UserWorkspacePrefs>) {
