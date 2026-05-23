@@ -56,6 +56,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [workspaceUid, setWorkspaceUidState] = useState<string | null>(null);
   const [activePeriodId, setActivePeriodIdState] = useState('');
   const [sharedMemberships, setSharedMemberships] = useState<WorkspaceMember[]>([]);
+  const [workspaceSelectedInSession, setWorkspaceSelectedInSession] = useState(false);
 
   useEffect(() => {
     setActiveRepoScope({ workspaceId: null, legacyMode: true });
@@ -64,12 +65,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setWorkspaceUidState(null);
       setActivePeriodIdState('');
       setSharedMemberships([]);
+      setWorkspaceSelectedInSession(false);
       setReady(true);
       return;
     }
 
     let mounted = true;
     setReady(false);
+    setWorkspaceSelectedInSession(false);
 
     Promise.all([
       AsyncStorage.getItem(workspaceStorageKeyFor(user.uid)),
@@ -124,17 +127,25 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!user?.uid || !ready) return;
     const exists = workspaceOptions.some((option) => option.ownerUid === workspaceUid);
-    if (!workspaceUid || !exists) {
-      setWorkspaceUidState(user.uid);
-      AsyncStorage.setItem(workspaceStorageKeyFor(user.uid), user.uid).catch(() => undefined);
+    const sharedDefault = workspaceOptions.find((option) => option.shared)?.ownerUid || '';
+    if (!workspaceSelectedInSession && sharedDefault && workspaceUid !== sharedDefault) {
+      setWorkspaceUidState(sharedDefault);
+      AsyncStorage.setItem(workspaceStorageKeyFor(user.uid), sharedDefault).catch(() => undefined);
+      return;
     }
-  }, [ready, user?.uid, workspaceOptions, workspaceUid]);
+    if (!workspaceUid || !exists) {
+      const next = sharedDefault || user.uid;
+      setWorkspaceUidState(next);
+      AsyncStorage.setItem(workspaceStorageKeyFor(user.uid), next).catch(() => undefined);
+    }
+  }, [ready, user?.uid, workspaceOptions, workspaceSelectedInSession, workspaceUid]);
 
   const setWorkspaceUid = useCallback(
     async (ownerUid: string) => {
       if (!user?.uid) return;
       const next = ownerUid || user.uid;
       setActiveRepoScope({ workspaceId: null, legacyMode: true });
+      setWorkspaceSelectedInSession(true);
       setWorkspaceUidState(next);
       await AsyncStorage.setItem(workspaceStorageKeyFor(user.uid), next);
     },

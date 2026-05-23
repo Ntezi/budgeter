@@ -15,7 +15,7 @@ import { watchIncomeItems } from '@/lib/repo/income';
 import { periodIdFromDate, type Group, type PeriodDoc, type PeriodStatus, watchPeriod, watchPeriods } from '@/lib/repo/periods';
 import { type PlanItem, watchPlanTotals } from '@/lib/repo/plans';
 import { addTransaction, delTransaction, setTransaction, type Tx, watchTransactions } from '@/lib/repo/transactions';
-import { useWorkspaceUid } from '@/providers/WorkspaceProvider';
+import { useWorkspace, useWorkspaceUid } from '@/providers/WorkspaceProvider';
 import { type Allocation, watchAllocations } from '@/lib/repo/allocations';
 import { transactionSignedBudgetAmount } from '@/lib/accounting';
 
@@ -51,11 +51,13 @@ function getSuggestions(query: string, options: BudgetOption[]) {
 
 export default function TransactionsScreen() {
   const uid = useWorkspaceUid();
+  const { activePeriodId } = useWorkspace();
   const { width } = useWindowDimensions();
   const isCompact = width < 768;
+  const defaultPid = activePeriodId || periodIdFromDate();
 
   const [periods, setPeriods] = useState<(PeriodDoc & { id: string })[]>([]);
-  const [selectedPid, setSelectedPid] = useState(periodIdFromDate());
+  const [selectedPid, setSelectedPid] = useState(defaultPid);
   const [periodStatus, setPeriodStatus] = useState<PeriodStatus>('DRAFT');
 
   const [transactions, setTransactions] = useState<Tx[]>([]);
@@ -84,11 +86,17 @@ export default function TransactionsScreen() {
     if (!uid) return;
     return watchPeriods(uid, (rows) => {
       setPeriods(rows);
-      if (!rows.some((row) => row.id === selectedPid) && rows[0]?.id) {
-        setSelectedPid(rows[0].id);
+      if (!rows.some((row) => row.id === selectedPid)) {
+        const fallback = rows.find((row) => row.id === defaultPid)?.id || rows[0]?.id;
+        if (fallback) setSelectedPid(fallback);
       }
     });
-  }, [uid, selectedPid]);
+  }, [defaultPid, uid, selectedPid]);
+
+  useEffect(() => {
+    if (!activePeriodId) return;
+    setSelectedPid(activePeriodId);
+  }, [activePeriodId]);
 
   useEffect(() => {
     if (!uid || !selectedPid) return;

@@ -155,7 +155,6 @@ export default function ShellLayout() {
                 <Text className="flex-1 text-base font-semibold text-foreground dark:text-zinc-50" numberOfLines={1}>
                   {pageTitle}
                 </Text>
-                <WorkspaceSwitcher compact />
               </View>
             ) : null}
 

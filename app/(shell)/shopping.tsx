@@ -20,7 +20,9 @@ import {
   addShoppingList,
   addShoppingListItem,
   closeShoppingList,
+  deleteShoppingList,
   deleteShoppingListItem,
+  listShoppingListItems,
   type ShoppingList,
   type ShoppingListItem,
   updateShoppingListItem,
@@ -76,6 +78,7 @@ export default function ShoppingScreen() {
   const targetPid = activePeriodId || periodIdFromDate();
 
   const [lists, setLists] = useState<ShoppingList[]>([]);
+  const [listItemCounts, setListItemCounts] = useState<Record<string, number>>({});
   const [selectedListId, setSelectedListId] = useState('');
   const [items, setItems] = useState<ShoppingListItem[]>([]);
   const [catalogRows, setCatalogRows] = useState<ShoppingCatalogItem[]>([]);
@@ -83,6 +86,8 @@ export default function ShoppingScreen() {
   const [createListOpen, setCreateListOpen] = useState(false);
   const [listDraftName, setListDraftName] = useState('');
   const [listError, setListError] = useState('');
+  const [deleteListDraft, setDeleteListDraft] = useState<ShoppingList | null>(null);
+  const [deletingList, setDeletingList] = useState(false);
 
   const [itemDraftName, setItemDraftName] = useState('');
   const [itemError, setItemError] = useState('');
@@ -146,6 +151,34 @@ export default function ShoppingScreen() {
   }, [uid, selectedListId, isWide, targetPid]);
 
   useEffect(() => {
+    if (!uid || !lists.length) {
+      setListItemCounts({});
+      return;
+    }
+
+    let cancelled = false;
+    Promise.all(
+      lists
+        .filter((list): list is ShoppingList & { id: string } => Boolean(list.id))
+        .map(async (list) => {
+          const rows = await listShoppingListItems(uid, list.id);
+          return [list.id, rows.length] as const;
+        })
+    )
+      .then((entries) => {
+        if (cancelled) return;
+        setListItemCounts(Object.fromEntries(entries));
+      })
+      .catch(() => {
+        if (!cancelled) setListItemCounts({});
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [uid, lists]);
+
+  useEffect(() => {
     if (!uid) return;
     return watchShoppingCatalog(uid, setCatalogRows);
   }, [uid]);
@@ -171,6 +204,15 @@ export default function ShoppingScreen() {
   }, [uid, targetPid]);
 
   const selectedList = useMemo(() => lists.find((row) => row.id === selectedListId) || null, [lists, selectedListId]);
+
+  const orderedLists = useMemo(() => {
+    return [...lists].sort((a, b) => {
+      const ac = listItemCounts[a.id || ''] ?? 0;
+      const bc = listItemCounts[b.id || ''] ?? 0;
+      if (ac > 0 !== bc > 0) return ac > 0 ? -1 : 1;
+      return normalize(a.name || '').localeCompare(normalize(b.name || ''));
+    });
+  }, [listItemCounts, lists]);
 
   const planOptions = useMemo<PlanOption[]>(
     () =>
@@ -388,6 +430,28 @@ export default function ShoppingScreen() {
   async function removeItem(item: ShoppingListItem) {
     if (!uid || !selectedListId || !item.id) return;
     await deleteShoppingListItem(uid, selectedListId, item.id);
+  }
+
+  async function removeList(list: ShoppingList) {
+    if (!uid || !list.id) return;
+    const count = listItemCounts[list.id];
+    if (count !== 0) return;
+
+    setDeleteListDraft(list);
+  }
+
+  async function confirmDeleteList() {
+    if (!uid || !deleteListDraft?.id || deletingList) return;
+    setDeletingList(true);
+    try {
+      await deleteShoppingList(uid, deleteListDraft.id);
+      if (selectedListId === deleteListDraft.id) setSelectedListId('');
+      setDeleteListDraft(null);
+    } catch (e: unknown) {
+      Alert.alert('Delete failed', e instanceof Error ? e.message : 'Could not delete shopping list.');
+    } finally {
+      setDeletingList(false);
+    }
   }
 
   function openEditItem(item: ShoppingListItem) {
@@ -818,20 +882,36 @@ export default function ShoppingScreen() {
         <IconActionButton icon="plus" label="New List" onPress={() => setCreateListOpen(true)} />
       </View>
       <ScrollView>
-        {lists.map((list) => (
-          <Pressable
-            key={list.id}
-            onPress={() => setSelectedListId(list.id || '')}
-            className={cn(
-              'mb-2 rounded-lg border p-3',
-              selectedListId === list.id
-                ? 'border-primary/30 bg-primary/10 dark:border-primary/40 dark:bg-primary/20'
-                : 'border-transparent bg-muted/30 dark:bg-zinc-800/40'
-            )}
-          >
-            <Text className="font-medium text-foreground dark:text-zinc-100">{list.name}</Text>
-          </Pressable>
-        ))}
+        {orderedLists.map((list) => {
+          const count = listItemCounts[list.id || ''];
+          const canDelete = count === 0;
+          return (
+            <View
+              key={list.id}
+              className={cn(
+                'mb-2 flex-row items-center rounded-lg border',
+                selectedListId === list.id
+                  ? 'border-primary/30 bg-primary/10 dark:border-primary/40 dark:bg-primary/20'
+                  : 'border-transparent bg-muted/30 dark:bg-zinc-800/40'
+              )}
+            >
+              <Pressable
+                onPress={() => setSelectedListId(list.id || '')}
+                className="min-w-0 flex-1 p-3"
+              >
+                <Text className="font-medium text-foreground dark:text-zinc-100" numberOfLines={1}>{list.name}</Text>
+                <Text className="text-xs text-muted-foreground dark:text-zinc-400">
+                  {count === undefined ? 'Loading items...' : `${count} item${count === 1 ? '' : 's'}`}
+                </Text>
+              </Pressable>
+              {canDelete ? (
+                <View className="pr-2">
+                  <IconActionButton icon="trash-can-outline" label="Delete empty list" variant="danger" onPress={() => void removeList(list)} />
+                </View>
+              ) : null}
+            </View>
+          );
+        })}
       </ScrollView>
     </AppCard>
   );
@@ -865,8 +945,8 @@ export default function ShoppingScreen() {
         ) : null}
 
         <AppCard className="flex-1 border-border bg-card dark:border-zinc-800 dark:bg-zinc-900">
-          <View className="mb-3 flex-row items-center justify-between gap-2">
-            <View>
+          <View className="mb-3 gap-3">
+            <View className="min-w-0">
               <Text className="text-xl font-bold text-foreground dark:text-zinc-50">{selectedList.name}</Text>
               {!completing ? (
                 <View>
@@ -885,11 +965,11 @@ export default function ShoppingScreen() {
               ) : null}
             </View>
             {isWide && !completing ? (
-              <View className="flex-row flex-wrap justify-end gap-2">
-                <AppButton label="Import Catalog" onPress={() => setImportOpen(true)} variant="outline" size="sm" />
-                <AppButton label="Import from WhatsApp" onPress={() => openSmartImport('planned')} variant="outline" size="sm" />
-                <AppButton label="Reconcile Purchases" onPress={() => openSmartImport('purchase')} variant="outline" size="sm" disabled={isShoppingListEmpty} />
-                <AppButton label="Complete" onPress={startCompletion} variant="outline" size="sm" disabled={isShoppingListEmpty} />
+              <View className="flex-row flex-wrap gap-2">
+                <AppButton label="Import Catalog" onPress={() => setImportOpen(true)} variant="outline" size="sm" className="min-w-[118px]" />
+                <AppButton label="Import from WhatsApp" onPress={() => openSmartImport('planned')} variant="outline" size="sm" className="min-w-[170px]" />
+                <AppButton label="Reconcile Purchases" onPress={() => openSmartImport('purchase')} variant="outline" size="sm" className="min-w-[168px]" disabled={isShoppingListEmpty} />
+                <AppButton label="Complete" onPress={startCompletion} variant="outline" size="sm" className="min-w-[94px]" disabled={isShoppingListEmpty} />
               </View>
             ) : null}
           </View>
@@ -1142,6 +1222,24 @@ export default function ShoppingScreen() {
           <View className="flex-row gap-2">
             <AppButton label="Cancel" onPress={() => setCreateListOpen(false)} variant="outline" />
             <AppButton label="Create" onPress={createList} textClassName="text-white" />
+          </View>
+        </View>
+      </AppModal>
+
+      <AppModal open={Boolean(deleteListDraft)} onClose={() => !deletingList && setDeleteListDraft(null)} title="Delete Shopping List">
+        <View className="gap-4">
+          <Text className="text-sm text-muted-foreground dark:text-zinc-400">
+            Delete empty list "{deleteListDraft?.name || ''}"?
+          </Text>
+          <View className="flex-row gap-2">
+            <AppButton label="Cancel" onPress={() => setDeleteListDraft(null)} variant="outline" className="flex-1" disabled={deletingList} />
+            <AppButton
+              label={deletingList ? 'Deleting...' : 'Delete'}
+              onPress={confirmDeleteList}
+              variant="destructive"
+              className="flex-1"
+              disabled={deletingList}
+            />
           </View>
         </View>
       </AppModal>

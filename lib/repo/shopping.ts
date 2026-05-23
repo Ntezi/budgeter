@@ -252,7 +252,9 @@ export async function updateShoppingList(uid: string, id: string, patch: Partial
 export async function deleteShoppingList(uid: string, id: string) {
   const itemsSnap = await getDocs(shoppingItemsCol(uid, id));
   for (const item of itemsSnap.docs) {
-    await deleteDoc(item.ref);
+    const data = item.data() as Omit<ShoppingListItem, 'id'>;
+    if (!docMatchesActiveScope(data as any)) continue;
+    throw new Error('Only empty shopping lists can be deleted.');
   }
   return deleteDoc(doc(shoppingListsCol(uid), id));
 }
@@ -277,6 +279,29 @@ export async function listShoppingListItems(uid: string, listId: string) {
     rows.push(row);
   });
   return rows;
+}
+
+export async function listShoppingCatalogItems(uid: string) {
+  const snap = await getDocs(shoppingCatalogCol(uid));
+  const rows: ShoppingCatalogItem[] = [];
+  snap.forEach((d) => {
+    const row = { id: d.id, ...(d.data() as Omit<ShoppingCatalogItem, 'id'>) };
+    if (!docMatchesActiveScope(row as any)) return;
+    rows.push(row);
+  });
+  return rows;
+}
+
+function catalogBudgetPatch(catalog?: ShoppingCatalogItem): Partial<ShoppingListItem> {
+  const assignedPlanItemId = String(catalog?.assignedPlanItemId || '').trim();
+  const assignedPlanItemName = String(catalog?.assignedPlanItemName || '').trim();
+  const assignedGroup = normalizeGroup(catalog?.assignedGroup);
+  if (!assignedPlanItemId && !assignedPlanItemName && !assignedGroup) return {};
+  return compactFields({
+    assignedPlanItemId,
+    assignedPlanItemName,
+    assignedGroup,
+  } as Partial<ShoppingListItem>) as Partial<ShoppingListItem>;
 }
 
 export async function addShoppingListItem(
@@ -410,6 +435,12 @@ export async function applyShoppingImportBatch(
   );
 
   const currentItems = await listShoppingListItems(uid, listId);
+  const catalogRows = await listShoppingCatalogItems(uid);
+  const catalogByName = new Map<string, ShoppingCatalogItem>();
+  catalogRows.forEach((row) => {
+    const key = normalizeItemName(row.name);
+    if (key && !catalogByName.has(key)) catalogByName.set(key, row);
+  });
   const usedExistingIds = new Set<string>();
 
   importBatch.matches.forEach((match) => {
@@ -419,7 +450,12 @@ export async function applyShoppingImportBatch(
     const effectiveMatch = target
       ? { ...match, matchedItem: target, matchedItemId: target.id, confidenceLabel: 'auto' as const }
       : match;
-    const patch = importItemPatch(effectiveMatch, importBatch.mode, batchRef.id);
+    const catalog = catalogByName.get(normalizeItemName(effectiveMatch.matchedItem?.name || match.parsedItem.name));
+    const catalogPatch = catalogBudgetPatch(catalog);
+    const patch = {
+      ...importItemPatch(effectiveMatch, importBatch.mode, batchRef.id),
+      ...catalogPatch,
+    };
 
     if (target?.id && !usedExistingIds.has(target.id)) {
       usedExistingIds.add(target.id);
@@ -436,8 +472,9 @@ export async function applyShoppingImportBatch(
         name: match.parsedItem.name,
         quantity: match.parsedItem.quantity || 1,
         price: patch.price || 0,
-        category: '',
-        tags: [],
+        category: catalog?.category || '',
+        tags: catalog?.tags || [],
+        ...catalogPatch,
         bought: importBatch.mode === 'purchase',
         completed: importBatch.mode === 'purchase',
         status: importBatch.mode === 'purchase' ? 'purchased' : 'planned',
