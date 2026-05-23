@@ -79,12 +79,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [activeWorkspaceIdState, setActiveWorkspaceIdState] = useState<string | null>(null);
   const [activePeriodId, setActivePeriodIdState] = useState<string>('');
   const [storageReady, setStorageReady] = useState(false);
+  const [workspaceSelectedInSession, setWorkspaceSelectedInSession] = useState(false);
 
   useEffect(() => {
     if (!user?.uid) {
       setWorkspaces([]);
       setActiveWorkspaceIdState(null);
       setActivePeriodIdState('');
+      setWorkspaceSelectedInSession(false);
       setReady(true);
       setStorageReady(false);
       setActiveRepoScope({ workspaceId: null, legacyMode: true });
@@ -94,6 +96,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     let mounted = true;
     setReady(false);
     setStorageReady(false);
+    setWorkspaceSelectedInSession(false);
 
     AsyncStorage.getItem(periodStorageKeyFor(user.uid))
       .then((storedPid) => {
@@ -157,10 +160,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const activeWorkspaceId = useMemo(() => {
     if (!user?.uid) return null;
     const preferred = String(activeWorkspaceIdState || '').trim();
-    if (preferred && effectiveWorkspaces.some((row) => row.id === preferred)) return preferred;
+    if (workspaceSelectedInSession && preferred && effectiveWorkspaces.some((row) => row.id === preferred)) return preferred;
     if (defaultWorkspaceId && effectiveWorkspaces.some((row) => row.id === defaultWorkspaceId)) return defaultWorkspaceId;
+    if (preferred && effectiveWorkspaces.some((row) => row.id === preferred)) return preferred;
     return effectiveWorkspaces[0]?.id || defaultWorkspaceId || null;
-  }, [activeWorkspaceIdState, defaultWorkspaceId, effectiveWorkspaces, user?.uid]);
+  }, [activeWorkspaceIdState, defaultWorkspaceId, effectiveWorkspaces, user?.uid, workspaceSelectedInSession]);
 
   const activeWorkspace = useMemo(() => {
     if (!activeWorkspaceId) return null;
@@ -234,6 +238,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       workspaceId: option?.legacyMode ? null : next,
       legacyMode: option?.legacyMode === true,
     });
+    setWorkspaceSelectedInSession(true);
     setActiveWorkspaceIdState(next);
     await setUserWorkspacePrefs(user.uid, { activeWorkspaceId: next });
   }
