@@ -16,8 +16,10 @@ import { periodIdFromDate } from '@/lib/repo/periods';
 import { type PlanItem, watchPlanTotals } from '@/lib/repo/plans';
 import {
   type ShoppingCatalogItem,
+  applyShoppingImportBatch,
   addShoppingList,
   addShoppingListItem,
+  closeShoppingList,
   deleteShoppingListItem,
   type ShoppingList,
   type ShoppingListItem,
@@ -27,6 +29,11 @@ import {
   watchShoppingListItems,
   watchShoppingLists,
 } from '@/lib/repo/shopping';
+import { matchShoppingItems, matchShoppingItemsExactName } from '@/lib/shopping/import/matchShoppingItems';
+import { canonicalShoppingItemName, normalizeShoppingItemName } from '@/lib/shopping/import/normalizeShoppingItemName';
+import { parseShoppingText } from '@/lib/shopping/import/parseShoppingText';
+import { reconcilePurchasedItems } from '@/lib/shopping/import/reconcilePurchasedItems';
+import type { PurchaseReconciliationResult, ShoppingImportBatch, ShoppingItemMatchResult, ShoppingImportMode } from '@/lib/shopping/import/shoppingImportTypes';
 import { addTransaction } from '@/lib/repo/transactions';
 import { useWorkspace, useWorkspaceUid } from '@/providers/WorkspaceProvider';
 
@@ -108,6 +115,16 @@ export default function ShoppingScreen() {
   const [itemInputs, setItemInputs] = useState<Record<string, CompletionInput>>({});
   const [savingCompletion, setSavingCompletion] = useState(false);
   const [finalizingCompletion, setFinalizingCompletion] = useState(false);
+  const [smartImportOpen, setSmartImportOpen] = useState(false);
+  const [smartImportMode, setSmartImportMode] = useState<ShoppingImportMode>('planned');
+  const [smartImportText, setSmartImportText] = useState('');
+  const [smartImportMatches, setSmartImportMatches] = useState<ShoppingItemMatchResult[]>([]);
+  const [smartImportReview, setSmartImportReview] = useState<Record<string, string>>({});
+  const [smartImportError, setSmartImportError] = useState('');
+  const [applyingSmartImport, setApplyingSmartImport] = useState(false);
+  const [purchaseReconciliation, setPurchaseReconciliation] = useState<PurchaseReconciliationResult | null>(null);
+  const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
+  const [closingList, setClosingList] = useState(false);
 
   useEffect(() => {
     if (!uid) return;
@@ -676,6 +693,124 @@ export default function ShoppingScreen() {
     }
   }
 
+  function openSmartImport(mode: ShoppingImportMode) {
+    setSmartImportMode(mode);
+    setSmartImportText('');
+    setSmartImportMatches([]);
+    setSmartImportReview({});
+    setSmartImportError('');
+    setPurchaseReconciliation(null);
+    setSmartImportOpen(true);
+  }
+
+  function buildImportSummary(matches: ShoppingItemMatchResult[]) {
+    return {
+      parsedCount: matches.length,
+      autoMatchCount: matches.filter((row) => row.confidenceLabel === 'auto').length,
+      reviewCount: matches.filter((row) => row.confidenceLabel === 'review').length,
+      newItemCount: matches.filter((row) => row.confidenceLabel === 'none').length,
+    };
+  }
+
+  function previewSmartImport() {
+    const parsed = parseShoppingText(smartImportText);
+    if (!parsed.length) {
+      setSmartImportError('Paste at least one shopping item.');
+      return;
+    }
+    const matches = smartImportMode === 'planned'
+      ? matchShoppingItemsExactName(parsed, items)
+      : matchShoppingItems(parsed, items);
+    setSmartImportMatches(matches);
+    setSmartImportReview({});
+    setPurchaseReconciliation(smartImportMode === 'purchase' ? reconcilePurchasedItems(parsed, items) : null);
+    setSmartImportError('');
+  }
+
+  function refreshSmartImportRows(nextRows: ShoppingItemMatchResult[]) {
+    setSmartImportMatches(nextRows);
+    setPurchaseReconciliation(
+      smartImportMode === 'purchase' ? reconcilePurchasedItems(nextRows.map((row) => row.parsedItem), items) : null
+    );
+  }
+
+  function updateSmartImportParsedItem(parsedItemId: string, patch: { name?: string; quantity?: string }) {
+    const nextParsed = smartImportMatches.map((match) => {
+      if (match.parsedItem.id !== parsedItemId) return match.parsedItem;
+      const name = patch.name === undefined ? match.parsedItem.name : canonicalShoppingItemName(patch.name);
+      const quantityRaw = patch.quantity === undefined ? match.parsedItem.quantityText || '' : patch.quantity;
+      const quantity = Number(String(quantityRaw).replace(/[^\d.]/g, ''));
+      const unit = String(quantityRaw).replace(/[\d.\s]/g, '').toLowerCase() || undefined;
+      return {
+        ...match.parsedItem,
+        name,
+        normalizedName: normalizeShoppingItemName(name),
+        quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : undefined,
+        quantityText: quantityRaw,
+        unit,
+      };
+    });
+    refreshSmartImportRows(
+      smartImportMode === 'planned'
+        ? matchShoppingItemsExactName(nextParsed, items)
+        : matchShoppingItems(nextParsed, items)
+    );
+  }
+
+  function removeSmartImportParsedItem(parsedItemId: string) {
+    const nextRows = smartImportMatches.filter((match) => match.parsedItem.id !== parsedItemId);
+    refreshSmartImportRows(nextRows);
+    setSmartImportReview((prev) => {
+      const next = { ...prev };
+      delete next[parsedItemId];
+      return next;
+    });
+  }
+
+  async function applySmartImport() {
+    if (!uid || !selectedListId || !smartImportMatches.length) return;
+    setApplyingSmartImport(true);
+    try {
+      const batch: Omit<ShoppingImportBatch, 'id' | 'createdAt' | 'appliedAt'> = {
+        listId: selectedListId,
+        mode: smartImportMode,
+        source: smartImportMode === 'purchase' ? 'purchase_import' : 'whatsapp_paste',
+        rawText: smartImportText,
+        parsedItems: smartImportMatches.map((row) => row.parsedItem),
+        matches: smartImportMatches,
+        createdBy: uid,
+        summary: buildImportSummary(smartImportMatches),
+      };
+      await applyShoppingImportBatch(uid, selectedListId, batch, smartImportReview);
+      setSmartImportOpen(false);
+      setSmartImportText('');
+      setSmartImportMatches([]);
+      setPurchaseReconciliation(null);
+      if (smartImportMode === 'purchase') setCloseConfirmOpen(true);
+    } catch (e: unknown) {
+      setSmartImportError(e instanceof Error ? e.message : 'Could not apply import.');
+    } finally {
+      setApplyingSmartImport(false);
+    }
+  }
+
+  async function closeSelectedShoppingList() {
+    if (!uid || !selectedListId) return;
+    setClosingList(true);
+    try {
+      const result = await closeShoppingList(uid, selectedListId, { closedBy: uid });
+      setCloseConfirmOpen(false);
+      Alert.alert(
+        'Shopping closed',
+        `Planned: ${fmtMoney(result.plannedTotal)}\nActual: ${fmtMoney(result.actualTotal)}\nVariance: ${fmtMoney(result.variance)}`
+      );
+    } catch (e: unknown) {
+      Alert.alert('Close failed', e instanceof Error ? e.message : 'Could not close shopping list.');
+    } finally {
+      setClosingList(false);
+    }
+  }
+
   const renderLists = () => (
     <AppCard className="flex-1 border-border bg-card dark:border-zinc-800 dark:bg-zinc-900 md:max-w-xs">
       <View className="mb-4 flex-row items-center justify-between">
@@ -719,8 +854,10 @@ export default function ShoppingScreen() {
               <Text className="font-medium text-primary dark:text-blue-400">Lists</Text>
             </Pressable>
             {!completing ? (
-              <View className="flex-row gap-2">
-                <AppButton label="Import" onPress={() => setImportOpen(true)} variant="outline" size="sm" />
+              <View className="flex-row flex-wrap justify-end gap-2">
+                <AppButton label="Catalog" onPress={() => setImportOpen(true)} variant="outline" size="sm" />
+                <AppButton label="WhatsApp" onPress={() => openSmartImport('planned')} variant="outline" size="sm" />
+                <AppButton label="Reconcile" onPress={() => openSmartImport('purchase')} variant="outline" size="sm" disabled={isShoppingListEmpty} />
                 <AppButton label="Complete" onPress={startCompletion} variant="outline" size="sm" disabled={isShoppingListEmpty} />
               </View>
             ) : null}
@@ -748,8 +885,10 @@ export default function ShoppingScreen() {
               ) : null}
             </View>
             {isWide && !completing ? (
-              <View className="flex-row gap-2">
-                <AppButton label="Import" onPress={() => setImportOpen(true)} variant="outline" size="sm" />
+              <View className="flex-row flex-wrap justify-end gap-2">
+                <AppButton label="Import Catalog" onPress={() => setImportOpen(true)} variant="outline" size="sm" />
+                <AppButton label="Import from WhatsApp" onPress={() => openSmartImport('planned')} variant="outline" size="sm" />
+                <AppButton label="Reconcile Purchases" onPress={() => openSmartImport('purchase')} variant="outline" size="sm" disabled={isShoppingListEmpty} />
                 <AppButton label="Complete" onPress={startCompletion} variant="outline" size="sm" disabled={isShoppingListEmpty} />
               </View>
             ) : null}
@@ -1119,6 +1258,172 @@ export default function ShoppingScreen() {
               onPress={importSelected}
               textClassName="text-white"
               disabled={selectedImportCount === 0}
+            />
+          </View>
+        </View>
+      </AppModal>
+
+      <AppModal
+        open={smartImportOpen}
+        onClose={() => setSmartImportOpen(false)}
+        title={smartImportMode === 'purchase' ? 'Reconcile Purchases' : 'Import from WhatsApp'}
+        contentClassName="max-w-3xl"
+      >
+        <View className="gap-3">
+          <AppInput
+            value={smartImportText}
+            onChangeText={(value) => {
+              setSmartImportText(value);
+              setSmartImportMatches([]);
+              setPurchaseReconciliation(null);
+              if (smartImportError) setSmartImportError('');
+            }}
+            placeholder={
+              smartImportMode === 'purchase'
+                ? 'Paste bought items with actual prices, one per line'
+                : 'Paste WhatsApp shopping text, one item per line'
+            }
+            multiline
+            textAlignVertical="top"
+            className="h-40"
+            style={{ height: 160 }}
+          />
+          {smartImportError ? <Text className="text-xs text-destructive">{smartImportError}</Text> : null}
+
+          {smartImportMatches.length ? (
+            <View className="gap-2">
+              <View className="flex-row flex-wrap gap-2">
+                <Text className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
+                  Auto: {smartImportMatches.filter((row) => row.confidenceLabel === 'auto').length}
+                </Text>
+                <Text className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
+                  Review: {smartImportMatches.filter((row) => row.confidenceLabel === 'review').length}
+                </Text>
+                <Text className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
+                  New: {smartImportMatches.filter((row) => row.confidenceLabel === 'none').length}
+                </Text>
+              </View>
+
+              {purchaseReconciliation ? (
+                <View className="rounded-md border border-border p-3 dark:border-zinc-800">
+                  <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Purchase totals</Text>
+                  <Text className="text-xs text-muted-foreground">
+                    Planned {fmtMoney(purchaseReconciliation.plannedTotal)} · Actual {fmtMoney(purchaseReconciliation.actualTotal)} · Variance {fmtMoney(purchaseReconciliation.variance)}
+                  </Text>
+                  <Text className="text-xs text-muted-foreground">
+                    Missing planned items when closed: {purchaseReconciliation.missingPlannedItemIds.length}
+                  </Text>
+                </View>
+              ) : null}
+
+              <ScrollView className="max-h-80 rounded-md border border-border dark:border-zinc-800">
+                {smartImportMatches.map((match) => {
+                  const parsed = match.parsedItem;
+                  const chosenId = smartImportReview[parsed.id] || (match.confidenceLabel === 'auto' ? match.matchedItemId : '');
+                  const total = parsed.totalPrice ?? (parsed.unitPrice && parsed.quantity ? parsed.unitPrice * parsed.quantity : undefined);
+                  return (
+                    <View key={parsed.id} className="gap-2 border-b border-border p-3 dark:border-zinc-800">
+                      <View className="flex-row items-start justify-between gap-3">
+                        <View className="flex-1">
+                          <AppInput
+                            value={parsed.name}
+                            onChangeText={(value) => updateSmartImportParsedItem(parsed.id, { name: value })}
+                            className="h-9"
+                            placeholder="Item name"
+                          />
+                          <Text className="text-xs text-muted-foreground">
+                            Line {parsed.lineNumber}
+                            {parsed.quantity ? ` · Qty ${parsed.quantity}${parsed.unit ? ` ${parsed.unit}` : ''}` : ''}
+                            {total !== undefined ? ` · ${fmtMoney(total)}` : ''}
+                          </Text>
+                        </View>
+                        <View className="items-end gap-2">
+                          <Text className="text-xs font-semibold text-muted-foreground">
+                            {Math.round(match.confidence * 100)}% {match.confidenceLabel}
+                          </Text>
+                          <IconActionButton
+                            icon="trash-can-outline"
+                            label="Remove import row"
+                            variant="danger"
+                            onPress={() => removeSmartImportParsedItem(parsed.id)}
+                          />
+                        </View>
+                      </View>
+                      <View className={cn('gap-2', isWide ? 'flex-row items-center' : '')}>
+                        <AppInput
+                          value={parsed.quantityText || (parsed.quantity ? String(parsed.quantity) : '')}
+                          onChangeText={(value) => updateSmartImportParsedItem(parsed.id, { quantity: value })}
+                          className={cn('h-9', isWide ? 'w-28' : 'w-full')}
+                          placeholder="Qty"
+                        />
+                        <View className="flex-1">
+                          <DropdownField
+                            value={chosenId || ''}
+                            options={[
+                              { label: 'Add as new item', value: '' },
+                              ...displayItems.map((item) => ({ label: item.name || 'Unnamed item', value: item.id || '' })).filter((row) => row.value),
+                            ]}
+                            onChange={(value) => setSmartImportReview((prev) => ({ ...prev, [parsed.id]: value }))}
+                            placeholder="Match existing item"
+                            menuStrategy="inline"
+                          />
+                        </View>
+                      </View>
+                      {match.matchedItem ? (
+                        <View className="flex-row flex-wrap items-center gap-2">
+                          <Text className="text-xs text-muted-foreground">Match: {match.matchedItem.name}</Text>
+                          {match.confidenceLabel === 'review' ? (
+                            <>
+                              <AppButton
+                                label={chosenId === match.matchedItemId ? 'Using Match' : 'Use Match'}
+                                size="sm"
+                                variant={chosenId === match.matchedItemId ? 'secondary' : 'outline'}
+                                onPress={() => setSmartImportReview((prev) => ({ ...prev, [parsed.id]: match.matchedItemId || '' }))}
+                              />
+                              <AppButton
+                                label={!chosenId ? 'Adding New' : 'Add New'}
+                                size="sm"
+                                variant={!chosenId ? 'secondary' : 'outline'}
+                                onPress={() => setSmartImportReview((prev) => ({ ...prev, [parsed.id]: '' }))}
+                              />
+                            </>
+                          ) : null}
+                        </View>
+                      ) : (
+                        <Text className="text-xs text-muted-foreground">Will be added as a new item.</Text>
+                      )}
+                    </View>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          ) : null}
+
+          <View className="flex-row flex-wrap justify-end gap-2">
+            <AppButton label="Cancel" onPress={() => setSmartImportOpen(false)} variant="outline" />
+            <AppButton label="Preview" onPress={previewSmartImport} variant="outline" />
+            <AppButton
+              label={applyingSmartImport ? 'Applying...' : smartImportMode === 'purchase' ? 'Apply Purchase Import' : 'Apply Import'}
+              onPress={() => void applySmartImport()}
+              textClassName="text-white"
+              disabled={!smartImportMatches.length || applyingSmartImport}
+            />
+          </View>
+        </View>
+      </AppModal>
+
+      <AppModal open={closeConfirmOpen} onClose={() => setCloseConfirmOpen(false)} title="Close Shopping List">
+        <View className="gap-3">
+          <Text className="text-sm text-muted-foreground">
+            Close this shopping list now? Planned items missing from the purchase import will stay on the list as not purchased.
+          </Text>
+          <View className="flex-row justify-end gap-2">
+            <AppButton label="Later" onPress={() => setCloseConfirmOpen(false)} variant="outline" />
+            <AppButton
+              label={closingList ? 'Closing...' : 'Close Shopping'}
+              onPress={() => void closeSelectedShoppingList()}
+              textClassName="text-white"
+              disabled={closingList}
             />
           </View>
         </View>

@@ -4,6 +4,7 @@ import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 
 const MIME_XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const MIME_CSV = 'text/csv;charset=utf-8';
 
 function toSafeSheetName(name: string) {
   const cleaned = name.replace(/[:\\/?*\[\]]/g, ' ').trim();
@@ -62,5 +63,43 @@ export async function exportWorkbook(wb: XLSX.WorkBook, filename: string) {
     mimeType: MIME_XLSX,
     dialogTitle: 'Share report',
     UTI: 'org.openxmlformats.spreadsheetml.sheet',
+  });
+}
+
+export async function exportTextFile(text: string, filename: string, mimeType = MIME_CSV) {
+  const safeName = filename.toLowerCase().endsWith('.csv') ? filename : `${filename}.csv`;
+
+  if (Platform.OS === 'web') {
+    const blob = new Blob([text], {type: mimeType});
+    const url = URL.createObjectURL(blob);
+    const link = typeof document !== 'undefined' ? document.createElement('a') : null;
+    if (!link) return;
+    link.href = url;
+    link.download = safeName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return;
+  }
+
+  const baseDir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
+  if (!baseDir) {
+    Alert.alert('Export failed', 'No writable directory found for export.');
+    return;
+  }
+  const fileUri = `${baseDir}${safeName}`;
+  await FileSystem.writeAsStringAsync(fileUri, text, {
+    encoding: FileSystem.EncodingType.UTF8,
+  });
+  const available = await Sharing.isAvailableAsync();
+  if (!available) {
+    Alert.alert('Export ready', `Saved to ${fileUri}`);
+    return;
+  }
+  await Sharing.shareAsync(fileUri, {
+    mimeType,
+    dialogTitle: 'Share CSV',
+    UTI: 'public.comma-separated-values-text',
   });
 }

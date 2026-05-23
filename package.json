@@ -9,6 +9,7 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
+    "test:shopping-import": "node ./scripts/run-shopping-import-tests.js",
     "reminders:send": "node ./scripts/send-daily-balance-reminders.js"
   },
   "dependencies": {

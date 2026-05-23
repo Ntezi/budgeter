@@ -9,14 +9,22 @@ import {
   serverTimestamp,
   setDoc,
   updateDoc,
+  writeBatch,
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import type { Group } from './periods';
 import { docMatchesActiveScope, withWorkspaceWrite } from './scope';
+import type { CloseShoppingOptions, ShoppingImportBatch, ShoppingItemMatchResult } from '@/lib/shopping/import/shoppingImportTypes';
 
 export type ShoppingList = {
   id?: string;
   name: string;
+  status?: 'open' | 'closed' | 'completed';
+  plannedTotal?: number;
+  actualTotal?: number;
+  variance?: number;
+  closedAt?: unknown;
+  closedBy?: string;
   archived?: boolean;
   workspaceId?: string;
   periodId?: string;
@@ -34,6 +42,12 @@ export type ShoppingListItem = {
   tags?: string[];
   tag?: string;
   bought?: boolean;
+  status?: 'planned' | 'purchased' | 'not_purchased';
+  actualPrice?: number;
+  actualQuantity?: number;
+  isUnplanned?: boolean;
+  source?: 'manual' | 'whatsapp_import' | 'purchase_import';
+  importBatchId?: string;
   cost?: number;
   completed?: boolean;
   note?: string;
@@ -86,12 +100,31 @@ export function shoppingCategoriesCol(uid: string) {
   return collection(db, 'users', uid, 'shoppingCategories');
 }
 
+export function shoppingImportBatchesCol(uid: string, listId: string) {
+  return collection(db, 'users', uid, 'shoppingLists', listId, 'importBatches');
+}
+
 function compactFields<T extends Record<string, unknown>>(input: T): Partial<T> {
   const out: Record<string, unknown> = {};
   Object.entries(input).forEach(([key, value]) => {
     if (value !== undefined) out[key] = value;
   });
   return out as Partial<T>;
+}
+
+function removeUndefinedDeep<T>(input: T): T {
+  if (Array.isArray(input)) {
+    return input.map((value) => removeUndefinedDeep(value)).filter((value) => value !== undefined) as T;
+  }
+  if (input && typeof input === 'object') {
+    const out: Record<string, unknown> = {};
+    Object.entries(input as Record<string, unknown>).forEach(([key, value]) => {
+      if (value === undefined) return;
+      out[key] = removeUndefinedDeep(value);
+    });
+    return out as T;
+  }
+  return input;
 }
 
 function normalizeCategory(input?: string) {
@@ -315,6 +348,150 @@ export async function deleteShoppingListItem(uid: string, listId: string, id: st
   return deleteDoc(doc(shoppingItemsCol(uid, listId), id));
 }
 
+function parsedItemTotal(match: ShoppingItemMatchResult) {
+  const parsed = match.parsedItem;
+  if (parsed.totalPrice !== undefined) return Math.max(0, Number(parsed.totalPrice || 0));
+  if (parsed.unitPrice !== undefined) return Math.max(0, Number(parsed.unitPrice || 0)) * Math.max(1, Number(parsed.quantity || 1));
+  return 0;
+}
+
+function importItemPatch(match: ShoppingItemMatchResult, mode: ShoppingImportBatch['mode'], importBatchId: string): Partial<ShoppingListItem> {
+  const parsed = match.parsedItem;
+  const total = parsedItemTotal(match);
+  const quantity = Math.max(1, Number(parsed.quantity || match.matchedItem?.quantity || 1));
+  const unitPrice = parsed.unitPrice || (total > 0 ? total / quantity : match.matchedItem?.price || 0);
+  if (mode === 'purchase') {
+    return compactFields({
+      name: match.matchedItem?.name || parsed.name,
+      actualPrice: total,
+      actualQuantity: quantity,
+      quantity,
+      price: unitPrice,
+      cost: total,
+      bought: true,
+      completed: true,
+      status: 'purchased',
+      source: match.matchedItem ? match.matchedItem.source : 'purchase_import',
+      importBatchId,
+    } as Partial<ShoppingListItem>) as Partial<ShoppingListItem>;
+  }
+
+  return compactFields({
+    name: match.matchedItem?.name || parsed.name,
+    quantity,
+    price: unitPrice,
+    cost: total || match.matchedItem?.cost || 0,
+    bought: match.matchedItem?.bought === true,
+    completed: match.matchedItem?.completed === true,
+    status: match.matchedItem?.status || 'planned',
+    source: match.matchedItem ? match.matchedItem.source : 'whatsapp_import',
+    importBatchId,
+  } as Partial<ShoppingListItem>) as Partial<ShoppingListItem>;
+}
+
+export async function applyShoppingImportBatch(
+  uid: string,
+  listId: string,
+  importBatch: Omit<ShoppingImportBatch, 'id' | 'createdAt' | 'appliedAt'>,
+  reviewedMatches?: Record<string, string>
+) {
+  const batchRef = doc(shoppingImportBatchesCol(uid, listId));
+  const batch = writeBatch(db);
+
+  batch.set(
+    batchRef,
+    removeUndefinedDeep(
+      withWorkspaceWrite({
+        ...importBatch,
+        createdAt: serverTimestamp(),
+        appliedAt: serverTimestamp(),
+      } as any)
+    )
+  );
+
+  const currentItems = await listShoppingListItems(uid, listId);
+  const usedExistingIds = new Set<string>();
+
+  importBatch.matches.forEach((match) => {
+    const reviewedId = reviewedMatches?.[match.parsedItem.id];
+    const targetId = reviewedId || (match.confidenceLabel === 'auto' ? match.matchedItemId : undefined);
+    const target = targetId ? currentItems.find((item) => item.id === targetId) : undefined;
+    const effectiveMatch = target
+      ? { ...match, matchedItem: target, matchedItemId: target.id, confidenceLabel: 'auto' as const }
+      : match;
+    const patch = importItemPatch(effectiveMatch, importBatch.mode, batchRef.id);
+
+    if (target?.id && !usedExistingIds.has(target.id)) {
+      usedExistingIds.add(target.id);
+      batch.update(doc(shoppingItemsCol(uid, listId), target.id), withWorkspaceWrite({ ...patch, updatedAt: serverTimestamp() } as any));
+      return;
+    }
+
+    const newRef = doc(shoppingItemsCol(uid, listId));
+    batch.set(
+      newRef,
+      withWorkspaceWrite({
+        ...patch,
+        ownerUid: uid,
+        name: match.parsedItem.name,
+        quantity: match.parsedItem.quantity || 1,
+        price: patch.price || 0,
+        category: '',
+        tags: [],
+        bought: importBatch.mode === 'purchase',
+        completed: importBatch.mode === 'purchase',
+        status: importBatch.mode === 'purchase' ? 'purchased' : 'planned',
+        isUnplanned: importBatch.mode === 'purchase',
+        source: importBatch.mode === 'purchase' ? 'purchase_import' : 'whatsapp_import',
+        importBatchId: batchRef.id,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      } as any)
+    );
+  });
+
+  await batch.commit();
+  return batchRef.id;
+}
+
+export async function closeShoppingList(uid: string, listId: string, options: CloseShoppingOptions) {
+  const rows = await listShoppingListItems(uid, listId);
+  const plannedTotal = rows.reduce((sum, item) => {
+    if (item.isUnplanned) return sum;
+    return sum + Math.max(0, Number(item.price || 0)) * Math.max(1, Number(item.quantity || 1));
+  }, 0);
+  const actualTotal = rows.reduce((sum, item) => {
+    if (item.status !== 'purchased' && !item.bought) return sum;
+    const actual = Number(item.actualPrice ?? item.cost ?? 0);
+    return sum + Math.max(0, actual);
+  }, 0);
+  const purchasedIds = new Set(rows.filter((item) => item.status === 'purchased' || item.bought).map((item) => item.id).filter(Boolean));
+  const batch = writeBatch(db);
+
+  rows.forEach((item) => {
+    if (!item.id || purchasedIds.has(item.id)) return;
+    batch.update(doc(shoppingItemsCol(uid, listId), item.id), withWorkspaceWrite({
+      status: 'not_purchased',
+      bought: false,
+      completed: false,
+      updatedAt: serverTimestamp(),
+    } as any));
+  });
+
+  batch.update(doc(shoppingListsCol(uid), listId), withWorkspaceWrite({
+    status: 'closed',
+    plannedTotal,
+    actualTotal,
+    variance: actualTotal - plannedTotal,
+    closedAt: serverTimestamp(),
+    closedBy: options.closedBy,
+    updatedAt: serverTimestamp(),
+  } as any));
+
+  await batch.commit();
+  return { plannedTotal, actualTotal, variance: actualTotal - plannedTotal };
+}
+
 export function watchShoppingCatalog(uid: string, cb: (rows: ShoppingCatalogItem[]) => void) {
   const q = query(shoppingCatalogCol(uid));
   return onSnapshot(q, (snap) => {
@@ -439,6 +616,27 @@ export async function deleteShoppingCategory(uid: string, id: string) {
 
 export const shoppingCatalogCsvHeader = 'name,category,tags,budgetItemName';
 const shoppingCatalogCsvLegacyHeader = 'name,category,tags';
+
+function csvCell(value: unknown) {
+  const text = String(value ?? '');
+  if (!/[",\n\r]/.test(text)) return text;
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+export function buildShoppingCatalogCsv(rows: ShoppingCatalogItem[]) {
+  const lines = [shoppingCatalogCsvHeader];
+  rows.forEach((row) => {
+    lines.push(
+      [
+        row.name || '',
+        row.category || '',
+        (row.tags || []).join('|'),
+        row.assignedPlanItemName || '',
+      ].map(csvCell).join(',')
+    );
+  });
+  return `${lines.join('\n')}\n`;
+}
 
 export function parseShoppingCatalogCsv(csvText: string): Omit<ShoppingCatalogItem, 'id' | 'createdAt' | 'updatedAt'>[] {
   const rawLines = csvText

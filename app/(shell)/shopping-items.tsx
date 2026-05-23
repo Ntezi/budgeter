@@ -13,18 +13,21 @@ import { useWorkspaceUid } from '@/providers/WorkspaceProvider';
 import {
   addShoppingCategory,
   backfillShoppingCatalogFromLists,
+  buildShoppingCatalogCsv,
   deleteShoppingCategory,
   deleteShoppingCatalogItem,
   type ShoppingCatalogItem,
   type ShoppingCategory,
   importShoppingCatalogCsv,
   shoppingCatalogCsvHeader,
+  updateShoppingCatalogItem,
   upsertShoppingCatalogItem,
   watchShoppingCatalog,
   watchShoppingCategories,
   watchPriceHistory,
   type PriceHistoryEntry,
 } from '@/lib/repo/shopping';
+import { exportTextFile } from '@/lib/export';
 import { periodIdFromDate, type PeriodDoc, watchPeriods } from '@/lib/repo/periods';
 import { type PlanItem, watchPlanTotals } from '@/lib/repo/plans';
 import { fmtMoney } from '@/lib/format';
@@ -46,6 +49,10 @@ type CatalogEdit = {
   dirty: boolean;
   saving: boolean;
 };
+
+const BULK_KEEP = '__KEEP__';
+const BULK_NONE = '__NONE__';
+type BulkScope = 'SELECTED' | 'CATEGORY' | 'BUDGET';
 
 function normalize(input: string) {
   return input.trim().toLowerCase();
@@ -74,6 +81,13 @@ export default function ShoppingItemsScreen() {
   const [screenError, setScreenError] = useState('');
   const [syncing, setSyncing] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [bulkScope, setBulkScope] = useState<BulkScope>('SELECTED');
+  const [bulkSourceValue, setBulkSourceValue] = useState('');
+  const [bulkCategoryValue, setBulkCategoryValue] = useState(BULK_KEEP);
+  const [bulkPlanItemId, setBulkPlanItemId] = useState(BULK_KEEP);
+  const [bulkUpdating, setBulkUpdating] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
 
   const [selectedItem, setSelectedItem] = useState<ShoppingCatalogItem | null>(null);
   const [priceHistory, setPriceHistory] = useState<PriceHistoryEntry[]>([]);
@@ -174,6 +188,76 @@ export default function ShoppingItemsScreen() {
     out.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
     return out;
   }, [rows, search, sortMode]);
+
+  const bulkSourceOptions = useMemo(() => {
+    if (bulkScope === 'SELECTED') return [];
+    if (bulkScope === 'CATEGORY') {
+      return [
+        { label: 'Select category', value: '' },
+        { label: 'No category', value: BULK_NONE },
+        ...categoryNames.map((name) => ({ label: name, value: name })),
+      ];
+    }
+    return [
+      { label: 'Select budget item', value: '' },
+      { label: 'Unassigned', value: BULK_NONE },
+      ...planOptions.map((option) => ({ label: option.label, value: option.value })),
+    ];
+  }, [bulkScope, categoryNames, planOptions]);
+
+  const bulkTargetCategoryOptions = useMemo(
+    () => [
+      { label: 'No category change', value: BULK_KEEP },
+      { label: 'Clear category', value: '' },
+      ...categoryNames.map((name) => ({ label: name, value: name })),
+    ],
+    [categoryNames]
+  );
+
+  const bulkTargetPlanOptions = useMemo(
+    () => [
+      { label: 'No budget change', value: BULK_KEEP },
+      { label: 'Unassigned', value: '' },
+      ...planOptions.map((option) => ({ label: option.label, value: option.value })),
+    ],
+    [planOptions]
+  );
+
+  const bulkMatchedRows = useMemo(() => {
+    if (bulkScope === 'SELECTED') {
+      return rows.filter((row) => row.id && selectedIds[row.id]);
+    }
+    if (!bulkSourceValue) return [];
+    return rows.filter((row) => {
+      if (bulkScope === 'CATEGORY') {
+        const category = String(row.category || '').trim();
+        return bulkSourceValue === BULK_NONE ? !category : normalize(category) === normalize(bulkSourceValue);
+      }
+      const planId = String(row.assignedPlanItemId || '').trim();
+      return bulkSourceValue === BULK_NONE ? !planId : planId === bulkSourceValue;
+    });
+  }, [bulkScope, bulkSourceValue, rows, selectedIds]);
+
+  const selectedCount = useMemo(() => Object.values(selectedIds).filter(Boolean).length, [selectedIds]);
+  const visibleSelectableRows = useMemo(() => displayRows.filter((row) => Boolean(row.id)), [displayRows]);
+  const allVisibleSelected = visibleSelectableRows.length > 0 && visibleSelectableRows.every((row) => selectedIds[row.id!]);
+
+  function toggleSelected(id?: string) {
+    if (!id) return;
+    setSelectedIds((prev) => ({ ...prev, [id]: !prev[id] }));
+  }
+
+  function setVisibleSelection(selected: boolean) {
+    setSelectedIds((prev) => {
+      const next = { ...prev };
+      visibleSelectableRows.forEach((row) => {
+        if (!row.id) return;
+        if (selected) next[row.id] = true;
+        else delete next[row.id];
+      });
+      return next;
+    });
+  }
 
   function setEditField(id: string, patch: Partial<CatalogEdit>) {
     const source = rows.find((row) => row.id === id);
@@ -354,6 +438,63 @@ export default function ShoppingItemsScreen() {
     }
   }
 
+  async function exportCsv() {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      await exportTextFile(buildShoppingCatalogCsv(displayRows), `shopping_items_${new Date().toISOString().slice(0, 10)}.csv`);
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      setScreenError(message || 'CSV export failed.');
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function applyBulkUpdate() {
+    if (!uid || bulkUpdating) return;
+    if (bulkScope !== 'SELECTED' && !bulkSourceValue) {
+      setScreenError('Select the category or budget item to update.');
+      return;
+    }
+    if (bulkCategoryValue === BULK_KEEP && bulkPlanItemId === BULK_KEEP) {
+      setScreenError('Choose a new category or budget item for the bulk update.');
+      return;
+    }
+    if (!bulkMatchedRows.length) {
+      setScreenError('No shopping items match this bulk update filter.');
+      return;
+    }
+
+    const assignedPlan = planOptions.find((option) => option.value === bulkPlanItemId);
+    const nextCategory = bulkCategoryValue === BULK_KEEP ? undefined : bulkCategoryValue.trim();
+    setBulkUpdating(true);
+    try {
+      for (const row of bulkMatchedRows) {
+        if (!row.id) continue;
+        await updateShoppingCatalogItem(uid, row.id, {
+          ...(nextCategory !== undefined ? { category: nextCategory } : {}),
+          ...(bulkPlanItemId !== BULK_KEEP
+            ? {
+                assignedPlanItemId: assignedPlan?.value || '',
+                assignedPlanItemName: assignedPlan?.name || '',
+                assignedGroup: assignedPlan?.group,
+              }
+            : {}),
+        });
+      }
+      if (nextCategory) await addShoppingCategory(uid, nextCategory);
+      setScreenError('');
+      Alert.alert('Bulk update complete', `${bulkMatchedRows.length} shopping item${bulkMatchedRows.length === 1 ? '' : 's'} updated.`);
+      if (bulkScope === 'SELECTED') setSelectedIds({});
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      setScreenError(message || 'Bulk update failed.');
+    } finally {
+      setBulkUpdating(false);
+    }
+  }
+
   const periodOptions = periods.map((row) => ({
     label: row.title || row.id,
     value: row.id,
@@ -410,7 +551,8 @@ export default function ShoppingItemsScreen() {
         </AppCard>
         <AppCard className="gap-2">
           <Text className="text-xs uppercase tracking-wide text-muted-foreground">CSV Import</Text>
-          <Text className="text-xs text-muted-foreground">name,category,tags</Text>
+          <Text className="text-xs text-muted-foreground">name,category,tags,budgetItemName</Text>
+          <AppButton size="sm" variant="outline" label={exporting ? 'Exporting...' : 'Export CSV'} onPress={exportCsv} disabled={exporting || displayRows.length === 0} />
         </AppCard>
         <AppCard>
           <Text className="text-xs uppercase tracking-wide text-muted-foreground">Mapped to Budget</Text>
@@ -486,6 +628,96 @@ export default function ShoppingItemsScreen() {
       </AppCard>
 
       <AppCard className="gap-3">
+        <View className="flex-col gap-1 md:flex-row md:items-center md:justify-between">
+          <View>
+            <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Bulk Update Shopping Items</Text>
+            <Text className="text-xs text-muted-foreground">
+              Update selected items or all items that currently share the same category or budget item.
+            </Text>
+          </View>
+          <Text className="text-xs font-semibold text-muted-foreground">
+            Matches: {bulkMatchedRows.length}
+          </Text>
+        </View>
+        <View className="flex-row flex-wrap items-end gap-2">
+          <View className="min-w-[180px] gap-1">
+            <Text className="text-xs text-muted-foreground">Find by</Text>
+            <AppSegmented
+              value={bulkScope}
+              compact
+              onChange={(value) => {
+                setBulkScope(value as BulkScope);
+                setBulkSourceValue('');
+              }}
+              options={[
+                { label: 'Selected', value: 'SELECTED' },
+                { label: 'Category', value: 'CATEGORY' },
+                { label: 'Budget Item', value: 'BUDGET' },
+              ]}
+            />
+          </View>
+          {bulkScope === 'SELECTED' ? (
+            <View className="min-w-[240px] flex-1 gap-1">
+              <Text className="text-xs text-muted-foreground">Selected Items</Text>
+              <View className="flex-row flex-wrap items-center gap-2">
+                <AppBadge label={`${selectedCount} selected`} variant={selectedCount ? 'default' : 'outline'} />
+                <AppButton
+                  label={allVisibleSelected ? 'Clear Visible' : 'Select Visible'}
+                  size="sm"
+                  variant="outline"
+                  onPress={() => setVisibleSelection(!allVisibleSelected)}
+                  disabled={visibleSelectableRows.length === 0}
+                />
+                <AppButton
+                  label="Clear All"
+                  size="sm"
+                  variant="ghost"
+                  onPress={() => setSelectedIds({})}
+                  disabled={selectedCount === 0}
+                />
+              </View>
+            </View>
+          ) : (
+            <View className="min-w-[240px] flex-1 gap-1">
+              <Text className="text-xs text-muted-foreground">
+                Current {bulkScope === 'CATEGORY' ? 'Category' : 'Budget Item'}
+              </Text>
+              <DropdownField
+                value={bulkSourceValue}
+                options={bulkSourceOptions}
+                onChange={setBulkSourceValue}
+                menuStrategy="inline"
+              />
+            </View>
+          )}
+          <View className="min-w-[220px] flex-1 gap-1">
+            <Text className="text-xs text-muted-foreground">Set Category</Text>
+            <DropdownField
+              value={bulkCategoryValue}
+              options={bulkTargetCategoryOptions}
+              onChange={setBulkCategoryValue}
+              menuStrategy="inline"
+            />
+          </View>
+          <View className="min-w-[280px] flex-1 gap-1">
+            <Text className="text-xs text-muted-foreground">Set Budget Item</Text>
+            <DropdownField
+              value={bulkPlanItemId}
+              options={bulkTargetPlanOptions}
+              onChange={setBulkPlanItemId}
+              menuStrategy="inline"
+            />
+          </View>
+          <AppButton
+            label={bulkUpdating ? 'Updating...' : `Update ${bulkMatchedRows.length}`}
+            onPress={applyBulkUpdate}
+            disabled={bulkUpdating || bulkMatchedRows.length === 0 || (bulkCategoryValue === BULK_KEEP && bulkPlanItemId === BULK_KEEP)}
+            textClassName="text-white"
+          />
+        </View>
+      </AppCard>
+
+      <AppCard className="gap-3">
         <View className="flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <View className="w-full md:w-72">
             <AppInput value={search} onChangeText={setSearch} placeholder="Search by name, category or budget..." className="h-9" />
@@ -505,6 +737,7 @@ export default function ShoppingItemsScreen() {
           <ScrollView horizontal showsHorizontalScrollIndicator>
             <View className="min-w-[1220px] flex-1">
               <View className="flex-row border-b border-border pb-2 dark:border-zinc-800">
+                <Text className="w-[48px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pick</Text>
                 <Text className="w-[220px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Name</Text>
                 <Text className="w-[180px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Category</Text>
                 <Text className="w-[420px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Budget Item</Text>
@@ -525,6 +758,18 @@ export default function ShoppingItemsScreen() {
                         : 'border-border hover:bg-muted/35 dark:hover:bg-zinc-800/55'
                     }`}
                   >
+                    <View className="w-[48px] pr-2">
+                      <Pressable
+                        onPress={() => toggleSelected(row.id)}
+                        className="h-9 w-9 items-center justify-center rounded-md border border-border bg-background dark:border-zinc-800 dark:bg-zinc-900"
+                      >
+                        <MaterialCommunityIcons
+                          name={selectedIds[row.id] ? 'checkbox-marked' : 'checkbox-blank-outline'}
+                          size={20}
+                          color={selectedIds[row.id] ? '#22C55E' : '#717182'}
+                        />
+                      </Pressable>
+                    </View>
                     <View className="w-[220px] pr-2">
                       {isEditing ? (
                         <AppInput value={edit.name} onChangeText={(value) => setEditField(row.id!, { name: value })} className="h-9" />
@@ -587,6 +832,7 @@ export default function ShoppingItemsScreen() {
         ) : (
           <View className="overflow-hidden rounded-lg border border-border dark:border-zinc-800">
             <View className="flex-row border-b border-border bg-muted/30 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/40">
+              <Text className="w-[44px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pick</Text>
               <Text className="w-[180px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Name</Text>
               <Text className="flex-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Category</Text>
             </View>
@@ -596,6 +842,16 @@ export default function ShoppingItemsScreen() {
                 onPress={() => openItemDetail(row)}
                 className="flex-row items-center border-b border-border px-3 py-2 last:border-b-0 dark:border-zinc-800"
               >
+                <Pressable
+                  onPress={() => toggleSelected(row.id)}
+                  className="mr-2 h-8 w-8 items-center justify-center rounded-md border border-border bg-background dark:border-zinc-800 dark:bg-zinc-900"
+                >
+                  <MaterialCommunityIcons
+                    name={row.id && selectedIds[row.id] ? 'checkbox-marked' : 'checkbox-blank-outline'}
+                    size={20}
+                    color={row.id && selectedIds[row.id] ? '#22C55E' : '#717182'}
+                  />
+                </Pressable>
                 <Text className="w-[180px] text-sm font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>
                   {row.name}
                 </Text>
