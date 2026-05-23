@@ -4,7 +4,9 @@ import { Slot, usePathname, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { cn } from '@/lib/cn';
+import { DropdownField } from '@/components/ui/DropdownField';
 import { useThemeMode } from '@/providers/ThemeProvider';
+import { useWorkspace } from '@/providers/WorkspaceProvider';
 
 const NAV_ITEMS = [
   { label: 'Dashboard', href: '/dashboard', icon: 'view-dashboard-outline' as const },
@@ -17,6 +19,45 @@ const NAV_ITEMS = [
   { label: 'Reports', href: '/reports', icon: 'chart-bar' as const },
   { label: 'Settings', href: '/settings', icon: 'cog-outline' as const },
 ];
+
+function WorkspaceSwitcher({ compact = false }: { compact?: boolean }) {
+  const { activeWorkspaceId, legacyMode, setActiveWorkspaceId, workspaceOptions } = useWorkspace();
+
+  const options = useMemo(
+    () =>
+      workspaceOptions.map((option) => ({
+        label: `${option.label}${option.legacyMode ? ' (existing data)' : ''}`,
+        value: option.workspaceId,
+      })),
+    [workspaceOptions]
+  );
+
+  if (!options.length) return null;
+
+  return (
+    <View className={cn(compact ? 'min-w-[170px] max-w-[220px] flex-1' : 'gap-1 px-1 pb-4')}>
+      {!compact ? (
+        <Text className="px-1 text-xs font-medium uppercase tracking-wide text-muted-foreground dark:text-zinc-400">Workspace</Text>
+      ) : null}
+      <DropdownField
+        value={activeWorkspaceId || ''}
+        options={options}
+        onChange={(value) => void setActiveWorkspaceId(value)}
+        placeholder="Select workspace"
+        triggerClassName={cn(
+          compact ? 'h-9 bg-background dark:bg-zinc-950' : 'bg-background dark:bg-zinc-950',
+          !legacyMode && 'border-amber-300 dark:border-amber-600'
+        )}
+        menuClassName={compact ? 'min-w-[220px]' : undefined}
+      />
+      {!compact && !legacyMode ? (
+        <Text className="px-1 text-xs text-amber-700 dark:text-amber-300">
+          Older records may be under the existing data workspace.
+        </Text>
+      ) : null}
+    </View>
+  );
+}
 
 function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
@@ -33,6 +74,8 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
       <View className="px-1 pb-4">
         <Image source={logoSource} className="h-8 w-[180px]" resizeMode="contain" />
       </View>
+
+      <WorkspaceSwitcher />
 
       <ScrollView className="flex-1 px-3" contentContainerClassName="gap-1 pb-4">
         {NAV_ITEMS.map((item) => {
@@ -109,7 +152,10 @@ export default function ShellLayout() {
                 >
                   <MaterialCommunityIcons name="menu" size={20} color="#717182" />
                 </Pressable>
-                <Text className="text-base font-semibold text-foreground dark:text-zinc-50">{pageTitle}</Text>
+                <Text className="flex-1 text-base font-semibold text-foreground dark:text-zinc-50" numberOfLines={1}>
+                  {pageTitle}
+                </Text>
+                <WorkspaceSwitcher compact />
               </View>
             ) : null}
 
