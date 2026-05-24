@@ -143,6 +143,7 @@ export default function ShoppingScreen() {
   const [importSelection, setImportSelection] = useState<Record<string, boolean>>({});
 
   const [completing, setCompleting] = useState(false);
+  const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
   const [itemInputs, setItemInputs] = useState<Record<string, CompletionInput>>({});
   const [savingCompletion, setSavingCompletion] = useState(false);
   const [finalizingCompletion, setFinalizingCompletion] = useState(false);
@@ -228,6 +229,10 @@ export default function ShoppingScreen() {
       setActiveIncomeTotal(activeTotal);
     });
   }, [uid, targetPid]);
+
+  useEffect(() => {
+    setMobileActionsOpen(false);
+  }, [selectedListId]);
 
   const selectedList = useMemo(() => lists.find((row) => row.id === selectedListId) || null, [lists, selectedListId]);
 
@@ -958,13 +963,23 @@ export default function ShoppingScreen() {
     return (
       <View className="flex-1 gap-3">
         {!isWide ? (
-          <View className="flex-row items-center justify-between">
+          <View className="gap-2">
+            <View className="flex-row items-center justify-between">
             <Pressable onPress={() => setSelectedListId('')} className="flex-row items-center gap-1">
               <MaterialCommunityIcons name="chevron-left" size={20} color="#717182" />
               <Text className="font-medium text-primary dark:text-blue-400">Lists</Text>
             </Pressable>
             {!completing ? (
-              <View className="w-[212px] flex-row flex-wrap justify-end gap-2">
+              <AppButton
+                label={mobileActionsOpen ? 'Hide Actions' : 'Show Actions'}
+                onPress={() => setMobileActionsOpen((prev) => !prev)}
+                variant="outline"
+                size="sm"
+              />
+            ) : null}
+            </View>
+            {!completing && mobileActionsOpen ? (
+              <View className="w-full flex-row flex-wrap justify-end gap-2">
                 <AppButton label="Catalog" onPress={() => setImportOpen(true)} variant="outline" size="sm" className="w-[100px]" />
                 <AppButton label="WhatsApp" onPress={() => openSmartImport('planned')} variant="outline" size="sm" className="w-[100px]" />
                 <AppButton label="Reconcile" onPress={() => openSmartImport('purchase')} variant="outline" size="sm" className="w-[100px]" disabled={isShoppingListEmpty} />
