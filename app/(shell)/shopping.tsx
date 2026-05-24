@@ -1155,13 +1155,47 @@ export default function ShoppingScreen() {
                 {completionTargetItems.map((item) => {
                   if (!item.id) return null;
                   const itemTag = normalizeItemTag(String(item.tag || ''));
+                  const input = itemInputs[item.id];
+                  const qtyMissing = !parseQuantity(input?.quantity || '0');
+                  const priceMissing = Math.max(0, parseMoney(input?.price || '0')) <= 0;
+                  const planItemId = String(input?.planItemId || '').trim();
+                  const budgetMissing = !planItemId || !planById.has(planItemId);
+                  const budgetNotFunded = !budgetMissing && !hasFundedAmount(fundedByPlanId, planItemId);
+                  const rowHasIssue = qtyMissing || priceMissing || budgetMissing || budgetNotFunded;
                   return (
-                    <View key={item.id} className="gap-2 border-b border-border p-3 dark:border-zinc-800">
-                      <View className="flex-row flex-wrap items-center gap-1">
+                    <View
+                      key={item.id}
+                      className={cn(
+                        'gap-2 border-b border-border p-3 dark:border-zinc-800',
+                        rowHasIssue && 'border-l-4 border-l-amber-400 bg-amber-50/70 dark:border-l-amber-500 dark:bg-amber-950/20',
+                        budgetNotFunded && 'border-l-red-500 bg-red-50/70 dark:border-l-red-400 dark:bg-red-950/20'
+                      )}
+                    >
+                      <View className="flex-row flex-wrap items-center gap-1.5">
                         <Text className="text-foreground dark:text-zinc-100" numberOfLines={1}>
                           {item.name}
                         </Text>
                         {itemTag ? <Text className="text-xs text-muted-foreground dark:text-zinc-400">[{itemTag}]</Text> : null}
+                        {qtyMissing ? (
+                          <Text className="rounded-sm bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-800 dark:bg-amber-900/50 dark:text-amber-100">
+                            Qty
+                          </Text>
+                        ) : null}
+                        {priceMissing ? (
+                          <Text className="rounded-sm bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-800 dark:bg-amber-900/50 dark:text-amber-100">
+                            Total
+                          </Text>
+                        ) : null}
+                        {budgetMissing ? (
+                          <Text className="rounded-sm bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-800 dark:bg-amber-900/50 dark:text-amber-100">
+                            Budget
+                          </Text>
+                        ) : null}
+                        {budgetNotFunded ? (
+                          <Text className="rounded-sm bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-red-800 dark:bg-red-900/50 dark:text-red-100">
+                            Not funded
+                          </Text>
+                        ) : null}
                       </View>
                       <View className={cn('gap-2', isWide ? 'flex-row items-center' : '')}>
                         <AppInput
@@ -1172,7 +1206,11 @@ export default function ShoppingScreen() {
                               [item.id!]: { ...prev[item.id!], quantity: value },
                             }))
                           }
-                          className={cn('h-9 text-center', isWide ? 'w-20' : 'w-full')}
+                          className={cn(
+                            'h-9 text-center',
+                            isWide ? 'w-20' : 'w-full',
+                            qtyMissing && 'border-amber-500 bg-amber-50 dark:border-amber-400 dark:bg-amber-950/20'
+                          )}
                           placeholder="Qty"
                           keyboardType="numeric"
                         />
@@ -1184,7 +1222,11 @@ export default function ShoppingScreen() {
                               [item.id!]: { ...prev[item.id!], price: value },
                             }))
                           }
-                          className={cn('h-9 text-right', isWide ? 'w-28' : 'w-full')}
+                          className={cn(
+                            'h-9 text-right',
+                            isWide ? 'w-28' : 'w-full',
+                            priceMissing && 'border-amber-500 bg-amber-50 dark:border-amber-400 dark:bg-amber-950/20'
+                          )}
                           placeholder="Total"
                           keyboardType="decimal-pad"
                         />
@@ -1203,6 +1245,10 @@ export default function ShoppingScreen() {
                             }
                             placeholder="Funded budget item"
                             menuStrategy="inline"
+                            triggerClassName={cn(
+                              budgetMissing && 'border-amber-500 bg-amber-50 dark:border-amber-400 dark:bg-amber-950/20',
+                              budgetNotFunded && 'border-red-500 bg-red-50 dark:border-red-400 dark:bg-red-950/20'
+                            )}
                           />
                         </View>
                       </View>

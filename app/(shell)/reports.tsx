@@ -81,6 +81,22 @@ function toneClass(tone: BehaviorSignal['tone']) {
   return 'text-foreground dark:text-zinc-50';
 }
 
+function signedMoney(value: number) {
+  if (!Number.isFinite(value) || value === 0) return fmtMoney(0);
+  return `${value > 0 ? '+' : '-'}${fmtMoney(Math.abs(value))}`;
+}
+
+function signedPct(value: number) {
+  if (!Number.isFinite(value) || value === 0) return '0.0%';
+  return `${value > 0 ? '+' : '-'}${Math.abs(value).toFixed(1)}%`;
+}
+
+function trendValueClass(value: number) {
+  if (value > 0) return 'text-red-700 dark:text-red-300';
+  if (value < 0) return 'text-emerald-700 dark:text-emerald-300';
+  return 'text-muted-foreground';
+}
+
 function analyzePeriodBehavior(report: PeriodReport): PeriodBehaviorInsight {
   const spentTotal = Math.max(0, Number(report.totals.transactions.total || 0));
   const incomeTotal = Math.max(0, Number(report.totals.incomeTotal || 0));
@@ -552,6 +568,51 @@ export default function ReportsScreen() {
     }));
   }, [priceHistory]);
 
+  const selectedCatalogItem = useMemo(
+    () => catalog.find((item) => item.id === selectedItemId),
+    [catalog, selectedItemId]
+  );
+
+  const priceTrend = useMemo(() => {
+    if (!priceHistory.length) return null;
+    const prices = priceHistory.map((row) => Math.max(0, Number(row.price || 0)));
+    const quantities = priceHistory.map((row) => Math.max(0, Number(row.quantity || 0)));
+    const first = prices[0] || 0;
+    const latest = prices[prices.length - 1] || 0;
+    const previous = prices.length > 1 ? prices[prices.length - 2] || 0 : 0;
+    const min = Math.min(...prices);
+    const max = Math.max(...prices);
+    const average = prices.reduce((sum, value) => sum + value, 0) / prices.length;
+    const averageQuantity = quantities.reduce((sum, value) => sum + value, 0) / quantities.length;
+    const previousChange = prices.length > 1 ? latest - previous : 0;
+    const previousChangePct = previous > 0 ? (previousChange / previous) * 100 : 0;
+    const totalChange = latest - first;
+    const totalChangePct = first > 0 ? (totalChange / first) * 100 : 0;
+    return {
+      count: priceHistory.length,
+      latest,
+      min,
+      max,
+      average,
+      averageQuantity,
+      range: max - min,
+      previousChange,
+      previousChangePct,
+      totalChange,
+      totalChangePct,
+      lastDate: priceHistory[priceHistory.length - 1]?.createdAt,
+    };
+  }, [priceHistory]);
+
+  const priceTrendRows = useMemo(() => {
+    return priceHistory
+      .map((row, index) => ({
+        ...row,
+        change: index > 0 ? row.price - priceHistory[index - 1].price : 0,
+      }))
+      .reverse();
+  }, [priceHistory]);
+
   const loadReport = useCallback(
     async (pid: string, force?: boolean) => {
       if (!uid) return undefined;
@@ -837,10 +898,10 @@ export default function ReportsScreen() {
       <AppCard className="gap-4">
         <View>
           <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Shopping Price Trends</Text>
-          <Text className="text-xs text-muted-foreground">Select an item to see its price history.</Text>
+          <Text className="text-xs text-muted-foreground">Track latest price, movement, and purchase history by catalog item.</Text>
         </View>
         
-        <View className="w-full md:w-80">
+        <View className="w-full md:w-96">
           <DropdownField
             value={selectedItemId}
             options={[{ label: 'Select an item...', value: '' }, ...itemOptions]}
@@ -850,28 +911,84 @@ export default function ReportsScreen() {
           />
         </View>
 
-        {selectedItemId && chartData.length > 0 ? (
+        {selectedItemId && chartData.length > 0 && priceTrend ? (
           <View className="gap-4">
-            <View>
-              <LineChart
-                data={chartData}
-                lineColor={theme === 'dark' ? '#22C55E' : '#16A34A'}
-                axisColor={theme === 'dark' ? '#A1A1AA' : '#717182'}
-              />
+            <View className="grid grid-cols-2 gap-2 md:grid-cols-4">
+              <View className="rounded-md border border-border bg-muted/20 p-3 dark:border-zinc-800 dark:bg-zinc-800/30">
+                <Text className="text-[10px] uppercase tracking-wide text-muted-foreground">Latest</Text>
+                <Text className="text-base font-semibold text-foreground dark:text-zinc-50">{fmtMoney(priceTrend.latest)}</Text>
+                <Text className="text-xs text-muted-foreground">
+                  {priceTrend.lastDate ? new Date(priceTrend.lastDate).toLocaleDateString() : '-'}
+                </Text>
+              </View>
+              <View className="rounded-md border border-border bg-muted/20 p-3 dark:border-zinc-800 dark:bg-zinc-800/30">
+                <Text className="text-[10px] uppercase tracking-wide text-muted-foreground">Last Change</Text>
+                <Text className={cn('text-base font-semibold', trendValueClass(priceTrend.previousChange))}>
+                  {signedMoney(priceTrend.previousChange)}
+                </Text>
+                <Text className={cn('text-xs', trendValueClass(priceTrend.previousChange))}>
+                  {signedPct(priceTrend.previousChangePct)} vs previous
+                </Text>
+              </View>
+              <View className="rounded-md border border-border bg-muted/20 p-3 dark:border-zinc-800 dark:bg-zinc-800/30">
+                <Text className="text-[10px] uppercase tracking-wide text-muted-foreground">Average</Text>
+                <Text className="text-base font-semibold text-foreground dark:text-zinc-50">{fmtMoney(priceTrend.average)}</Text>
+                <Text className="text-xs text-muted-foreground">
+                  {priceTrend.count} point(s) · Avg qty {round1(priceTrend.averageQuantity)}
+                </Text>
+              </View>
+              <View className="rounded-md border border-border bg-muted/20 p-3 dark:border-zinc-800 dark:bg-zinc-800/30">
+                <Text className="text-[10px] uppercase tracking-wide text-muted-foreground">Range</Text>
+                <Text className="text-base font-semibold text-foreground dark:text-zinc-50">{fmtMoney(priceTrend.min)} - {fmtMoney(priceTrend.max)}</Text>
+                <Text className="text-xs text-muted-foreground">Spread {fmtMoney(priceTrend.range)}</Text>
+              </View>
             </View>
+
+            <View className="rounded-md border border-border bg-muted/20 p-3 dark:border-zinc-800 dark:bg-zinc-800/30">
+              <View className="flex-row flex-wrap items-center justify-between gap-2">
+                <View>
+                  <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">
+                    {selectedCatalogItem?.name || 'Selected item'}
+                  </Text>
+                  <Text className="text-xs text-muted-foreground">
+                    {[selectedCatalogItem?.category, selectedCatalogItem?.assignedPlanItemName].filter(Boolean).join(' · ') || 'No category or budget item'}
+                  </Text>
+                </View>
+                <View className="items-end">
+                  <Text className={cn('text-sm font-semibold', trendValueClass(priceTrend.totalChange))}>
+                    {signedMoney(priceTrend.totalChange)}
+                  </Text>
+                  <Text className={cn('text-xs', trendValueClass(priceTrend.totalChange))}>
+                    {signedPct(priceTrend.totalChangePct)} since first record
+                  </Text>
+                </View>
+              </View>
+              <View className="mt-3">
+                <LineChart
+                  data={chartData}
+                  lineColor={theme === 'dark' ? '#22C55E' : '#16A34A'}
+                  axisColor={theme === 'dark' ? '#A1A1AA' : '#717182'}
+                />
+              </View>
+            </View>
+
             <View className="rounded-md border border-border bg-muted/20 dark:border-zinc-800 dark:bg-zinc-800/30">
               <View className="flex-row border-b border-border px-3 py-2 dark:border-zinc-800">
                 <Text className="w-[120px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Date</Text>
-                <Text className="flex-1 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Price</Text>
+                <Text className="flex-1 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Unit Price</Text>
+                <Text className="w-[100px] text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Change</Text>
                 <Text className="w-[80px] text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Qty</Text>
               </View>
-              {priceHistory.map((row) => (
+              {priceTrendRows.map((row) => (
                 <View key={row.id} className="flex-row border-b border-border px-3 py-2 last:border-b-0 dark:border-zinc-800">
                   <Text className="w-[120px] text-sm text-foreground dark:text-zinc-50">
                     {new Date(row.createdAt).toLocaleDateString()}
                   </Text>
                   <Text className="flex-1 text-right text-sm font-medium text-foreground dark:text-zinc-50">
                     {fmtMoney(row.price)}
+                  </Text>
+                  <Text className={cn('w-[100px] text-right text-sm font-medium', trendValueClass(row.change))}>
+                    {signedMoney(row.change)}
                   </Text>
                   <Text className="w-[80px] text-right text-sm text-muted-foreground">
                     {row.quantity}

@@ -239,7 +239,6 @@ export default function TransactionsScreen() {
     const uncategorizedRows = budgetTransactions.filter((row) => !row.categoryId);
     const filteredTotal = filteredTransactions.reduce((sum, row) => sum + transactionSignedBudgetAmount(row), 0);
     const shoppingTotal = shoppingRows.reduce((sum, row) => sum + transactionSignedBudgetAmount(row), 0);
-    const manualTotal = budgetTransactions.reduce((sum, row) => sum + transactionSignedBudgetAmount(row), 0) - shoppingTotal;
     return {
       count: budgetTransactions.length,
       filteredCount: filteredTransactions.length,
@@ -247,15 +246,9 @@ export default function TransactionsScreen() {
       average: filteredTransactions.length ? filteredTotal / filteredTransactions.length : 0,
       shoppingCount: shoppingRows.length,
       shoppingTotal,
-      manualTotal,
       uncategorizedCount: uncategorizedRows.length,
     };
   }, [budgetTransactions, filteredTransactions]);
-
-  const shoppingTransactions = useMemo(
-    () => budgetTransactions.filter((row) => row.shoppingListId || row.shoppingItemId).slice(-8).reverse(),
-    [budgetTransactions]
-  );
 
   useEffect(() => {
     setTxEdits((prev) => {
@@ -593,29 +586,6 @@ export default function TransactionsScreen() {
               { label: 'Needs Review', value: 'UNCATEGORIZED' },
             ]}
           />
-        </View>
-      </AppCard>
-
-      <AppCard className="gap-3">
-        <View>
-          <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Shopping List Transactions</Text>
-          <Text className="text-xs text-muted-foreground">Recent transactions created from completed shopping items.</Text>
-        </View>
-        <View className="gap-2">
-          {shoppingTransactions.map((row) => (
-            <View key={row.id} className="flex-row items-center justify-between rounded-md border border-border px-3 py-2 dark:border-zinc-800">
-              <View className="min-w-0 flex-1">
-                <Text className="text-sm font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>
-                  {row.shoppingListName || 'Shopping'} / {row.shoppingItemName || row.name || 'Item'}
-                </Text>
-                <Text className="text-xs text-muted-foreground">{row.date || '-'} · {row.name || '-'}</Text>
-              </View>
-              <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">{fmtMoney(row.amount || 0)}</Text>
-            </View>
-          ))}
-          {!shoppingTransactions.length ? (
-            <Text className="text-sm text-muted-foreground">No shopping list transactions in this period.</Text>
-          ) : null}
         </View>
       </AppCard>
 
