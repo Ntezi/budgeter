@@ -57,6 +57,32 @@ function normalize(input: string) {
   return input.trim().toLowerCase();
 }
 
+const SHOPPING_CATEGORY_ORDER = [
+  'produce',
+  'meat',
+  'seafood',
+  'dairy',
+  'pantry',
+  'drink',
+  'drinks',
+  'beverage',
+  'beverages',
+  'bakery',
+  'frozen',
+  'household',
+  'personal care',
+  'other',
+];
+
+function shoppingCategoryRank(category?: string) {
+  const normalized = normalize(category || '');
+  if (!normalized) return SHOPPING_CATEGORY_ORDER.length + 1;
+  const exact = SHOPPING_CATEGORY_ORDER.indexOf(normalized);
+  if (exact >= 0) return exact;
+  const partial = SHOPPING_CATEGORY_ORDER.findIndex((known) => normalized.includes(known) || known.includes(normalized));
+  return partial >= 0 ? partial : SHOPPING_CATEGORY_ORDER.length;
+}
+
 function parseQuantity(input: string) {
   const value = parseInt(input, 10);
   return Number.isFinite(value) && value > 0 ? value : 0;
@@ -297,6 +323,10 @@ export default function ShoppingScreen() {
   const displayItems = useMemo(() => {
     return [...items].sort((a, b) => {
       if (a.bought !== b.bought) return a.bought ? 1 : -1;
+      const categoryDiff = shoppingCategoryRank(a.category) - shoppingCategoryRank(b.category);
+      if (categoryDiff !== 0) return categoryDiff;
+      const categoryNameDiff = normalize(a.category || '').localeCompare(normalize(b.category || ''));
+      if (categoryNameDiff !== 0) return categoryNameDiff;
       return normalize(a.name || '').localeCompare(normalize(b.name || ''));
     });
   }, [items]);
