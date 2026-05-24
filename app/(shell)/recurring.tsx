@@ -49,7 +49,10 @@ export default function RecurringScreen() {
   });
   const [formError, setFormError] = useState('');
   const [tagFilter, setTagFilter] = useState('ALL');
+  const [typeFilter, setTypeFilter] = useState<'ALL' | RecurringFlow>('ALL');
   const [categoryFilter, setCategoryFilter] = useState<'ALL' | 'NEED' | 'WANT' | 'SAVINGS_DEBT'>('ALL');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
+  const [searchText, setSearchText] = useState('');
   const [sortMode, setSortMode] = useState<'CREATED' | 'TAG'>('CREATED');
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -63,14 +66,26 @@ export default function RecurringScreen() {
     return watchRecurring(uid, setRows);
   }, [uid]);
 
-  useEffect(() => {
-    if (sortMode !== 'TAG' && tagFilter !== 'ALL') {
-      setTagFilter('ALL');
-    }
-  }, [sortMode, tagFilter]);
-
   const activeRows = useMemo(() => rows.filter((row) => row.active !== false), [rows]);
   const activeTotal = useMemo(() => activeRows.reduce((sum, row) => sum + (row.amount || 0), 0), [activeRows]);
+  const activeBreakdown = useMemo(() => {
+    return activeRows.reduce(
+      (acc, row) => {
+        const amount = Number(row.amount || 0);
+        if ((row.flow ?? 'EXPENSE') === 'INCOME') {
+          acc.income += amount;
+        } else if ((row.group ?? 'NEED') === 'NEED') {
+          acc.needs += amount;
+        } else if ((row.group ?? 'NEED') === 'WANT') {
+          acc.wants += amount;
+        } else {
+          acc.savings += amount;
+        }
+        return acc;
+      },
+      { income: 0, needs: 0, wants: 0, savings: 0 }
+    );
+  }, [activeRows]);
   const tagOptions = useMemo(() => {
     const tags = [...new Set(rows.flatMap((row) => row.tags || []).map((tag) => String(tag).trim().toLowerCase()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
     return [{ label: 'All tags', value: 'ALL' }, ...tags.map((tag) => ({ label: `#${tag}`, value: tag }))];
@@ -80,13 +95,37 @@ export default function RecurringScreen() {
     { label: 'All Categories', value: 'ALL' },
     ...PLAN_GROUP_OPTIONS.map((opt) => ({ label: opt.label, value: opt.value })),
   ];
+  const typeOptions = [
+    { label: 'All Types', value: 'ALL' },
+    { label: 'Expense', value: 'EXPENSE' },
+    { label: 'Income', value: 'INCOME' },
+  ];
+  const statusOptions = [
+    { label: 'All Statuses', value: 'ALL' },
+    { label: 'Active', value: 'ACTIVE' },
+    { label: 'Inactive', value: 'INACTIVE' },
+  ];
 
   const displayRows = useMemo(() => {
     let out = [...rows];
+    const q = searchText.trim().toLowerCase();
+    if (typeFilter !== 'ALL') {
+      out = out.filter((row) => (row.flow ?? 'EXPENSE') === typeFilter);
+    }
     if (categoryFilter !== 'ALL') {
       out = out.filter((row) => (row.flow === 'INCOME' ? false : (row.group ?? 'NEED') === categoryFilter));
     }
-    if (sortMode === 'TAG' && tagFilter !== 'ALL') out = out.filter((row) => (row.tags || []).includes(tagFilter));
+    if (tagFilter !== 'ALL') out = out.filter((row) => (row.tags || []).includes(tagFilter));
+    if (statusFilter !== 'ALL') out = out.filter((row) => (statusFilter === 'ACTIVE' ? row.active !== false : row.active === false));
+    if (q) {
+      out = out.filter((row) => {
+        return (
+          String(row.name || '').toLowerCase().includes(q) ||
+          String(row.note || '').toLowerCase().includes(q) ||
+          (row.tags || []).some((tag) => String(tag).toLowerCase().includes(q))
+        );
+      });
+    }
     if (sortMode === 'TAG') {
       out.sort((a, b) => {
         const ta = firstTag(a.tags);
@@ -96,7 +135,7 @@ export default function RecurringScreen() {
       });
     }
     return out;
-  }, [rows, sortMode, tagFilter, categoryFilter]);
+  }, [rows, sortMode, tagFilter, categoryFilter, searchText, statusFilter, typeFilter]);
 
   async function addRow() {
     if (!uid) return;
@@ -297,6 +336,31 @@ export default function RecurringScreen() {
         <AppCard>
           <Text className="text-xs uppercase tracking-wide text-muted-foreground">Active amount total</Text>
           <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">{fmtMoney(activeTotal)}</Text>
+          <View className="mt-2 flex-row flex-wrap gap-1">
+            <AppBadge label={`Needs ${fmtMoney(activeBreakdown.needs)}`} variant="outline" />
+            <AppBadge label={`Wants ${fmtMoney(activeBreakdown.wants)}`} variant="outline" />
+            <AppBadge label={`Savings ${fmtMoney(activeBreakdown.savings)}`} variant="outline" />
+            <AppBadge label={`Income ${fmtMoney(activeBreakdown.income)}`} variant="success" />
+          </View>
+        </AppCard>
+      </View>
+
+      <View className="grid grid-cols-1 gap-3 md:grid-cols-4">
+        <AppCard>
+          <Text className="text-xs uppercase tracking-wide text-muted-foreground">Needs</Text>
+          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">{fmtMoney(activeBreakdown.needs)}</Text>
+        </AppCard>
+        <AppCard>
+          <Text className="text-xs uppercase tracking-wide text-muted-foreground">Wants</Text>
+          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">{fmtMoney(activeBreakdown.wants)}</Text>
+        </AppCard>
+        <AppCard>
+          <Text className="text-xs uppercase tracking-wide text-muted-foreground">Savings / Debt</Text>
+          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">{fmtMoney(activeBreakdown.savings)}</Text>
+        </AppCard>
+        <AppCard>
+          <Text className="text-xs uppercase tracking-wide text-muted-foreground">Income</Text>
+          <Text className="mt-1 text-xl font-semibold text-emerald-600 dark:text-emerald-300">{fmtMoney(activeBreakdown.income)}</Text>
         </AppCard>
       </View>
 
@@ -320,8 +384,23 @@ export default function RecurringScreen() {
       </AppCard>
 
       <AppCard className="gap-3">
-        <View className="flex-col gap-2 md:flex-row md:items-center md:justify-between">
+        <View className="gap-3">
+          <AppInput
+            value={searchText}
+            onChangeText={setSearchText}
+            placeholder="Search template name, note, or tag"
+            className="h-9"
+          />
           <View className="flex-row flex-wrap gap-2">
+            <View className="w-full md:w-48">
+              <DropdownField
+                value={typeFilter}
+                options={typeOptions}
+                onChange={(v) => setTypeFilter(v as any)}
+                placeholder="Filter by type"
+                menuStrategy="inline"
+              />
+            </View>
             <View className="w-full md:w-64">
               <DropdownField
                 value={categoryFilter}
@@ -331,21 +410,24 @@ export default function RecurringScreen() {
                 menuStrategy="inline"
               />
             </View>
-            {sortMode === 'TAG' ? (
-              <View className="w-full md:w-64">
-                <DropdownField value={tagFilter} options={tagOptions} onChange={setTagFilter} placeholder="Filter by tag" menuStrategy="inline" />
-              </View>
-            ) : null}
+            <View className="w-full md:w-56">
+              <DropdownField value={tagFilter} options={tagOptions} onChange={setTagFilter} placeholder="Filter by tag" menuStrategy="inline" />
+            </View>
+            <View className="w-full md:w-52">
+              <DropdownField value={statusFilter} options={statusOptions} onChange={(v) => setStatusFilter(v as any)} placeholder="Filter by status" menuStrategy="inline" />
+            </View>
           </View>
-          <AppSegmented
-            value={sortMode}
-            onChange={(value) => setSortMode(value as 'CREATED' | 'TAG')}
-            compact
-            options={[
-              { label: 'Created', value: 'CREATED' },
-              { label: 'Tag', value: 'TAG' },
-            ]}
-          />
+          <View className="self-start">
+            <AppSegmented
+              value={sortMode}
+              onChange={(value) => setSortMode(value as 'CREATED' | 'TAG')}
+              compact
+              options={[
+                { label: 'Created', value: 'CREATED' },
+                { label: 'Tag', value: 'TAG' },
+              ]}
+            />
+          </View>
         </View>
 
         <View>

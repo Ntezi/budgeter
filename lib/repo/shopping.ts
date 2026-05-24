@@ -140,8 +140,8 @@ function normalizeItemTag(input?: string) {
   if (input === undefined) return undefined;
   const value = String(input || '').trim();
   if (!value) return '';
-  if (value.length < 1 || value.length > 10) {
-    throw new Error('Item tag must be 1 to 10 characters.');
+  if (value.length < 1 || value.length > 20) {
+    throw new Error('Item tag must be 1 to 20 characters.');
   }
   return value;
 }

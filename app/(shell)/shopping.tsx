@@ -67,7 +67,7 @@ function normalizeItemTag(input: string) {
 }
 
 function isValidItemTag(tag: string) {
-  return tag.length >= 1 && tag.length <= 10;
+  return tag.length >= 1 && tag.length <= 20;
 }
 
 export default function ShoppingScreen() {
@@ -513,7 +513,7 @@ export default function ShoppingScreen() {
     if (!uid || !selectedListId || !tagDraft.id) return;
     const nextTag = normalizeItemTag(tagDraft.tag);
     if (!isValidItemTag(nextTag)) {
-      setTagEditError('Tag must be between 5 and 10 characters.');
+      setTagEditError('Tag must be between 1 and 20 characters.');
       return;
     }
 
@@ -934,11 +934,11 @@ export default function ShoppingScreen() {
               <Text className="font-medium text-primary dark:text-blue-400">Lists</Text>
             </Pressable>
             {!completing ? (
-              <View className="flex-row flex-wrap justify-end gap-2">
-                <AppButton label="Catalog" onPress={() => setImportOpen(true)} variant="outline" size="sm" />
-                <AppButton label="WhatsApp" onPress={() => openSmartImport('planned')} variant="outline" size="sm" />
-                <AppButton label="Reconcile" onPress={() => openSmartImport('purchase')} variant="outline" size="sm" disabled={isShoppingListEmpty} />
-                <AppButton label="Complete" onPress={startCompletion} variant="outline" size="sm" disabled={isShoppingListEmpty} />
+              <View className="w-[212px] flex-row flex-wrap justify-end gap-2">
+                <AppButton label="Catalog" onPress={() => setImportOpen(true)} variant="outline" size="sm" className="w-[100px]" />
+                <AppButton label="WhatsApp" onPress={() => openSmartImport('planned')} variant="outline" size="sm" className="w-[100px]" />
+                <AppButton label="Reconcile" onPress={() => openSmartImport('purchase')} variant="outline" size="sm" className="w-[100px]" disabled={isShoppingListEmpty} />
+                <AppButton label="Complete" onPress={startCompletion} variant="outline" size="sm" className="w-[100px]" disabled={isShoppingListEmpty} />
               </View>
             ) : null}
           </View>
@@ -1287,10 +1287,10 @@ export default function ShoppingScreen() {
               setTagDraft((prev) => ({ ...prev, tag: value }));
               if (tagEditError) setTagEditError('');
             }}
-            placeholder="1 to 10 characters"
-            maxLength={10}
+            placeholder="1 to 20 characters"
+            maxLength={20}
           />
-          <Text className="text-xs text-muted-foreground">{normalizeItemTag(tagDraft.tag).length}/10</Text>
+          <Text className="text-xs text-muted-foreground">{normalizeItemTag(tagDraft.tag).length}/20</Text>
           {tagEditError ? <Text className="text-xs text-destructive">{tagEditError}</Text> : null}
           <View className="flex-row gap-2">
             <AppButton label="Cancel" onPress={() => setTagEditOpen(false)} variant="outline" className="flex-1" />

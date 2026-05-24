@@ -20,6 +20,7 @@ import { type Allocation, watchAllocations } from '@/lib/repo/allocations';
 import { transactionSignedBudgetAmount } from '@/lib/accounting';
 
 type Filter = 'ALL' | Group;
+type TxScopeFilter = 'ALL' | 'SHOPPING' | 'MANUAL' | 'UNCATEGORIZED';
 
 type BudgetOption = {
   id: string;
@@ -70,6 +71,8 @@ export default function TransactionsScreen() {
   const [mobileDetailId, setMobileDetailId] = useState<string | null>(null);
 
   const [filter, setFilter] = useState<Filter>('ALL');
+  const [scopeFilter, setScopeFilter] = useState<TxScopeFilter>('ALL');
+  const [searchText, setSearchText] = useState('');
   const [formError, setFormError] = useState('');
 
   const [draft, setDraft] = useState<Tx>({
@@ -201,10 +204,22 @@ export default function TransactionsScreen() {
     [transactions]
   );
 
-  const filteredTransactions = useMemo(
-    () => (filter === 'ALL' ? budgetTransactions : budgetTransactions.filter((row) => row.group === filter)),
-    [budgetTransactions, filter]
-  );
+  const filteredTransactions = useMemo(() => {
+    const q = normalize(searchText);
+    return budgetTransactions.filter((row) => {
+      if (filter !== 'ALL' && row.group !== filter) return false;
+      if (scopeFilter === 'SHOPPING' && !row.shoppingListId && !row.shoppingItemId) return false;
+      if (scopeFilter === 'MANUAL' && (row.shoppingListId || row.shoppingItemId)) return false;
+      if (scopeFilter === 'UNCATEGORIZED' && row.categoryId) return false;
+      if (!q) return true;
+      return (
+        normalize(row.name || '').includes(q) ||
+        normalize(row.note || '').includes(q) ||
+        normalize(row.shoppingListName || '').includes(q) ||
+        normalize(row.shoppingItemName || '').includes(q)
+      );
+    });
+  }, [budgetTransactions, filter, scopeFilter, searchText]);
 
   const totals = useMemo(() => {
     const next = { needs: 0, wants: 0, sd: 0, total: 0 };
@@ -218,6 +233,29 @@ export default function TransactionsScreen() {
     next.total = next.needs + next.wants + next.sd;
     return next;
   }, [transactions]);
+
+  const transactionSummary = useMemo(() => {
+    const shoppingRows = budgetTransactions.filter((row) => row.shoppingListId || row.shoppingItemId);
+    const uncategorizedRows = budgetTransactions.filter((row) => !row.categoryId);
+    const filteredTotal = filteredTransactions.reduce((sum, row) => sum + transactionSignedBudgetAmount(row), 0);
+    const shoppingTotal = shoppingRows.reduce((sum, row) => sum + transactionSignedBudgetAmount(row), 0);
+    const manualTotal = budgetTransactions.reduce((sum, row) => sum + transactionSignedBudgetAmount(row), 0) - shoppingTotal;
+    return {
+      count: budgetTransactions.length,
+      filteredCount: filteredTransactions.length,
+      filteredTotal,
+      average: filteredTransactions.length ? filteredTotal / filteredTransactions.length : 0,
+      shoppingCount: shoppingRows.length,
+      shoppingTotal,
+      manualTotal,
+      uncategorizedCount: uncategorizedRows.length,
+    };
+  }, [budgetTransactions, filteredTransactions]);
+
+  const shoppingTransactions = useMemo(
+    () => budgetTransactions.filter((row) => row.shoppingListId || row.shoppingItemId).slice(-8).reverse(),
+    [budgetTransactions]
+  );
 
   useEffect(() => {
     setTxEdits((prev) => {
@@ -499,19 +537,86 @@ export default function TransactionsScreen() {
         </AppCard>
       </View>
 
+      <View className="grid grid-cols-1 gap-3 md:grid-cols-4">
+        <AppCard>
+          <Text className="text-xs uppercase tracking-wide text-muted-foreground">Filtered Total</Text>
+          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">{fmtMoney(transactionSummary.filteredTotal)}</Text>
+          <Text className="text-xs text-muted-foreground">{transactionSummary.filteredCount} of {transactionSummary.count} transaction(s)</Text>
+        </AppCard>
+        <AppCard>
+          <Text className="text-xs uppercase tracking-wide text-muted-foreground">Average</Text>
+          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">{fmtMoney(transactionSummary.average)}</Text>
+          <Text className="text-xs text-muted-foreground">Average in current filter</Text>
+        </AppCard>
+        <AppCard>
+          <Text className="text-xs uppercase tracking-wide text-muted-foreground">Shopping Spend</Text>
+          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">{fmtMoney(transactionSummary.shoppingTotal)}</Text>
+          <Text className="text-xs text-muted-foreground">{transactionSummary.shoppingCount} shopping transaction(s)</Text>
+        </AppCard>
+        <AppCard>
+          <Text className="text-xs uppercase tracking-wide text-muted-foreground">Needs Review</Text>
+          <Text className={cn('mt-1 text-xl font-semibold', transactionSummary.uncategorizedCount ? 'text-amber-700 dark:text-amber-300' : 'text-foreground dark:text-zinc-50')}>
+            {transactionSummary.uncategorizedCount}
+          </Text>
+          <Text className="text-xs text-muted-foreground">Uncategorized transaction(s)</Text>
+        </AppCard>
+      </View>
+
       <AppCard className="gap-3">
         <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Filter</Text>
-        <AppSegmented
-          value={filter}
-          onChange={(value) => setFilter(value as Filter)}
-          compact
-          options={[
-            { label: 'All', value: 'ALL' },
-            { label: 'Needs', value: 'NEED' },
-            { label: 'Wants', value: 'WANT' },
-            { label: 'Savings', value: 'SAVINGS_DEBT' },
-          ]}
-        />
+        <View className="gap-2">
+          <AppInput
+            value={searchText}
+            onChangeText={setSearchText}
+            placeholder="Search transactions, notes, or shopping list"
+            className="h-9"
+          />
+          <AppSegmented
+            value={filter}
+            onChange={(value) => setFilter(value as Filter)}
+            compact
+            options={[
+              { label: 'All', value: 'ALL' },
+              { label: 'Needs', value: 'NEED' },
+              { label: 'Wants', value: 'WANT' },
+              { label: 'Savings', value: 'SAVINGS_DEBT' },
+            ]}
+          />
+          <AppSegmented
+            value={scopeFilter}
+            onChange={(value) => setScopeFilter(value as TxScopeFilter)}
+            compact
+            options={[
+              { label: 'All Sources', value: 'ALL' },
+              { label: 'Shopping', value: 'SHOPPING' },
+              { label: 'Manual', value: 'MANUAL' },
+              { label: 'Needs Review', value: 'UNCATEGORIZED' },
+            ]}
+          />
+        </View>
+      </AppCard>
+
+      <AppCard className="gap-3">
+        <View>
+          <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Shopping List Transactions</Text>
+          <Text className="text-xs text-muted-foreground">Recent transactions created from completed shopping items.</Text>
+        </View>
+        <View className="gap-2">
+          {shoppingTransactions.map((row) => (
+            <View key={row.id} className="flex-row items-center justify-between rounded-md border border-border px-3 py-2 dark:border-zinc-800">
+              <View className="min-w-0 flex-1">
+                <Text className="text-sm font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>
+                  {row.shoppingListName || 'Shopping'} / {row.shoppingItemName || row.name || 'Item'}
+                </Text>
+                <Text className="text-xs text-muted-foreground">{row.date || '-'} · {row.name || '-'}</Text>
+              </View>
+              <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">{fmtMoney(row.amount || 0)}</Text>
+            </View>
+          ))}
+          {!shoppingTransactions.length ? (
+            <Text className="text-sm text-muted-foreground">No shopping list transactions in this period.</Text>
+          ) : null}
+        </View>
       </AppCard>
 
       <AppCard className="gap-3">
@@ -522,11 +627,10 @@ export default function TransactionsScreen() {
 
         {!isCompact ? (
         <ScrollView horizontal showsHorizontalScrollIndicator>
-          <View className="min-w-[980px] flex-1">
+          <View className="min-w-[820px] flex-1">
             <View className="flex-row border-b border-border pb-2 dark:border-zinc-800">
               <Text className="w-[140px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Date</Text>
-              <Text className="w-[360px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Item Name</Text>
-              <Text className="w-[190px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Group</Text>
+              <Text className="w-[420px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Item Name</Text>
               <Text className="w-[130px] text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Amount</Text>
               <Text className="w-[130px] text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Actions</Text>
             </View>
@@ -538,7 +642,7 @@ export default function TransactionsScreen() {
                     <Text className="text-xs text-muted-foreground">{todayDate}</Text>
                   </View>
                 </View>
-                <View className="w-[360px] pr-2">
+                <View className="w-[420px] pr-2">
                   <View>
                     <AppInput
                       value={draft.name ?? ''}
@@ -586,11 +690,6 @@ export default function TransactionsScreen() {
                         ? `Budget: ${selectedDraftBudget.name}`
                         : `Budget: ${selectedDraftBudget.name} (not funded)`}
                   </Text>
-                </View>
-                <View className="w-[190px] pr-2">
-                  <View className="h-9 justify-center px-2">
-                    <Text className="text-xs text-foreground dark:text-zinc-50">{selectedDraftBudget?.group || '-'}</Text>
-                  </View>
                 </View>
                 <View className="w-[130px] pr-2">
                   <AppInput
@@ -645,7 +744,7 @@ export default function TransactionsScreen() {
                     )}
                   </View>
 
-                  <View className="w-[360px] pr-2">
+                  <View className="w-[420px] pr-2">
                     {isEditing ? (
                       <View>
                         <AppInput
@@ -702,12 +801,6 @@ export default function TransactionsScreen() {
                         Shopping: {row.shoppingListName || 'List'} / {row.shoppingItemName}
                       </Text>
                     ) : null}
-                  </View>
-
-                  <View className="w-[190px] pr-2">
-                    <View className="h-9 justify-center px-2">
-                      <Text className="text-xs text-foreground dark:text-zinc-50">{currentBudget?.group || row.group}</Text>
-                    </View>
                   </View>
 
                   <View className="w-[130px] pr-2">

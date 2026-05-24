@@ -144,6 +144,42 @@ export default function DashboardScreen() {
   const accountsSpentTotal = accountReport?.totals.spent ?? 0;
   const accountsOpeningTotal = accountReport?.totals.openingBalance ?? 0;
   const accountsOverdraftCount = accountReport?.totals.overdraftCount ?? 0;
+  const plannedRemaining = manualTotal - spentTotal;
+  const planCoveragePct = incomeTotal > 0 ? Math.round((manualTotal / incomeTotal) * 100) : 0;
+  const spentPct = incomeTotal > 0 ? Math.round((spentTotal / incomeTotal) * 100) : 0;
+  const shoppingSharePct = spentTotal > 0 ? Math.round((actualTotals.shopping / spentTotal) * 100) : 0;
+
+  const topBudgetSpend = useMemo(() => {
+    const byName = new Map<string, number>();
+    transactions.forEach((tx) => {
+      const amount = transactionSignedBudgetAmount(tx);
+      if (!amount) return;
+      const name = String(tx.name || 'Uncategorized').trim() || 'Uncategorized';
+      byName.set(name, (byName.get(name) || 0) + amount);
+    });
+    return [...byName.entries()]
+      .map(([name, amount]) => ({ name, amount }))
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 5);
+  }, [transactions]);
+
+  const recentTransactions = useMemo(
+    () =>
+      [...transactions]
+        .filter((tx) => transactionSignedBudgetAmount(tx) !== 0)
+        .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
+        .slice(0, 5),
+    [transactions]
+  );
+
+  const attentionItems = useMemo(() => {
+    const items: { label: string; tone: 'warning' | 'danger' | 'success' | 'secondary' }[] = [];
+    if (actualTotals.uncategorized > 0) items.push({ label: `${fmtMoney(actualTotals.uncategorized)} uncategorized`, tone: 'warning' });
+    if (accountsOverdraftCount > 0) items.push({ label: `${accountsOverdraftCount} account(s) overdrawn`, tone: 'danger' });
+    if (plannedRemaining < 0) items.push({ label: `${fmtMoney(Math.abs(plannedRemaining))} over plan`, tone: 'danger' });
+    if (!items.length) items.push({ label: 'No urgent issues', tone: 'success' });
+    return items;
+  }, [accountsOverdraftCount, actualTotals.uncategorized, plannedRemaining]);
 
   const currentPeriodTitle = useMemo(() => {
     const current = periods.find((row) => row.id === pid);
@@ -297,6 +333,46 @@ export default function DashboardScreen() {
             </AppCard>
           </View>
 
+          <View className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <AppCard className="gap-1">
+              <View className="flex-row items-center justify-between">
+                <Text className="text-xs uppercase tracking-wide text-muted-foreground">Budget Used</Text>
+                <MaterialCommunityIcons name="speedometer" size={16} color={spentPct > 90 ? '#D4183D' : '#717182'} />
+              </View>
+              <Text className={cn('text-2xl font-bold', spentPct > 100 ? 'text-red-600 dark:text-red-300' : 'text-foreground dark:text-zinc-50')}>
+                {spentPct}%
+              </Text>
+              <Text className="text-xs text-muted-foreground">{fmtMoney(plannedRemaining)} remaining vs plan</Text>
+            </AppCard>
+            <AppCard className="gap-1">
+              <View className="flex-row items-center justify-between">
+                <Text className="text-xs uppercase tracking-wide text-muted-foreground">Planned Coverage</Text>
+                <MaterialCommunityIcons name="format-list-checks" size={16} color="#717182" />
+              </View>
+              <Text className="text-2xl font-bold text-foreground dark:text-zinc-50">{planCoveragePct}%</Text>
+              <Text className="text-xs text-muted-foreground">{fmtMoney(manualTotal)} planned from income</Text>
+            </AppCard>
+            <AppCard className="gap-1">
+              <View className="flex-row items-center justify-between">
+                <Text className="text-xs uppercase tracking-wide text-muted-foreground">Shopping Share</Text>
+                <MaterialCommunityIcons name="cart-outline" size={16} color="#717182" />
+              </View>
+              <Text className="text-2xl font-bold text-foreground dark:text-zinc-50">{shoppingSharePct}%</Text>
+              <Text className="text-xs text-muted-foreground">Of total spending</Text>
+            </AppCard>
+            <AppCard className="gap-1">
+              <View className="flex-row items-center justify-between">
+                <Text className="text-xs uppercase tracking-wide text-muted-foreground">Attention</Text>
+                <MaterialCommunityIcons name="alert-circle-outline" size={16} color={attentionItems[0]?.tone === 'success' ? '#16A34A' : '#D97706'} />
+              </View>
+              <View className="flex-row flex-wrap gap-1">
+                {attentionItems.map((item) => (
+                  <AppBadge key={item.label} label={item.label} variant={item.tone} />
+                ))}
+              </View>
+            </AppCard>
+          </View>
+
           <AppCard className="gap-4">
             <View className="gap-3 md:flex-row md:items-center md:justify-between">
               <View>
@@ -335,6 +411,45 @@ export default function DashboardScreen() {
               })}
             </View>
           </AppCard>
+
+          <View className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            <AppCard className="gap-3">
+              <View>
+                <Text className="text-lg font-semibold text-foreground dark:text-zinc-50">Top Spending</Text>
+                <Text className="text-sm text-muted-foreground">Largest budget items by transaction spend.</Text>
+              </View>
+              <View className="gap-2">
+                {topBudgetSpend.map((row) => (
+                  <View key={row.name} className="gap-1">
+                    <View className="flex-row items-center justify-between">
+                      <Text className="text-sm font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>{row.name}</Text>
+                      <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">{fmtMoney(row.amount)}</Text>
+                    </View>
+                    <AppProgressBar value={spentTotal > 0 ? (row.amount / spentTotal) * 100 : 0} />
+                  </View>
+                ))}
+                {!topBudgetSpend.length ? <Text className="text-sm text-muted-foreground">No spending yet.</Text> : null}
+              </View>
+            </AppCard>
+            <AppCard className="gap-3">
+              <View>
+                <Text className="text-lg font-semibold text-foreground dark:text-zinc-50">Recent Activity</Text>
+                <Text className="text-sm text-muted-foreground">Latest budget-impacting transactions.</Text>
+              </View>
+              <View className="gap-2">
+                {recentTransactions.map((tx) => (
+                  <View key={tx.id} className="flex-row items-center justify-between rounded-md border border-border px-3 py-2 dark:border-zinc-800">
+                    <View className="min-w-0 flex-1">
+                      <Text className="text-sm font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>{tx.name || '-'}</Text>
+                      <Text className="text-xs text-muted-foreground">{tx.date || '-'}{tx.shoppingItemName ? ` · Shopping: ${tx.shoppingItemName}` : ''}</Text>
+                    </View>
+                    <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">{fmtMoney(tx.amount || 0)}</Text>
+                  </View>
+                ))}
+                {!recentTransactions.length ? <Text className="text-sm text-muted-foreground">No recent transactions.</Text> : null}
+              </View>
+            </AppCard>
+          </View>
         </>
       )}
 
