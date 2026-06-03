@@ -414,6 +414,27 @@ function importItemPatch(match: ShoppingItemMatchResult, mode: ShoppingImportBat
   } as Partial<ShoppingListItem>) as Partial<ShoppingListItem>;
 }
 
+function purchaseCatalogPriceUpdate(match: ShoppingItemMatchResult) {
+  const parsed = match.parsedItem;
+  const total = parsedItemTotal(match);
+  const quantity = Math.max(1, Number(parsed.quantity || match.matchedItem?.quantity || 1));
+  const unitPrice = parsed.unitPrice ?? (total > 0 ? total / quantity : undefined);
+  const name = String(match.matchedItem?.name || parsed.name || '').trim();
+
+  if (!name || unitPrice === undefined || !Number.isFinite(unitPrice) || unitPrice <= 0) return undefined;
+
+  return {
+    name,
+    unitPrice,
+    quantity,
+    category: match.matchedItem?.category || '',
+    tags: match.matchedItem?.tags || [],
+    assignedPlanItemId: match.matchedItem?.assignedPlanItemId || '',
+    assignedPlanItemName: match.matchedItem?.assignedPlanItemName || '',
+    assignedGroup: match.matchedItem?.assignedGroup,
+  };
+}
+
 export async function applyShoppingImportBatch(
   uid: string,
   listId: string,
@@ -456,6 +477,36 @@ export async function applyShoppingImportBatch(
       ...importItemPatch(effectiveMatch, importBatch.mode, batchRef.id),
       ...catalogPatch,
     };
+
+    const priceUpdate = importBatch.mode === 'purchase' ? purchaseCatalogPriceUpdate(effectiveMatch) : undefined;
+    if (priceUpdate) {
+      const catalogId = catalog?.id || catalogDocId(priceUpdate.name);
+      const catalogRef = doc(shoppingCatalogCol(uid), catalogId);
+      const historyRef = doc(collection(catalogRef, 'priceHistory'));
+      const assignedGroup = normalizeGroup(priceUpdate.assignedGroup);
+      batch.set(
+        catalogRef,
+        withWorkspaceWrite(
+          compactFields({
+            name: priceUpdate.name,
+            category: normalizeCategory(catalog?.category || priceUpdate.category),
+            tags: normalizeTags(catalog?.tags?.length ? catalog.tags : priceUpdate.tags),
+            lastPrice: priceUpdate.unitPrice,
+            assignedPlanItemId: catalog?.assignedPlanItemId || priceUpdate.assignedPlanItemId,
+            assignedPlanItemName: catalog?.assignedPlanItemName || priceUpdate.assignedPlanItemName,
+            assignedGroup: catalog?.assignedGroup || assignedGroup,
+            ...(catalog ? {} : { createdAt: serverTimestamp() }),
+            updatedAt: serverTimestamp(),
+          })
+        ),
+        { merge: true }
+      );
+      batch.set(historyRef, {
+        price: priceUpdate.unitPrice,
+        quantity: priceUpdate.quantity,
+        createdAt: serverTimestamp(),
+      });
+    }
 
     if (target?.id && !usedExistingIds.has(target.id)) {
       usedExistingIds.add(target.id);

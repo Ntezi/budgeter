@@ -325,8 +325,67 @@ export default function ShoppingScreen() {
     return catalogRows.filter((row) => normalize(row.name || '').includes(q)).slice(0, 10);
   }, [catalogRows, itemDraftName]);
 
+  const catalogByItemName = useMemo(() => {
+    const rows = new Map<string, ShoppingCatalogItem>();
+    catalogRows.forEach((row) => {
+      const key = normalizeShoppingItemName(row.name);
+      if (key && !rows.has(key)) rows.set(key, row);
+    });
+    return rows;
+  }, [catalogRows]);
+
+  const itemsWithCatalogEstimates = useMemo(() => {
+    return items.map((item) => {
+      if ((item.price || 0) > 0) return item;
+      const catalog = catalogByItemName.get(normalizeShoppingItemName(item.name));
+      if (!catalog?.lastPrice || catalog.lastPrice <= 0) return item;
+      return {
+        ...item,
+        price: catalog.lastPrice,
+        category: item.category || catalog.category || '',
+        tags: item.tags?.length ? item.tags : catalog.tags || [],
+        assignedPlanItemId: item.assignedPlanItemId || catalog.assignedPlanItemId || '',
+        assignedPlanItemName: item.assignedPlanItemName || catalog.assignedPlanItemName || '',
+        assignedGroup: item.assignedGroup || catalog.assignedGroup,
+      };
+    });
+  }, [catalogByItemName, items]);
+
+  useEffect(() => {
+    if (!uid || !selectedListId || !catalogRows.length || !items.length) return;
+
+    let cancelled = false;
+    const missingEstimateItems = items.filter((item) => {
+      if (!item.id || (item.price || 0) > 0) return false;
+      const catalog = catalogByItemName.get(normalizeShoppingItemName(item.name));
+      return Boolean(catalog?.lastPrice && catalog.lastPrice > 0);
+    });
+
+    if (!missingEstimateItems.length) return;
+
+    (async () => {
+      for (const item of missingEstimateItems) {
+        if (cancelled || !item.id || (item.price || 0) > 0) continue;
+        const catalog = catalogByItemName.get(normalizeShoppingItemName(item.name));
+        if (!catalog?.lastPrice || catalog.lastPrice <= 0) continue;
+        await updateShoppingListItem(uid, selectedListId, item.id, {
+          price: catalog.lastPrice,
+          category: item.category || catalog.category || '',
+          tags: item.tags?.length ? item.tags : catalog.tags || [],
+          assignedPlanItemId: item.assignedPlanItemId || catalog.assignedPlanItemId || '',
+          assignedPlanItemName: item.assignedPlanItemName || catalog.assignedPlanItemName || '',
+          assignedGroup: item.assignedGroup || catalog.assignedGroup,
+        });
+      }
+    })().catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [catalogByItemName, catalogRows.length, items, selectedListId, uid]);
+
   const displayItems = useMemo(() => {
-    return [...items].sort((a, b) => {
+    return [...itemsWithCatalogEstimates].sort((a, b) => {
       if (a.bought !== b.bought) return a.bought ? 1 : -1;
       const categoryDiff = shoppingCategoryRank(a.category) - shoppingCategoryRank(b.category);
       if (categoryDiff !== 0) return categoryDiff;
@@ -334,7 +393,7 @@ export default function ShoppingScreen() {
       if (categoryNameDiff !== 0) return categoryNameDiff;
       return normalize(a.name || '').localeCompare(normalize(b.name || ''));
     });
-  }, [items]);
+  }, [itemsWithCatalogEstimates]);
 
   const estimatedTotal = useMemo(() => {
     return displayItems.reduce((acc, item) => {
@@ -432,7 +491,9 @@ export default function ShoppingScreen() {
       return;
     }
 
-    const catalog = catalogRows.find((row) => normalize(row.name || '') === normalize(name));
+    const catalog =
+      catalogRows.find((row) => normalize(row.name || '') === normalize(name)) ||
+      catalogByItemName.get(normalizeShoppingItemName(name));
     const plan = resolvePlanForItemName(name, catalog);
 
     try {

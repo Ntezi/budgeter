@@ -54,7 +54,7 @@ Confidence thresholds:
 - purchased planned item IDs
 - planned items missing from the purchase import
 
-Applying a purchase import updates matched items with `actualPrice`, `actualQuantity`, `status = "purchased"`, and bought/completed flags. Unmatched purchased items are added with `isUnplanned = true` and `source = "purchase_import"`.
+Applying a purchase import updates matched items with `actualPrice`, `actualQuantity`, `status = "purchased"`, and bought/completed flags. Unmatched purchased items are added with `isUnplanned = true` and `source = "purchase_import"`. Purchase imports also update the shopping catalog item's `lastPrice` and append a `priceHistory` record, so future lists use the latest reconciled unit price as their estimate while older prices remain available for reporting.
 
 Closing a shopping list sets missing planned items to `status = "not_purchased"` and writes final totals to the list:
 
