@@ -20,7 +20,7 @@ import {
   watchAccounts,
 } from '@/lib/repo/accounts';
 import { type Allocation, watchAllocations } from '@/lib/repo/allocations';
-import { type Tx, watchTransactions } from '@/lib/repo/transactions';
+import { addTransferTransaction, type Tx, watchTransactions } from '@/lib/repo/transactions';
 import { watchIncomeItems } from '@/lib/repo/income';
 import { type PlanItem, watchPlanTotals } from '@/lib/repo/plans';
 import {
@@ -45,6 +45,12 @@ type EditingAccount = {
   openingBalance: number;
   archived: boolean;
   dailyReminderEnabled: boolean;
+};
+
+type TransferDraftRow = {
+  accountId: string;
+  selected: boolean;
+  amount: string;
 };
 
 export default function AccountsScreen() {
@@ -84,6 +90,11 @@ export default function AccountsScreen() {
   const [adjustCurrentDraft, setAdjustCurrentDraft] = useState('');
   const [adjustCurrentError, setAdjustCurrentError] = useState('');
   const [adjustingCurrent, setAdjustingCurrent] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [transferSourceAccountId, setTransferSourceAccountId] = useState('');
+  const [transferRows, setTransferRows] = useState<TransferDraftRow[]>([]);
+  const [transferError, setTransferError] = useState('');
+  const [transferring, setTransferring] = useState(false);
 
   useEffect(() => {
     if (!uid) return;
@@ -189,6 +200,22 @@ export default function AccountsScreen() {
   const details = detailsAccountId ? byAccountId.get(detailsAccountId) ?? null : null;
   const editingVm = editing ? byAccountId.get(editing.id) ?? null : null;
   const adjustVm = adjustAccountId ? byAccountId.get(adjustAccountId) ?? null : null;
+  const transferSourceVm = transferSourceAccountId ? byAccountId.get(transferSourceAccountId) ?? null : null;
+  const activeTransferDestinationRows = useMemo(
+    () =>
+      accountRows.filter(
+        (row) => row.accountId && row.accountId !== transferSourceAccountId && !row.archived
+      ),
+    [accountRows, transferSourceAccountId]
+  );
+  const transferSelectedTotal = useMemo(
+    () =>
+      transferRows.reduce((sum, row) => {
+        if (!row.selected) return sum;
+        return sum + Math.max(0, parseMoney(row.amount));
+      }, 0),
+    [transferRows]
+  );
 
   function resetDraft() {
     setDraft({
@@ -311,6 +338,99 @@ export default function AccountsScreen() {
     }
   }
 
+  function transferableAmount(vm: { cash: { current: number; unallocated: number } } | null) {
+    if (!vm) return 0;
+    if (vm.cash.unallocated > 0) return vm.cash.unallocated;
+    return Math.max(0, vm.cash.current);
+  }
+
+  function openTransfer(accountId: string) {
+    const sourceVm = byAccountId.get(accountId);
+    if (!sourceVm || transferableAmount(sourceVm) <= 0) return;
+    setTransferSourceAccountId(accountId);
+    setTransferRows(
+      accountRows
+        .filter((row) => row.accountId && row.accountId !== accountId && !row.archived)
+        .map((row) => ({
+          accountId: row.accountId,
+          selected: false,
+          amount: '',
+        }))
+    );
+    setTransferError('');
+    setTransferOpen(true);
+  }
+
+  function updateTransferRow(accountId: string, patch: Partial<TransferDraftRow>) {
+    setTransferRows((prev) =>
+      prev.map((row) => (row.accountId === accountId ? { ...row, ...patch } : row))
+    );
+  }
+
+  async function saveTransfers() {
+    if (!uid || !selectedPid || !transferSourceVm || transferring) return;
+
+    const selectedRows = transferRows
+      .filter((row) => row.selected)
+      .map((row) => ({ ...row, parsedAmount: Math.max(0, parseMoney(row.amount)) }))
+      .filter((row) => row.parsedAmount > 0);
+
+    if (!selectedRows.length) {
+      setTransferError('Select at least one destination account and enter an amount.');
+      return;
+    }
+
+    const maxTransferable = transferableAmount(transferSourceVm);
+    const total = selectedRows.reduce((sum, row) => sum + row.parsedAmount, 0);
+    if (total > maxTransferable) {
+      setTransferError(`Transfer total cannot exceed ${fmtMoney(maxTransferable)}.`);
+      return;
+    }
+
+    setTransferring(true);
+    try {
+      await Promise.all(
+        selectedRows.map((row) =>
+          addTransferTransaction(uid, selectedPid, {
+            fromAccountId: transferSourceVm.accountId,
+            toAccountId: row.accountId,
+            amount: row.parsedAmount,
+            note: `Account transfer from ${transferSourceVm.accountName}`,
+          })
+        )
+      );
+
+      await setAccountPeriodCurrentManual(uid, {
+        accountId: transferSourceVm.accountId,
+        periodId: selectedPid,
+        currentManual: transferSourceVm.cash.current - total,
+        updatedBy: user?.uid || uid,
+      });
+
+      await Promise.all(
+        selectedRows.map((row) => {
+          const destinationVm = byAccountId.get(row.accountId);
+          if (!destinationVm) return Promise.resolve();
+          return setAccountPeriodCurrentManual(uid, {
+            accountId: row.accountId,
+            periodId: selectedPid,
+            currentManual: destinationVm.cash.current + row.parsedAmount,
+            updatedBy: user?.uid || uid,
+          });
+        })
+      );
+
+      setTransferOpen(false);
+      setTransferError('');
+      setTransferSourceAccountId('');
+      setTransferRows([]);
+    } catch (e: unknown) {
+      setTransferError(e instanceof Error ? e.message : 'Could not save transfer.');
+    } finally {
+      setTransferring(false);
+    }
+  }
+
   function railColor(type?: WalletType) {
     if (type === 'BANK') return 'bg-blue-500';
     if (type === 'MOMO') return 'bg-emerald-500';
@@ -368,6 +488,16 @@ export default function AccountsScreen() {
                     </View>
                   ) : null}
 
+                  <View className="flex-row items-center justify-between gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1.5 dark:border-emerald-900 dark:bg-emerald-950/20">
+                    <View className="flex-1">
+                      <Text className="text-xs text-emerald-800 dark:text-emerald-200">Unallocated cash</Text>
+                      <Text className="text-[11px] text-emerald-700/80 dark:text-emerald-300/80">Current (Actual) - Remaining</Text>
+                    </View>
+                    <Text className={cn('text-xs font-semibold', row.cash.unallocated < 0 ? 'text-red-700 dark:text-red-300' : 'text-emerald-800 dark:text-emerald-200')}>
+                      {fmtMoney(row.cash.unallocated)}
+                    </Text>
+                  </View>
+
                   <View className="gap-1 rounded-md border border-border bg-muted/20 px-2 py-1.5 dark:border-zinc-800 dark:bg-zinc-800/30">
                     <View className="flex-row items-center justify-between gap-2">
                       <Text className="text-xs text-muted-foreground">Allocated</Text>
@@ -389,6 +519,21 @@ export default function AccountsScreen() {
                     </View>
                   </View>
 
+                  {transferableAmount(row) > 0 ? (
+                    <AppButton
+                      size="sm"
+                      variant="outline"
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        openTransfer(row.accountId);
+                      }}
+                    >
+                      <View className="flex-row items-center gap-2">
+                        <MaterialCommunityIcons name="bank-transfer" size={16} color="#18181B" />
+                        <Text className="text-xs font-medium text-foreground dark:text-zinc-50">Transfer</Text>
+                      </View>
+                    </AppButton>
+                  ) : null}
                 </View>
               </View>
             </AppCard>
@@ -428,6 +573,7 @@ export default function AccountsScreen() {
               <Text className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Cash</Text>
               <View className="flex-row items-center justify-between"><Text className="text-xs text-muted-foreground">Current (Actual)</Text><Text className={cn('text-xs font-medium', details.cash.current < 0 ? 'text-red-700 dark:text-red-300' : 'text-foreground dark:text-zinc-50')}>{fmtMoney(details.cash.current)}</Text></View>
               <View className="flex-row items-center justify-between"><Text className="text-xs text-muted-foreground">Expected (Funded - Spent from this account)</Text><Text className={cn('text-xs font-medium', details.cash.currentAuto < 0 ? 'text-red-700 dark:text-red-300' : 'text-foreground dark:text-zinc-50')}>{fmtMoney(details.cash.currentAuto)}</Text></View>
+              <View className="flex-row items-center justify-between"><Text className="text-xs text-muted-foreground">Unallocated cash</Text><Text className={cn('text-xs font-medium', details.cash.unallocated < 0 ? 'text-red-700 dark:text-red-300' : 'text-emerald-700 dark:text-emerald-300')}>{fmtMoney(details.cash.unallocated)}</Text></View>
               {details.cash.currentManual !== null ? (
                 <View className="flex-row items-center justify-between"><Text className="text-xs text-muted-foreground">Manual Current Override</Text><Text className="text-xs font-medium text-foreground dark:text-zinc-50">{fmtMoney(details.cash.currentManual)}</Text></View>
               ) : null}
@@ -435,6 +581,9 @@ export default function AccountsScreen() {
                 <View className="flex-row items-center justify-between"><Text className="text-xs text-muted-foreground">Remaining to be in this account</Text><Text className="text-xs font-medium text-amber-700 dark:text-amber-300">{fmtMoney(details.cash.topUpNeeded)}</Text></View>
               ) : null}
               <View className="mt-2 flex-row flex-wrap gap-2">
+                {transferableAmount(details) > 0 ? (
+                  <AppButton size="sm" variant="outline" label="Transfer" onPress={() => openTransfer(details.accountId)} />
+                ) : null}
                 <AppButton size="sm" variant="outline" label="Adjust Current" onPress={() => openAdjustCurrent(details.accountId)} />
                 {details.cash.currentManual !== null ? (
                   <AppButton
@@ -545,6 +694,117 @@ export default function AccountsScreen() {
                   disabled={adjustingCurrent}
                 />
               </View>
+            </View>
+          </View>
+        ) : null}
+      </AppModal>
+
+      <AppModal
+        open={transferOpen}
+        onClose={() => {
+          if (transferring) return;
+          setTransferOpen(false);
+          setTransferError('');
+        }}
+        title={`Transfer · ${transferSourceVm?.accountName || ''}`}
+        contentClassName="max-h-[88vh]"
+      >
+        {transferSourceVm ? (
+          <View className="gap-3">
+            <View className="gap-1 rounded-md border border-border bg-muted/20 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/30">
+              <View className="flex-row items-center justify-between gap-3">
+                <Text className="text-xs text-muted-foreground">Current (Actual)</Text>
+                <Text className="text-xs font-medium text-foreground dark:text-zinc-50">{fmtMoney(transferSourceVm.cash.current)}</Text>
+              </View>
+              <View className="flex-row items-center justify-between gap-3">
+                <Text className="text-xs text-muted-foreground">Remaining</Text>
+                <Text className="text-xs font-medium text-foreground dark:text-zinc-50">{fmtMoney(transferSourceVm.budget.remaining)}</Text>
+              </View>
+              <View className="flex-row items-center justify-between gap-3">
+                <Text className="text-xs text-muted-foreground">Unallocated cash</Text>
+                <Text className={cn('text-xs font-medium', transferSourceVm.cash.unallocated < 0 ? 'text-red-700 dark:text-red-300' : 'text-emerald-700 dark:text-emerald-300')}>
+                  {fmtMoney(transferSourceVm.cash.unallocated)}
+                </Text>
+              </View>
+              <View className="flex-row items-center justify-between gap-3">
+                <Text className="text-xs text-muted-foreground">Transferable</Text>
+                <Text className="text-xs font-semibold text-foreground dark:text-zinc-50">{fmtMoney(transferableAmount(transferSourceVm))}</Text>
+              </View>
+            </View>
+
+            <ScrollView className="max-h-[48vh]" contentContainerClassName="gap-2">
+              {transferRows.map((row) => {
+                const destination = byAccountId.get(row.accountId);
+                if (!destination) return null;
+                return (
+                  <View
+                    key={row.accountId}
+                    className={cn(
+                      'gap-2 rounded-md border px-3 py-2',
+                      row.selected
+                        ? 'border-primary bg-primary/5 dark:border-primary dark:bg-primary/10'
+                        : 'border-border bg-card dark:border-zinc-800 dark:bg-zinc-900/60'
+                    )}
+                  >
+                    <View className="flex-row items-center justify-between gap-3">
+                      <Pressable
+                        className="flex-1"
+                        onPress={() => updateTransferRow(row.accountId, { selected: !row.selected })}
+                      >
+                        <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{destination.accountName}</Text>
+                        <Text className="text-[11px] text-muted-foreground">
+                          Current {fmtMoney(destination.cash.current)} · Unallocated {fmtMoney(destination.cash.unallocated)}
+                        </Text>
+                        <Text className="text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                          Remaining to be in this account: {fmtMoney(destination.cash.topUpNeeded)}
+                        </Text>
+                      </Pressable>
+                      <Switch
+                        value={row.selected}
+                        onValueChange={(selected) => updateTransferRow(row.accountId, { selected })}
+                      />
+                    </View>
+                    {row.selected ? (
+                      <View className="gap-1">
+                        <Text className="text-[11px] uppercase tracking-wide text-muted-foreground">Amount to transfer</Text>
+                        <AppInput
+                          value={row.amount}
+                          onChangeText={(amount) => updateTransferRow(row.accountId, { amount })}
+                          keyboardType="decimal-pad"
+                          placeholder="0.00"
+                        />
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })}
+
+              {!activeTransferDestinationRows.length ? (
+                <Text className="text-sm text-muted-foreground">No active destination accounts available.</Text>
+              ) : null}
+            </ScrollView>
+
+            <View className="flex-row items-center justify-between rounded-md border border-border bg-muted/20 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/30">
+              <Text className="text-xs text-muted-foreground">Selected transfer total</Text>
+              <Text className={cn('text-sm font-semibold', transferSelectedTotal > transferableAmount(transferSourceVm) ? 'text-red-700 dark:text-red-300' : 'text-foreground dark:text-zinc-50')}>
+                {fmtMoney(transferSelectedTotal)}
+              </Text>
+            </View>
+
+            {transferError ? <Text className="text-xs text-destructive">{transferError}</Text> : null}
+
+            <View className="flex-row justify-end gap-2">
+              <AppButton
+                variant="outline"
+                label="Cancel"
+                onPress={() => setTransferOpen(false)}
+                disabled={transferring}
+              />
+              <AppButton
+                label={transferring ? 'Transferring...' : 'Transfer'}
+                onPress={() => void saveTransfers()}
+                disabled={transferring || !activeTransferDestinationRows.length}
+              />
             </View>
           </View>
         ) : null}

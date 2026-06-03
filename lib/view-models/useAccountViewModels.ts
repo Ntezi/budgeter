@@ -66,6 +66,7 @@ export type AccountCashViewModel = {
   current: number;
   currentAuto: number;
   currentManual: number | null;
+  unallocated: number;
   topUpNeeded: number;
   periodInflow: number;
   periodOutflow: number;
@@ -90,6 +91,7 @@ export type AccountPeriodMetrics = {
   currentAuto: number;
   currentManual: number | null;
   currentDisplayed: number;
+  unallocated: number;
   topUpNeeded: number;
 };
 
@@ -134,6 +136,7 @@ export function computeAccountPeriodMetrics(input: {
       currentAuto: 0,
       currentManual: null,
       currentDisplayed: 0,
+      unallocated: 0,
       topUpNeeded: 0,
     };
   }
@@ -166,6 +169,7 @@ export function computeAccountPeriodMetrics(input: {
   const currentAuto = funded - spentFrom;
   const currentManual = Number.isFinite(Number(input.currentManual)) ? Number(input.currentManual) : null;
   const currentDisplayed = currentManual ?? currentAuto;
+  const unallocated = currentDisplayed - currentAuto;
   const topUpNeeded = Math.max(0, currentAuto - currentDisplayed);
 
   return {
@@ -176,6 +180,7 @@ export function computeAccountPeriodMetrics(input: {
     currentAuto,
     currentManual,
     currentDisplayed,
+    unallocated,
     topUpNeeded,
   };
 }
@@ -348,6 +353,7 @@ function buildAccountViewModels(params: UseAccountViewModelsParams): AccountView
         current: metrics.currentDisplayed,
         currentAuto: metrics.currentAuto,
         currentManual: metrics.currentManual,
+        unallocated: metrics.unallocated,
         topUpNeeded: metrics.topUpNeeded,
         periodInflow: periodFlow.inflow,
         periodOutflow: periodFlow.outflow,
