@@ -76,6 +76,7 @@ test('BUDG-5 receipts: review, compare, save one expense, link existing, catalog
 
   // AC-1: second receipt linked to an existing expense; the expense is not changed.
   await openList(page, 'Weekend party');
+  await page.getByLabel('List options').click(); // BUDG-8 S10: no Got-it items, so Add receipt is under the list's options
   await page.getByText('Add receipt', { exact: true }).click();
   await expect(page.getByTestId('receipt-line')).toHaveCount(1);
   await page.getByText('Next', { exact: true }).click();
