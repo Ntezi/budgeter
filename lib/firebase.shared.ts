@@ -1,9 +1,10 @@
 import { Platform } from 'react-native';
 import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
-import { connectFirestoreEmulator, getFirestore } from 'firebase/firestore';
+import { connectFirestoreEmulator, getFirestore, terminate } from 'firebase/firestore';
 import type { Auth, User } from 'firebase/auth';
 import { firebaseConfig } from './firebaseConfig';
 import { resolveFirebaseTarget } from './firebaseEmulator';
+import { closeOnPageDiscard } from './closeOnPageDiscard';
 
 // Guard first (ADR-2): throws before any Firebase request when the emulator flag,
 // project id and host do not agree. Direct process.env reads so Expo inlines them.
@@ -22,6 +23,12 @@ const emulatorFlags = globalThis as typeof globalThis & { __budgetaFirestoreEmul
 if (firebaseTarget.useEmulators && !emulatorFlags.__budgetaFirestoreEmulator) {
   connectFirestoreEmulator(db, firebaseTarget.host, firebaseTarget.firestorePort);
   emulatorFlags.__budgetaFirestoreEmulator = true;
+}
+
+// Web: close Firestore when the page is discarded so an aborted WebChannel request never makes the
+// SDK probe google.com (lib/closeOnPageDiscard.ts).
+if (Platform.OS === 'web' && typeof window !== 'undefined') {
+  closeOnPageDiscard(window, () => terminate(db));
 }
 
 let authPromise: Promise<Auth> | null = null;
