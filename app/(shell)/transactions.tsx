@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { localDateISO, postingPeriodId } from '@/lib/rules/postingMonth';
+import { useLocalSearchParams } from 'expo-router';
+import { localDateISO } from '@/lib/rules/postingMonth';
 import { isMonthId, monthTitle } from '@/lib/rules/months';
-import { Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { AppBadge } from '@/components/ui/AppBadge';
 import { AppInput } from '@/components/ui/AppInput';
 import { DropdownField } from '@/components/ui/DropdownField';
@@ -19,9 +19,9 @@ import { planGroupLabel } from '@/lib/groups';
 import { computeFundedBudgetByItemId, hasFundedAmount } from '@/lib/funding';
 import { fmtMoney, parseMoney } from '@/lib/format';
 import { watchIncomeItems } from '@/lib/repo/income';
-import { periodIdFromDate, type Group, type PeriodDoc, type PeriodStatus, watchPeriod, watchPeriods } from '@/lib/repo/periods';
+import { periodIdFromDate, type Group, type PeriodStatus, watchPeriod, watchPeriods } from '@/lib/repo/periods';
 import { type PlanItem, watchPlanTotals } from '@/lib/repo/plans';
-import { addTransaction, delTransaction, setTransaction, type Tx, watchTransactions } from '@/lib/repo/transactions';
+import { delTransaction, setTransaction, type Tx, watchTransactions } from '@/lib/repo/transactions';
 import { useWorkspace, useWorkspaceUid } from '@/providers/WorkspaceProvider';
 import { ReceiptModal } from '@/components/shopping/ReceiptModal';
 import { useAuthUser } from '@/providers/AuthProvider';
@@ -55,29 +55,17 @@ function normalize(input: string) {
   return input.trim().toLowerCase();
 }
 
-function getSuggestions(query: string, options: BudgetOption[]) {
-  const q = normalize(query);
-  if (!q) return options.slice(0, 8);
-  return options.filter((row) => normalize(row.name).includes(q)).slice(0, 8);
-}
 
 export default function TransactionsScreen() {
   const uid = useWorkspaceUid();
   const { activePeriodId } = useWorkspace();
-  const { width } = useWindowDimensions();
   const defaultPid = activePeriodId || periodIdFromDate();
   // Viewed month lives in the URL (?month=) so Back/refresh restore it; it never sets where an expense posts.
-  const router = useRouter();
   const params = useLocalSearchParams<{ month?: string; scope?: string; action?: string }>();
   const monthParam = typeof params.month === 'string' && isMonthId(params.month) ? params.month : '';
   // BUDG-8 S3: the shell's Add sheet replaces the page's expense modal (and handles ?action=new-expense).
 
-  const [periods, setPeriods] = useState<(PeriodDoc & { id: string })[]>([]);
   const [selectedPid, setSelectedPidState] = useState(monthParam || defaultPid);
-  function setSelectedPid(next: string) {
-    setSelectedPidState(next);
-    router.setParams({ month: next });
-  }
   const [periodStatus, setPeriodStatus] = useState<PeriodStatus>('DRAFT');
 
   const [transactions, setTransactions] = useState<Tx[]>([]);
@@ -113,16 +101,7 @@ export default function TransactionsScreen() {
   const [searchText, setSearchText] = useState('');
   const [formError, setFormError] = useState('');
 
-  const [draft, setDraft] = useState<Tx>({
-    name: '',
-    amount: 0,
-    group: 'NEED',
-    categoryId: '',
-  });
-
   const readOnly = periodStatus === 'DECIDED';
-  const todayDate = localDateISO();
-  const todayPostingPid = postingPeriodId(todayDate);
 
   useEffect(() => {
     if (monthParam) setSelectedPidState(monthParam);
@@ -135,7 +114,6 @@ export default function TransactionsScreen() {
   useEffect(() => {
     if (!uid) return;
     return watchPeriods(uid, (rows) => {
-      setPeriods(rows);
       if (!rows.some((row) => row.id === selectedPid)) {
         const fallback = rows.find((row) => row.id === defaultPid)?.id || rows[0]?.id;
         if (fallback) setSelectedPidState(fallback);
@@ -404,49 +382,6 @@ export default function TransactionsScreen() {
     setFormError('');
   }
 
-  async function addRow() {
-    if (!uid || !selectedPid) return;
-    if (readOnly) {
-      setFormError('This budget is closed and view-only.');
-      return;
-    }
-
-    // The quick row is dated today, so it may only post into today's month.
-    if (selectedPid !== todayPostingPid) {
-      setFormError(`Quick add posts to ${monthTitle(todayPostingPid)} (today). Use Add Expense to choose the date for ${monthTitle(selectedPid)}.`);
-      return;
-    }
-
-    const budget = resolveBudget(String(draft.name || ''), String(draft.categoryId || ''));
-    if (!budget) {
-      setFormError('Select a budget item suggestion before adding this transaction.');
-      return;
-    }
-    if (!budgetIsFunded(budget.id)) {
-      setFormError('This budget item is not funded in the current budget period.');
-      return;
-    }
-
-    if (!draft.amount || draft.amount <= 0) {
-      setFormError('Amount must be greater than 0.');
-      return;
-    }
-
-    await addTransaction(uid, todayPostingPid, {
-      name: budget.name,
-      categoryId: budget.id,
-      planItemId: budget.id,
-      group: budget.group,
-      amount: draft.amount,
-      date: todayDate,
-      note: draft.note,
-      paidFromAccountId: plannedAccountByPlanId.get(budget.id) || '',
-    });
-
-    setDraft((prev) => ({ ...prev, name: '', categoryId: '', amount: 0, group: 'NEED' }));
-    setFormError('');
-  }
-
   async function saveRow(row: Tx) {
     if (!uid || !selectedPid || !row.id || readOnly) return;
     const edit = txEdits[row.id];
@@ -514,13 +449,6 @@ export default function TransactionsScreen() {
     await delTransaction(uid, selectedPid, id);
     setEditingId((prev) => (prev === id ? null : prev));
   }
-
-  const draftSuggestions = useMemo(
-    () => getSuggestions(String(draft.name || ''), fundedBudgetOptions),
-    [draft.name, fundedBudgetOptions]
-  );
-  const selectedDraftBudget = resolveBudget(String(draft.name || ''), String(draft.categoryId || ''));
-  const selectedDraftBudgetFunded = selectedDraftBudget ? budgetIsFunded(selectedDraftBudget.id) : false;
 
   const mobileDetailRow = useMemo(
     () => filteredTransactions.find((row) => row.id === mobileDetailId) || null,
@@ -631,6 +559,11 @@ export default function TransactionsScreen() {
           );
         })}
       </View>
+      {budgetTransactions.length ? (
+        <Text className="px-1 text-xs text-muted-foreground dark:text-zinc-400" testID="activity-filtered-count">
+          {transactionSummary.filteredCount} of {transactionSummary.count} {transactionSummary.count === 1 ? 'cost' : 'costs'} shown
+        </Text>
+      ) : null}
       <AppInput value={searchText} onChangeText={setSearchText} placeholder="Search" accessibilityLabel="Search costs" className="h-11" />
 
       {!txLoaded ? (
