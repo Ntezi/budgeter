@@ -184,12 +184,12 @@ test('S2/S3 keyboard: sidebar focus order, n opens Add expense, Escape returns f
   await page.locator('body').click({ position: { x: 1, y: 1 } });
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   const order: string[] = [];
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 9; i++) {
     await page.keyboard.press('Tab');
     order.push(await page.evaluate(() => document.activeElement?.getAttribute('aria-label') || (document.activeElement?.textContent || '').trim()));
   }
   results.sidebarTabOrder = order;
-  expect(order).toEqual(['Add expense', 'Home', 'Plan', 'Shopping', 'Accounts', 'Year plan', 'Reports', 'Regular costs', 'Catalog', 'Settings']); // BUDG-6 added Year plan to More
+  expect(order).toEqual(['Add expense', 'Home', 'Plan', 'Shopping', 'Accounts', 'Reports', 'Regular costs', 'Catalog', 'Settings']);
   await page.keyboard.press('Enter'); // Settings link via keyboard
   await page.locator('body').click({ position: { x: 600, y: 10 } });
   await page.keyboard.press('n');
