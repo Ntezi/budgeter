@@ -14,7 +14,7 @@ import { AppSheet, useSheet } from '@/components/patterns/AppSheet';
 import { FormField } from '@/components/patterns/FormLayout';
 import { ListGroup, ListRow } from '@/components/patterns/ListRow';
 import { PageHeader } from '@/components/patterns/PageHeader';
-import { EmptyState, LoadingState } from '@/components/patterns/States';
+import { EmptyState, ErrorState, LoadingState } from '@/components/patterns/States';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppInput } from '@/components/ui/AppInput';
 import { AppSegmented } from '@/components/ui/AppSegmented';
@@ -24,7 +24,7 @@ import { fmtMoney, parseMoney } from '@/lib/format';
 import { addAccount, updateAccount } from '@/lib/repo/accounts';
 import { clearAccountPeriodCurrentManual, setAccountPeriodCurrentManual } from '@/lib/repo/accountPeriodOverrides';
 import { monthTitle } from '@/lib/rules/months';
-import { accountFigures, accountHint } from '@/lib/view-models/accountFigures';
+import { accountHint } from '@/lib/view-models/accountFigures';
 import type { AccountViewModel } from '@/lib/view-models/useAccountViewModels';
 import { useAuthUser } from '@/providers/AuthProvider';
 import { useWorkspaceUid } from '@/providers/WorkspaceProvider';
@@ -48,17 +48,16 @@ function railColor(type?: WalletType) {
   return 'bg-zinc-500';
 }
 
-function AccountRow({ vm, selected, onPress }: { vm: AccountViewModel; selected?: boolean; onPress: () => void }) {
-  const hint = accountHint(vm, fmtMoney);
-  const f = accountFigures(vm);
+function AccountRow({ vm, balance, selected, onPress }: { vm: AccountViewModel; balance: number; selected?: boolean; onPress: () => void }) {
+  const hint = accountHint(vm, fmtMoney, balance);
   return (
     <View className={selected ? 'bg-muted/60 dark:bg-zinc-800/60' : undefined}>
       <ListRow
         testID={`account-row-${vm.accountId}`}
         title={vm.accountName}
         sub={`${TYPE_LABEL[(vm.accountType ?? 'OTHER') as WalletType] ?? 'Other'} · ${hint.text}`}
-        amount={fmtMoney(f.balance)}
-        amountClassName={f.balance < 0 ? 'text-destructive dark:text-red-300' : undefined}
+        amount={fmtMoney(balance)}
+        amountClassName={balance < 0 ? 'text-destructive dark:text-red-300' : undefined}
         onPress={onPress}
         left={<View className={cn('h-10 w-1 rounded-full', railColor(vm.accountType))} />}
       />
@@ -99,8 +98,9 @@ export default function AccountsScreen() {
 
   const active = useMemo(() => data.accountRows.filter((r) => r.accountId && !r.archived), [data.accountRows]);
   const archived = useMemo(() => data.accountRows.filter((r) => r.accountId && r.archived), [data.accountRows]);
-  const total = active.reduce((s, r) => s + r.cash.current, 0);
-  const overdrawn = active.filter((r) => r.cash.current < 0).length;
+  // Same figures as Home's Accounts row (fetchAccountsReport): total over every account, overdrawn count.
+  const total = data.report?.totals.current ?? 0;
+  const overdrawn = data.report?.totals.overdraftCount ?? 0;
   const toMove = active.filter((r) => r.budget.unfunded > 0);
 
   const phoneId = typeof params.id === 'string' ? params.id : '';
@@ -205,6 +205,7 @@ export default function AccountsScreen() {
   const detail = selected ? (
     <AccountDetail
       vm={selected}
+      balance={data.balanceOf(selected.accountId)}
       pid={pid}
       closed={data.closed}
       transactions={data.transactions}
@@ -213,11 +214,13 @@ export default function AccountsScreen() {
       onAddExpense={openAdd}
       onEdit={() => openAccountForm(undefined, selected.accountId)}
       onManual={() => openManual(undefined, selected.accountId)}
-      onSeeAll={() => router.push(`/transactions?month=${pid}` as any)}
+      onSeeAll={() => router.push(`/transactions?month=${pid}&account=${encodeURIComponent(selected.accountId)}` as any)}
     />
   ) : null;
 
-  const balances = !data.accountsLoaded ? (
+  const balances = data.reportError ? (
+    <ErrorState message="Balances did not load." onRetry={data.retryReport} testID="accounts-error" />
+  ) : !data.accountsLoaded || !data.report ? (
     <LoadingState rows={4} testID="accounts-loading" />
   ) : !active.length ? (
     <View className="gap-3">
@@ -254,7 +257,7 @@ export default function AccountsScreen() {
 
       <ListGroup testID="accounts-list">
         {active.map((r) => (
-          <AccountRow key={r.accountId} vm={r} selected={desktop && r.accountId === selectedId} onPress={() => select(r.accountId)} />
+          <AccountRow key={r.accountId} vm={r} balance={data.balanceOf(r.accountId)} selected={desktop && r.accountId === selectedId} onPress={() => select(r.accountId)} />
         ))}
       </ListGroup>
     </View>
@@ -271,7 +274,7 @@ export default function AccountsScreen() {
           {archivedOpen ? (
             <ListGroup testID="accounts-archived">
               {archived.map((r) => (
-                <AccountRow key={r.accountId} vm={r} selected={desktop && r.accountId === selectedId} onPress={() => select(r.accountId)} />
+                <AccountRow key={r.accountId} vm={r} balance={data.balanceOf(r.accountId)} selected={desktop && r.accountId === selectedId} onPress={() => select(r.accountId)} />
               ))}
             </ListGroup>
           ) : null}

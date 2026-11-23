@@ -4,6 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { addMonthsToId, monthIdFromDate, monthTitle } from '../lib/rules/months';
+import { getAccountCurrentAmount, sumCashMovementByAccount } from '../lib/accounting';
+import { fmtMoney } from '../lib/format';
 import { EVIDENCE, listIds, noPageScroll, reseed, signIn } from './helpers';
 
 const CUR = monthIdFromDate(new Date());
@@ -176,21 +178,65 @@ test('S8 Accounts: balances, detail, Move money (pre-fill, cap, explicit Save), 
     await expect(p.getByTestId('account-detail').first()).toBeVisible();
   });
 
-  // Four accounts on one screen at 390 without scrolling.
+  // Equality, the direct way. Expected "Balance today" per account = opening + all-time cash movement from the
+  // emulator's documents (lib/accounting, the functions Home's report uses); expected "Actual this month" =
+  // the old screen's "Current (Actual)" = the period override or 0 (useAccountViewModels, unchanged).
+  const val = (v: any): any => {
+    if (!v) return undefined;
+    if ('stringValue' in v) return v.stringValue;
+    if ('booleanValue' in v) return v.booleanValue;
+    if ('doubleValue' in v || 'integerValue' in v) return Number(v.doubleValue ?? v.integerValue);
+    return null;
+  };
+  const plain = (fields: Record<string, any>) => Object.fromEntries(Object.entries(fields || {}).map(([k, v]) => [k, val(v)]));
+  const accDocs = (await listIds('accounts')).map((d) => ({ id: d.id, ...plain(d.fields) })) as any[];
+  const allTx: any[] = [];
+  for (const p of await listIds('periods')) allTx.push(...(await listIds('periods', p.id, 'transactions')).map((d) => ({ id: d.id, ...plain(d.fields) })));
+  const moves = sumCashMovementByAccount(allTx);
+  const overrides = (await listIds('accountPeriodOverrides')).map((d) => plain(d.fields)) as any[];
+  const expected = accDocs.map((acc) => ({
+    id: acc.id,
+    archived: acc.archived === true,
+    balance: getAccountCurrentAmount(acc, moves.get(acc.id) || 0),
+    actual: Number(overrides.find((o) => o.accountId === acc.id && o.periodId === CUR)?.currentManual ?? 0),
+  }));
+  results.S8equality = expected;
+  const active = expected.filter((e) => !e.archived);
+  const total = expected.reduce((s, e) => s + e.balance, 0);
+
   await open(page, '/accounts', 390);
   const rows = page.getByTestId('accounts-list').locator('[data-testid^="account-row-"]');
-  expect(await rows.count()).toBeGreaterThanOrEqual(4);
-  for (const box of await rows.evaluateAll((els) => els.map((el) => el.getBoundingClientRect().bottom))) expect(box).toBeLessThanOrEqual(844);
+  await expect(rows).toHaveCount(active.length); // seed: 3 active + 1 archived
+  await page.getByRole('button', { name: /^Archived \(/ }).click();
+  for (const e of expected) await expect(page.getByTestId(`account-row-${e.id}`), `balance ${e.id}`).toContainText(fmtMoney(e.balance));
+  await expect(page.getByTestId('accounts-total')).toContainText(fmtMoney(total));
+  // All four seeded accounts (archived expanded) fit on one 390 x 844 screen.
+  for (const bottom of await page.locator('[data-testid^="account-row-"]').evaluateAll((els) => els.map((el) => el.getBoundingClientRect().bottom))) expect(bottom).toBeLessThanOrEqual(844);
+  expect(await page.locator('[data-testid^="account-row-"]').count()).toBe(expected.length);
+  await snap(page, 'S8-all-accounts-w390-light');
+  for (const e of expected) {
+    await open(page, `/accounts?id=${e.id}`, 390);
+    await expect(page.getByTestId('account-balance')).toHaveText(fmtMoney(e.balance));
+    await expect(page.getByTestId('detail-actual')).toContainText(fmtMoney(e.actual));
+  }
+  await open(page, `/dashboard?month=${CUR}`, 390);
+  await expect(page.getByTestId('home-accounts')).toContainText(fmtMoney(total));
+
+  // Seed has nothing free to move (old screen: no Transfer button either); set Household's actual by hand
+  // through the existing manual-balance sheet so a move is possible.
+  await open(page, '/accounts?id=acc-household', 390);
+  await page.getByTestId('detail-actual').click();
+  await page.getByLabel('Manual balance').fill('5000');
+  await page.getByRole('button', { name: 'Save balance' }).click();
+  await expect(page.getByTestId('manual-sheet')).toBeHidden();
 
   // Detail: Accounts (1) -> row (2) -> Move money (3) -> To (4) -> amount -> Move money (5).
   const txBefore = await listIds('periods', CUR, 'transactions');
-  await page.getByTestId('account-row-acc-household').click();
-  await expect(page).toHaveURL(/id=acc-household/);
   await expect(page.getByTestId('account-month').getByText('Set aside for plans')).toBeVisible();
   await page.getByTestId('detail-move').click();
   const sheet = page.getByTestId('move-sheet');
   await expect(page.getByTestId('move-form')).toBeVisible();
-  await expect(page.getByTestId('move-from').getByRole('radio', { checked: true })).toHaveAccessibleName(/Household account/);
+  await page.getByTestId('move-from').getByRole('radio', { name: 'From Household account' }).click();
   await page.getByTestId('move-to').getByRole('radio').first().click();
   const toName = ((await page.getByTestId('move-to').getByRole('radio', { checked: true }).getAttribute('aria-label')) || '').replace(/^To /, '');
   await page.getByTestId('move-amount').fill('99999999');
@@ -215,9 +261,19 @@ test('S8 Accounts: balances, detail, Move money (pre-fill, cap, explicit Save), 
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('move-form')).toBeHidden();
   await expect(page.getByTestId('detail-move')).toBeFocused();
-  // Back from detail returns to the list.
+  // Row opens the detail as a pushed screen; Back returns to the list.
+  await open(page, '/accounts', 390);
+  await page.getByTestId('account-row-acc-household').click();
+  await expect(page).toHaveURL(/id=acc-household/);
   await page.goBack();
   await expect(page.getByTestId('accounts-list')).toBeVisible();
+  // See all: Activity limited to this account.
+  await open(page, '/accounts?id=acc-household', 390);
+  await page.getByRole('button', { name: 'See all activity' }).click();
+  await expect(page).toHaveURL(/\/transactions\?.*account=acc-household/);
+  await expect(page.getByTestId('activity-account-filter')).toBeVisible();
+  await snap(page, 'S8-see-all-activity-w390-light');
+  await open(page, '/accounts', 390);
 
   // Money to move row (when seed has a short account) pre-fills To and amount: Accounts, row, Move = 3 taps.
   const toMove = page.getByTestId('accounts-to-move');

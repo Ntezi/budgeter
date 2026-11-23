@@ -5,8 +5,8 @@ import type { AccountViewModel } from '@/lib/view-models/useAccountViewModels';
 type Vm = Pick<AccountViewModel, 'cash' | 'budget'>;
 
 export type AccountFigures = {
-  /** "Balance today" = cash.current (was "Current"). */
-  balance: number;
+  /** "Actual this month" = cash.current (was "Current (Actual)"; a hand-set figure, 0 when none). */
+  actual: number;
   /** "Set aside for plans" = budget.allocated (was "Allocated"). */
   setAside: number;
   /** "Moved in" = budget.funded (was "Funded"). */
@@ -29,7 +29,7 @@ export function freeToMove(vm: { cash: { current: number; unallocated: number } 
 
 export function accountFigures(vm: Vm): AccountFigures {
   return {
-    balance: vm.cash.current,
+    actual: vm.cash.current,
     setAside: vm.budget.allocated,
     movedIn: vm.budget.funded,
     stillToMove: vm.budget.unfunded,
@@ -41,10 +41,13 @@ export function accountFigures(vm: Vm): AccountFigures {
 
 export type AccountHint = { tone: 'danger' | 'warning' | 'muted'; text: string };
 
-/** One hint line per account, most urgent first (spec 05 "Hint line priority"). */
-export function accountHint(vm: Vm, money: (n: number) => string): AccountHint {
+/**
+ * One hint line per account, most urgent first (spec 05 "Hint line priority"). `balanceToday` is the
+ * opening balance + all-time cash movement (the figure Home shows), not the period's cash.current.
+ */
+export function accountHint(vm: Vm, money: (n: number) => string, balanceToday: number): AccountHint {
   const f = accountFigures(vm);
-  if (f.balance < 0) return { tone: 'danger', text: `Overdrawn by ${money(-f.balance)}` };
+  if (balanceToday < 0) return { tone: 'danger', text: `Overdrawn by ${money(-balanceToday)}` };
   if (f.stillToMove > 0) return { tone: 'warning', text: `${money(f.stillToMove)} still to move here` };
   if (f.notPlanned < 0) return { tone: 'danger', text: `${money(-f.notPlanned)} more planned than you have` };
   return { tone: 'muted', text: 'All set' };

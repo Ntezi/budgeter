@@ -14,7 +14,7 @@ const vm = (cash: Partial<{ current: number; unallocated: number }>, budget: Par
 test('BUDG-8 S8: renamed figures equal the old view-model figures', () => {
   const v = vm({ current: 2900, unallocated: 1350 }, { allocated: 1550, funded: 1450, unfunded: 100, spentFrom: 120 });
   const f = accountFigures(v);
-  assert.equal(f.balance, v.cash.current); // Current
+  assert.equal(f.actual, v.cash.current); // Current (Actual)
   assert.equal(f.setAside, v.budget.allocated); // Allocated
   assert.equal(f.movedIn, v.budget.funded); // Funded
   assert.equal(f.stillToMove, v.budget.unfunded); // Unfunded
@@ -34,10 +34,10 @@ test('BUDG-8 S8: free to move is the old transferableAmount formula', () => {
 });
 
 test('BUDG-8 S8: one hint per account, most urgent first', () => {
-  assert.deepEqual(accountHint(vm({ current: -100, unallocated: -100 }, { unfunded: 50 }), m), { tone: 'danger', text: 'Overdrawn by GHS 100.00' });
-  assert.deepEqual(accountHint(vm({ current: 10 }, { unfunded: 100 }), m), { tone: 'warning', text: 'GHS 100.00 still to move here' });
-  assert.deepEqual(accountHint(vm({ current: 10, unallocated: -40 }, {}), m), { tone: 'danger', text: 'GHS 40.00 more planned than you have' });
-  assert.deepEqual(accountHint(vm({ current: 10, unallocated: 10 }, {}), m), { tone: 'muted', text: 'All set' });
+  assert.deepEqual(accountHint(vm({ current: 0, unallocated: -100 }, { unfunded: 50 }), m, -100), { tone: 'danger', text: 'Overdrawn by GHS 100.00' });
+  assert.deepEqual(accountHint(vm({ current: 10 }, { unfunded: 100 }), m, 10), { tone: 'warning', text: 'GHS 100.00 still to move here' });
+  assert.deepEqual(accountHint(vm({ current: 10, unallocated: -40 }, {}), m, 10), { tone: 'danger', text: 'GHS 40.00 more planned than you have' });
+  assert.deepEqual(accountHint(vm({ current: 10, unallocated: 10 }, {}), m, 10), { tone: 'muted', text: 'All set' });
 });
 
 test('BUDG-8 S8: Move money pre-fill picks the richest other account and caps at its free amount', () => {

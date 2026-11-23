@@ -7,6 +7,7 @@ import { type Allocation, watchAllocations } from '@/lib/repo/allocations';
 import { watchIncomeItems } from '@/lib/repo/income';
 import { periodIdFromDate, type PeriodDoc, watchPeriods } from '@/lib/repo/periods';
 import { type PlanItem, watchPlanTotals } from '@/lib/repo/plans';
+import { fetchAccountsReport, type AccountReport } from '@/lib/repo/reports';
 import { type Tx, watchTransactions } from '@/lib/repo/transactions';
 import { useAccountViewModels } from '@/lib/view-models/useAccountViewModels';
 import { useWorkspace } from '@/providers/WorkspaceProvider';
@@ -134,6 +135,33 @@ export function useAccountsData(uid: string | null | undefined, selectedPid: str
     currentManualByAccountId,
   });
 
+  // "Balance today" per account: the same read Home uses (opening balance + all-time cash movement),
+  // re-read whenever accounts or any transaction change. The period figures above stay as they were.
+  const [report, setReport] = useState<AccountReport | null>(null);
+  const [reportError, setReportError] = useState(false);
+  const [retry, setRetry] = useState(0);
+  const reportKey = `${accounts.map((a) => `${a.id}:${a.openingBalance}:${a.archived}`).join('|')}#${allTransactions.length}#${allTransactions.reduce((s, t) => s + Number(t.amount || 0), 0)}`;
+  useEffect(() => {
+    if (!uid) return;
+    let cancelled = false;
+    fetchAccountsReport(uid)
+      .then((r) => {
+        if (cancelled) return;
+        setReport(r);
+        setReportError(false);
+      })
+      .catch(() => {
+        if (!cancelled) setReportError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [uid, reportKey, retry]);
+
   const periodStatus = allPeriods.find((p) => p.id === selectedPid)?.status;
-  return { accounts, accountsLoaded, accountById, accountRows, byAccountId, transactions, planItems, periodStatus, closed: periodStatus === 'DECIDED' };
+  return {
+    report,
+    reportError,
+    retryReport: () => setRetry((n) => n + 1),
+    balanceOf: (accountId: string) => report?.currentByAccount[accountId] ?? 0, accounts, accountsLoaded, accountById, accountRows, byAccountId, transactions, planItems, periodStatus, closed: periodStatus === 'DECIDED' };
 }

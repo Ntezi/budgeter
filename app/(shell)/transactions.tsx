@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { localDateISO } from '@/lib/rules/postingMonth';
 import { isMonthId, monthTitle } from '@/lib/rules/months';
 import { Pressable, ScrollView, Text, View } from 'react-native';
@@ -61,7 +61,10 @@ export default function TransactionsScreen() {
   const { activePeriodId } = useWorkspace();
   const defaultPid = activePeriodId || periodIdFromDate();
   // Viewed month lives in the URL (?month=) so Back/refresh restore it; it never sets where an expense posts.
-  const params = useLocalSearchParams<{ month?: string; scope?: string; action?: string }>();
+  const router = useRouter();
+  const params = useLocalSearchParams<{ month?: string; scope?: string; action?: string; account?: string }>();
+  // BUDG-8 S8: "See all" from an account opens Activity limited to the costs paid from it.
+  const accountParam = typeof params.account === 'string' ? params.account : '';
   const monthParam = typeof params.month === 'string' && isMonthId(params.month) ? params.month : '';
   // BUDG-8 S3: the shell's Add sheet replaces the page's expense modal (and handles ?action=new-expense).
 
@@ -237,6 +240,7 @@ export default function TransactionsScreen() {
     const q = normalize(searchText);
     return budgetTransactions.filter((row) => {
       if (filter !== 'ALL' && row.group !== filter) return false;
+      if (accountParam && (row.paidFromAccountId || row.accountId || '') !== accountParam) return false;
       if (scopeFilter === 'SHOPPING' && !row.shoppingListId && !row.shoppingItemId) return false;
       if (scopeFilter === 'MANUAL' && (row.shoppingListId || row.shoppingItemId)) return false;
       if (scopeFilter === 'UNCATEGORIZED' && row.categoryId) return false;
@@ -248,7 +252,7 @@ export default function TransactionsScreen() {
         normalize(row.shoppingItemName || '').includes(q)
       );
     });
-  }, [budgetTransactions, filter, scopeFilter, searchText]);
+  }, [budgetTransactions, filter, scopeFilter, searchText, accountParam]);
 
   const totals = useMemo(() => {
     const next = { needs: 0, wants: 0, sd: 0, total: 0 };
@@ -559,6 +563,12 @@ export default function TransactionsScreen() {
           );
         })}
       </View>
+      {accountParam ? (
+        <View className="flex-row flex-wrap items-center gap-2" testID="activity-account-filter">
+          <Text className="px-1 text-sm text-foreground dark:text-zinc-50">Paid from one account only</Text>
+          <AppButton label="Show all accounts" variant="ghost" size="touch" onPress={() => router.setParams({ account: '' } as any)} />
+        </View>
+      ) : null}
       {budgetTransactions.length ? (
         <Text className="px-1 text-xs text-muted-foreground dark:text-zinc-400" testID="activity-filtered-count">
           {transactionSummary.filteredCount} of {transactionSummary.count} {transactionSummary.count === 1 ? 'cost' : 'costs'} shown

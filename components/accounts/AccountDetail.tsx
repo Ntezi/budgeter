@@ -15,6 +15,8 @@ const tabular = { fontVariant: ['tabular-nums' as const] };
 
 type Props = {
   vm: AccountViewModel;
+  /** Opening balance + all-time cash movement (as Home). */
+  balance: number;
   pid: string;
   closed: boolean;
   transactions: Tx[];
@@ -30,7 +32,7 @@ function Figure({ label, value, onPress, testID }: { label: string; value: numbe
   return <ListRow title={label} amount={fmtMoney(value)} onPress={onPress} testID={testID} amountClassName={value < 0 ? 'text-destructive dark:text-red-300' : undefined} />;
 }
 
-export function AccountDetail({ vm, pid, closed, transactions, onBack, onMove, onAddExpense, onEdit, onManual, onSeeAll }: Props) {
+export function AccountDetail({ vm, balance, pid, closed, transactions, onBack, onMove, onAddExpense, onEdit, onManual, onSeeAll }: Props) {
   const [moreOpen, setMoreOpen] = useState(false);
   const f = accountFigures(vm);
   const monthName = monthTitle(pid).split(' ')[0];
@@ -56,8 +58,8 @@ export function AccountDetail({ vm, pid, closed, transactions, onBack, onMove, o
 
       <View className="gap-1">
         <Text className="text-sm text-muted-foreground dark:text-zinc-400">Balance today</Text>
-        <Text testID="account-balance" className={f.balance < 0 ? 'text-3xl font-bold text-destructive dark:text-red-300' : 'text-3xl font-bold text-foreground dark:text-zinc-50'} style={tabular}>
-          {fmtMoney(f.balance)}
+        <Text testID="account-balance" className={balance < 0 ? 'text-3xl font-bold text-destructive dark:text-red-300' : 'text-3xl font-bold text-foreground dark:text-zinc-50'} style={tabular}>
+          {fmtMoney(balance)}
         </Text>
         {vm.archived ? <Text className="text-sm text-muted-foreground dark:text-zinc-400">Archived · its history stays.</Text> : null}
       </View>
@@ -77,6 +79,7 @@ export function AccountDetail({ vm, pid, closed, transactions, onBack, onMove, o
         <Figure label="Still to move" value={f.stillToMove} onPress={!closed && f.stillToMove > 0 ? () => onMove(vm.accountId) : undefined} testID="detail-still-to-move" />
         <Figure label="Spent from here" value={f.spent} />
         <Figure label="Not planned yet" value={f.notPlanned} />
+        <Figure label="Actual this month" value={f.actual} onPress={onManual} testID="detail-actual" />
       </ListGroup>
 
       {vm.assignedItems.length ? (
@@ -105,9 +108,9 @@ export function AccountDetail({ vm, pid, closed, transactions, onBack, onMove, o
           <ListGroup testID="account-settings">
             <ListRow title="Opening balance" amount={fmtMoney(vm.cash.opening)} onPress={onEdit} />
             <ListRow
-              title="Manual balance"
-              sub={vm.cash.currentManual == null ? `Calculated: ${fmtMoney(vm.cash.currentAuto)}` : `Set by hand · calculated ${fmtMoney(vm.cash.currentAuto)}`}
-              amount={vm.cash.currentManual == null ? 'Not set' : fmtMoney(vm.cash.currentManual)}
+              title="Actual this month (set by hand)"
+              sub={`Moved in minus spent: ${fmtMoney(vm.cash.currentAuto)}`}
+              amount={fmtMoney(vm.cash.current)}
               onPress={onManual}
             />
           </ListGroup>
