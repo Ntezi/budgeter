@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { AppInput } from '@/components/ui/AppInput';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppSegmented } from '@/components/ui/AppSegmented';
@@ -68,6 +69,7 @@ function normalize(input: string) {
 
 export default function ShoppingItemsScreen() {
   const uid = useWorkspaceUid();
+  const router = useRouter();
 
   const [rows, setRows] = useState<ShoppingCatalogItem[]>([]);
   const [categories, setCategories] = useState<ShoppingCategory[]>([]);
@@ -937,6 +939,17 @@ export default function ShoppingItemsScreen() {
                 onPress={() => void importCsv().then(() => setCsvPreview(null))}
               />
             </View>
+            <AppButton
+              label="Import from a file"
+              variant="ghost"
+              size="touch"
+              className="self-start px-0"
+              testID="catalog-import-settings-link"
+              onPress={() => {
+                setManageOpen(false);
+                router.push('/settings?page=import&kind=catalog');
+              }}
+            />
           </View>
 
           <View className="gap-3">
