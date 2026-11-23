@@ -116,8 +116,8 @@ export function FromYearPlanCard({ uid, pid, periodExists, status, planItems, ac
   const accountOptions = [{ label: 'No account', value: '' }, ...accounts.filter((a) => a.id && !a.archived).map((a) => ({ label: a.name, value: a.id! }))];
 
   return (
-    <AppCard className="gap-2" testID="from-year-plan">
-      <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">From your year plan</Text>
+    <AppCard className="gap-3 rounded-xl p-4" testID="from-year-plan">
+      <Text className="text-base font-semibold text-foreground dark:text-zinc-50">From your year plan</Text>
       {offers.length ? (
         <Text className="text-xs text-muted-foreground">Budgeted in this month. Nothing is added until you choose.</Text>
       ) : null}
@@ -125,10 +125,10 @@ export function FromYearPlanCard({ uid, pid, periodExists, status, planItems, ac
         const suggested = suggestedFor(item);
         const r = review[item.id];
         return (
-          <View key={item.id} className="gap-2 border-b border-border py-2 dark:border-zinc-800" testID={`year-offer-${item.id}`}>
-            <View className="flex-row items-start justify-between gap-2">
-              <Text className="flex-1 text-sm font-medium text-foreground dark:text-zinc-50">{item.title}</Text>
-              <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{fmtMoney(fromMinor(item.estimateMinor!))}</Text>
+          <View key={item.id} className="gap-2 border-b border-border py-3 last:border-b-0 dark:border-zinc-800" testID={`year-offer-${item.id}`}>
+            <View className="flex-row items-center gap-3">
+              <Text className="min-w-0 flex-1 text-base font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>{item.title}</Text>
+              <Text className="shrink-0 text-base font-semibold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>{fmtMoney(fromMinor(item.estimateMinor!))}</Text>
             </View>
             <Text className="text-xs text-muted-foreground">
               {`Due ${item.dueDate} · ${planGroupLabel((item.group ?? 'NEED') as any)}${suggested ? ` · ${accountName(suggested)}` : ''}`}
@@ -140,6 +140,7 @@ export function FromYearPlanCard({ uid, pid, periodExists, status, planItems, ac
                   onChangeText={(v) => setReview((prev) => ({ ...prev, [item.id]: { ...r, amount: v } }))}
                   keyboardType="decimal-pad"
                   accessibilityLabel={`Amount for ${item.title}`}
+                  className="h-11 text-base" style={{ height: 44 }}
                 />
                 <View className="z-10">
                   <DropdownField
@@ -147,6 +148,7 @@ export function FromYearPlanCard({ uid, pid, periodExists, status, planItems, ac
                     options={PLAN_GROUP_OPTIONS as any}
                     onChange={(v) => setReview((prev) => ({ ...prev, [item.id]: { ...r, group: v } }))}
                     menuStrategy="inline"
+                    triggerClassName="h-11"
                   />
                 </View>
                 <DropdownField
@@ -156,23 +158,24 @@ export function FromYearPlanCard({ uid, pid, periodExists, status, planItems, ac
                   placeholder="No account"
                   menuStrategy="inline"
                   menuClassName="max-h-44"
+                  triggerClassName="h-11"
                 />
               </View>
             ) : null}
             <View className="flex-row flex-wrap gap-2">
               <AppButton
                 label={busyId === item.id ? 'Adding…' : 'Add to this month'}
-                size="sm"
+                size="touch"
                 onPress={() => add(item)}
                 disabled={busyId === item.id}
                 textClassName="text-white"
               />
               {r ? (
-                <AppButton label="Cancel" variant="outline" size="sm" onPress={() => setReview(({ [item.id]: _c, ...rest }) => rest)} />
+                <AppButton label="Cancel" variant="outline" size="touch" onPress={() => setReview(({ [item.id]: _c, ...rest }) => rest)} />
               ) : (
-                <AppButton label="Review" variant="outline" size="sm" onPress={() => openReview(item)} />
+                <AppButton label="Review" variant="outline" size="touch" onPress={() => openReview(item)} />
               )}
-              <AppButton label="Skip" variant="ghost" size="sm" onPress={() => run(item.id, () => skipYearItemInMonth(uid, pid, item.id))} disabled={busyId === item.id} />
+              <AppButton label="Skip" variant="ghost" size="touch" onPress={() => run(item.id, () => skipYearItemInMonth(uid, pid, item.id))} disabled={busyId === item.id} />
             </View>
           </View>
         );
@@ -181,7 +184,7 @@ export function FromYearPlanCard({ uid, pid, periodExists, status, planItems, ac
         <View className="flex-row flex-wrap items-center gap-2">
           <Text className="text-xs text-muted-foreground">{`Skipped: ${skipped.map((i) => i.title).join(', ')}`}</Text>
           {skipped.map((i) => (
-            <AppButton key={i.id} label={`Bring back ${i.title}`} variant="ghost" size="sm" onPress={() => run(i.id, () => unskipYearItemInMonth(uid, pid, i.id))} />
+            <AppButton key={i.id} label={`Bring back ${i.title}`} variant="ghost" size="touch" onPress={() => run(i.id, () => unskipYearItemInMonth(uid, pid, i.id))} />
           ))}
         </View>
       ) : null}

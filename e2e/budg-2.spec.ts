@@ -85,7 +85,7 @@ test('AC-3/AC-4/AC-5 draft offers: add (double tap), review-edit, skip, reopen; 
   const before = await counts();
   const linesBefore = (await listIds('periods', CUR, 'planItems')).length;
   await page.goto(`/budgets/${CUR}`);
-  await page.getByText('Spending Plan', { exact: true }).first().click();
+  await expect(page.getByTestId('plan-groups')).toBeVisible(); // BUDG-8 S5: tabs gone, lines are on the Month view
   const card = page.getByTestId('from-year-plan');
   await expect(card).toBeVisible();
   await expect(card.getByTestId('year-offer-yr-insurance')).toBeVisible();
@@ -116,7 +116,7 @@ test('AC-3/AC-4/AC-5 draft offers: add (double tap), review-edit, skip, reopen; 
   await shot(page, info, 'AC-3-after-add-review-skip');
 
   await page.reload(); // reopen the month
-  await page.getByText('Spending Plan', { exact: true }).first().click();
+  await expect(page.getByTestId('plan-groups')).toBeVisible(); // BUDG-8 S5: tabs gone, lines are on the Month view
   await expect(page.getByText('Car insurance renewal').first()).toBeVisible();
   await expect(page.getByTestId('year-offer-yr-insurance')).toHaveCount(0);
   const lines = await listIds('periods', CUR, 'planItems');
@@ -130,7 +130,7 @@ test('AC-3/AC-4/AC-5 draft offers: add (double tap), review-edit, skip, reopen; 
 test('AC-6 edit after inclusion previews draft lines; locked month unchanged; totals count once', async ({ page }, info) => {
   const guard = await signIn(page, info);
   await page.goto(`/budgets/${CUR}`);
-  await page.getByText('Spending Plan', { exact: true }).first().click();
+  await expect(page.getByTestId('plan-groups')).toBeVisible(); // BUDG-8 S5: tabs gone, lines are on the Month view
   await page.getByTestId('year-offer-yr-insurance').getByText('Add to this month').click();
   await expect.poll(async () => num(await byId('year_yr-insurance', 'periods', CUR, 'planItems'), 'amount')).toBe(360);
 

@@ -1,6 +1,6 @@
 // BUDG-3 e2e: default accounts with one-line overrides, in the complete web app
 // against the local emulators (start with `npm run web:emulators`).
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { monthIdFromDate } from '../lib/rules/months';
 import { listIds, noPageScroll, reseed, shot, signIn } from './helpers';
 
@@ -12,11 +12,13 @@ test.beforeEach(() => reseed());
 const field = (row: { fields: Record<string, any> } | undefined, key: string) => row?.fields?.[key]?.stringValue;
 const byId = async (id: string, ...segments: string[]) => (await listIds(...segments)).find((r) => r.id === id);
 
+// BUDG-8 S5: the add panel is the "Add a need" sheet; the Reconcile banner sits on the Month view.
 async function openSection(page: Page, label: 'Plan' | 'Reconcile') {
-  await page.getByText(label === 'Plan' ? 'Spending Plan' : label, { exact: true }).first().click();
+  if (label === 'Plan') await page.getByRole('button', { name: 'Add a need' }).click();
+  else await expect(page.getByTestId('plan-groups')).toBeVisible();
 }
 
-async function pick(page: Page, triggerText: string | RegExp, optionText: string | RegExp) {
+async function pick(page: Page | Locator, triggerText: string | RegExp, optionText: string | RegExp) {
   await page.getByText(triggerText, { exact: typeof triggerText === 'string' }).first().click();
   await page.getByText(optionText, { exact: typeof optionText === 'string' }).last().click();
 }
@@ -32,7 +34,7 @@ test('AC-2/AC-4 add panel: suggested account pre-filled; archived default asks f
   await expect(page.getByText('Default for Water bill: Household account')).toBeVisible();
   await shot(page, info, 'AC-2-add-panel-suggested-account-prefilled');
   const allocBefore = await listIds('periods', CUR, 'allocations');
-  await page.getByText('Add Template', { exact: true }).click();
+  await page.getByText('Add cost', { exact: true }).click(); // BUDG-8 S5: was 'Add Template'
   await expect.poll(async () => field(await byId('exp_exp-water', 'periods', CUR, 'planItems'), 'plannedAccountId')).toBe('acc-household');
   const line = await byId('exp_exp-water', 'periods', CUR, 'planItems');
   expect(field(line, 'sourceId')).toBe('exp-water');
@@ -49,7 +51,7 @@ test('AC-3/AC-6 change a linked line: one clear choice; "Only this month" leaves
   await page.goto(`/budgets/${CUR}`);
   await openSection(page, 'Plan');
   await pick(page, /^Phone plan ·/, /^Water bill ·/);
-  await page.getByText('Add Template', { exact: true }).click();
+  await page.getByText('Add cost', { exact: true }).click(); // BUDG-8 S5: was 'Add Template'
   await expect.poll(async () => field(await byId('exp_exp-water', 'periods', CUR, 'planItems'), 'plannedAccountId')).toBe('acc-household');
   const prevMonth = await listIds('periods'); // includes the locked month
   const txBefore = JSON.stringify(await listIds('periods', CUR, 'transactions'));
@@ -59,9 +61,8 @@ test('AC-3/AC-6 change a linked line: one clear choice; "Only this month" leaves
   await expect(page.getByText(/1 line needs an account choice/)).toBeVisible();
   await shot(page, info, 'AC-2-AC-4-reconcile-banner-suggestion-and-repair');
 
-  const compact = (page.viewportSize()?.width ?? 1440) < 768;
-  if (compact) await page.getByText('Water bill', { exact: true }).first().click();
-  await pick(page, 'Household account', 'Savings account');
+  await page.getByTestId('plan-groups').getByText('Water bill', { exact: true }).first().click(); // BUDG-8 S5: line sheet at every width
+  await pick(page.getByTestId('line-sheet'), 'Household account', 'Savings account');
   await expect(page.getByText('Only this month', { exact: true })).toBeVisible();
   await expect(page.getByText('Also use for future months', { exact: true })).toBeVisible();
   await shot(page, info, 'AC-3-two-choices-at-the-moment-of-change');
@@ -73,8 +74,8 @@ test('AC-3/AC-6 change a linked line: one clear choice; "Only this month" leaves
   expect((await listIds('periods')).length).toBe(prevMonth.length);
 
   // Second change, this time deliberately updating the future default.
-  if (compact) await page.getByText('Water bill', { exact: true }).first().click();
-  await pick(page, 'Savings account', 'Cash wallet');
+  await page.getByTestId('plan-groups').getByText('Water bill', { exact: true }).first().click();
+  await pick(page.getByTestId('line-sheet'), 'Savings account', 'Cash wallet');
   await page.getByText('Also use for future months', { exact: true }).click();
   await expect.poll(async () => field(await byId('exp-water', 'expenses'), 'defaultAccountId')).toBe('acc-cash');
   expect(JSON.stringify(await listIds('periods', CUR, 'transactions'))).toBe(txBefore);
@@ -88,7 +89,7 @@ test('SEC-21 suggested lines earmark money only through Review → Apply all', a
   await openSection(page, 'Reconcile');
   const allocId = `item_plan_recbudget_plan_rec-internet_${CUR}`;
   expect(await byId(allocId, 'periods', CUR, 'allocations')).toBeUndefined();
-  await page.getByText('Review', { exact: true }).click();
+  await page.getByTestId('default-accounts-banner').getByText('Review', { exact: true }).click(); // year-plan offers also have Review
   await expect(page.getByText('Apply suggested accounts')).toBeVisible();
   await shot(page, info, 'AC-2-review-suggested-accounts');
   await page.getByText('Apply all', { exact: true }).click();
