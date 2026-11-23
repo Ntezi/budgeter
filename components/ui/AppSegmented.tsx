@@ -31,7 +31,7 @@ export function AppSegmented<T extends string>({ value, options, onChange, class
               className={cn(
                 'items-center justify-center rounded-md',
                 full && 'flex-1',
-                touch ? 'h-11 px-4' : compact ? 'h-7 px-2.5' : 'h-8 px-3',
+                touch ? (full ? 'h-11 px-1' : 'h-11 px-4') : compact ? 'h-7 px-2.5' : 'h-8 px-3',
                 active ? 'border border-border bg-card dark:border-zinc-800 dark:bg-zinc-900' : 'bg-transparent'
               )}
               accessibilityRole="button"

@@ -111,7 +111,7 @@ export function TrendCard(p: { range: TrendRange; onRange: (r: TrendRange) => vo
     <ReportCard title="How does it compare?" testID="report-trend">
       <AppSegmented
         touch
-        className="self-start"
+        full
         value={p.range}
         onChange={p.onRange}
         options={[

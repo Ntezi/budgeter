@@ -1,3 +1,4 @@
+import { uniqueMonthLabels } from '@/lib/chart';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -819,11 +820,12 @@ export default function ReportsScreen() {
     : [];
   const insight = report ? analyzePeriodBehavior(report) : null;
 
-  const trendPoints = periods
+  const trendRows = periods
     .slice(0, Number(range))
     .filter((row) => reportsById[row.id])
-    .reverse()
-    .map((row) => ({ x: periodTitleFromId(row.id).slice(0, 3), y: reportsById[row.id].totals.transactions.total || 0 }));
+    .reverse();
+  const trendLabels = uniqueMonthLabels(trendRows.map((row) => row.id), periodTitleFromId);
+  const trendPoints = trendRows.map((row, i) => ({ x: trendLabels[i], y: reportsById[row.id].totals.transactions.total || 0 }));
   const prevId = addMonthsToId(pid, -1);
   const prevReport = reportsById[prevId];
   let trendSentence = 'Spending per month for the months you have.';
