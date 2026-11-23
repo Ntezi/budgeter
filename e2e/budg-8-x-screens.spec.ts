@@ -165,3 +165,84 @@ test('S9 Activity: day-grouped list, chips, search, detail sheet, delete confirm
   results.S9taps = { findShoppingSpendFromHome: 1, attachReceipt: 2, addExpenseAnyScreen: 'shell + (S3)' };
   guard.assertOnlyLoopback();
 });
+
+test('S8 Accounts: balances, detail, Move money (pre-fill, cap, explicit Save), Add sheet segment', async ({ page }, info) => {
+  test.setTimeout(600_000);
+  const guard = await signIn(page, info);
+  await matrix(page, 'S8', 'accounts', '/accounts', async (p) => {
+    await expect(p.getByTestId('accounts-list')).toBeVisible();
+  });
+  await matrix(page, 'S8', 'detail', '/accounts?id=acc-household', async (p) => {
+    await expect(p.getByTestId('account-detail').first()).toBeVisible();
+  });
+
+  // Four accounts on one screen at 390 without scrolling.
+  await open(page, '/accounts', 390);
+  const rows = page.getByTestId('accounts-list').locator('[data-testid^="account-row-"]');
+  expect(await rows.count()).toBeGreaterThanOrEqual(4);
+  for (const box of await rows.evaluateAll((els) => els.map((el) => el.getBoundingClientRect().bottom))) expect(box).toBeLessThanOrEqual(844);
+
+  // Detail: Accounts (1) -> row (2) -> Move money (3) -> To (4) -> amount -> Move money (5).
+  const txBefore = await listIds('periods', CUR, 'transactions');
+  await page.getByTestId('account-row-acc-household').click();
+  await expect(page).toHaveURL(/id=acc-household/);
+  await expect(page.getByTestId('account-month').getByText('Set aside for plans')).toBeVisible();
+  await page.getByTestId('detail-move').click();
+  const sheet = page.getByTestId('move-sheet');
+  await expect(page.getByTestId('move-form')).toBeVisible();
+  await expect(page.getByTestId('move-from').getByRole('radio', { checked: true })).toHaveAccessibleName(/Household account/);
+  await page.getByTestId('move-to').getByRole('radio').first().click();
+  const toName = ((await page.getByTestId('move-to').getByRole('radio', { checked: true }).getAttribute('aria-label')) || '').replace(/^To /, '');
+  await page.getByTestId('move-amount').fill('99999999');
+  await expect(page.getByText(/Household account has .* free to move\./)).toBeVisible();
+  await expect(page.getByTestId('move-save')).toBeDisabled();
+  await page.getByTestId('move-amount').fill('1.00');
+  await expect(page.getByTestId('move-summary')).toHaveText(new RegExp(`^Moves .*1\\.00 from Household account to ${toName} · \\d{4}-\\d\\d-\\d\\d · ${monthTitle(CUR)}$`));
+  await snap(page, 'S8-move-money-w390-light');
+  await page.getByTestId('move-save').click();
+  await expect(sheet).toBeHidden();
+  const txAfter = await listIds('periods', CUR, 'transactions');
+  expect(txAfter.length).toBe(txBefore.length + 1);
+  const added = txAfter.find((r) => !txBefore.some((b) => b.id === r.id))!;
+  expect(added.fields.type?.stringValue).toBe('TRANSFER');
+  expect(Number(added.fields.amount?.doubleValue ?? added.fields.amount?.integerValue)).toBe(1);
+  expect(added.fields.paidFromAccountId?.stringValue).toBe('acc-household');
+  expect(added.fields.note?.stringValue).toBe('Account transfer from Household account');
+
+  // Escape closes the sheet and returns focus to the trigger; nothing written.
+  await page.getByTestId('detail-move').click();
+  await expect(page.getByTestId('move-form')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('move-form')).toBeHidden();
+  await expect(page.getByTestId('detail-move')).toBeFocused();
+  // Back from detail returns to the list.
+  await page.goBack();
+  await expect(page.getByTestId('accounts-list')).toBeVisible();
+
+  // Money to move row (when seed has a short account) pre-fills To and amount: Accounts, row, Move = 3 taps.
+  const toMove = page.getByTestId('accounts-to-move');
+  results.S8taps = { seeBalances: 1, fundShortAccount: (await toMove.count()) ? 3 : null, fundFromDetail: 5, addAccount: 2 };
+  if (await toMove.count()) {
+    await toMove.locator('[data-testid^="to-move-"]').first().click();
+    await expect(page.getByTestId('move-to').getByRole('radio', { checked: true })).toHaveCount(1);
+    await expect(page.getByTestId('move-amount')).not.toHaveValue('');
+    await snap(page, 'S8-money-to-move-prefill-w390-light');
+    await page.keyboard.press('Escape');
+  }
+
+  // Add sheet: Move money segment is the same form, finished in place.
+  await page.getByTestId('add-button').first().click();
+  await page.getByRole('button', { name: 'Move money', exact: true }).or(page.getByRole('tab', { name: 'Move money' })).first().click();
+  await expect(page.getByTestId('move-form')).toBeVisible();
+  await expect(page.getByTestId('move-save')).toBeVisible();
+  await snap(page, 'S8-add-sheet-move-w390-light');
+  await page.keyboard.press('Escape');
+  expect((await listIds('periods', CUR, 'transactions')).length).toBe(txAfter.length);
+
+  // States: add-account sheet.
+  await page.getByRole('button', { name: 'Add account' }).last().click();
+  await expect(page.getByTestId('account-sheet')).toBeVisible();
+  await snap(page, 'S8-add-account-w390-light');
+  await page.keyboard.press('Escape');
+  guard.assertOnlyLoopback();
+});
