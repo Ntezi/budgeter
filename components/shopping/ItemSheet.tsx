@@ -49,7 +49,7 @@ export function ItemSheet(p: Props) {
   const footer = (
     <>
       {p.error ? <Text role="alert" className="text-sm text-destructive dark:text-red-300">{p.error}</Text> : null}
-      <AppButton label={p.saveLabel} size="touch-lg" className="w-full dark:bg-zinc-50" textClassName="text-base dark:text-zinc-900" disabled={p.saveDisabled} onPress={p.onSave} />
+      <AppButton label={p.saveLabel} size="touch-lg" className="w-full" textClassName="text-base" disabled={p.saveDisabled} onPress={p.onSave} />
       <View className="flex-row items-center justify-between">
         <AppButton label="Cancel" variant="ghost" size="touch" onPress={p.onClose} />
         {p.onDelete ? <AppButton label="Delete item" variant="ghost" size="touch" textClassName="text-destructive dark:text-red-300" onPress={p.onDelete} /> : null}

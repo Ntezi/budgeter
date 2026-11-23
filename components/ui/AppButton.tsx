@@ -15,7 +15,8 @@ type Props = Omit<PressableProps, 'children'> & {
 };
 
 const VARIANT_CLASS: Record<AppButtonVariant, string> = {
-  primary: 'bg-primary',
+  // BUDG-8: kept tokens only; the near-black primary fill vanished on the dark background.
+  primary: 'bg-primary dark:bg-zinc-50',
   secondary: 'bg-secondary dark:bg-zinc-800',
   outline: 'border border-border bg-background dark:border-zinc-800 dark:bg-zinc-900/60',
   ghost: 'bg-transparent',
@@ -23,7 +24,7 @@ const VARIANT_CLASS: Record<AppButtonVariant, string> = {
 };
 
 const VARIANT_TEXT_CLASS: Record<AppButtonVariant, string> = {
-  primary: 'text-white',
+  primary: 'text-white dark:text-zinc-900',
   secondary: 'text-secondary-foreground dark:text-zinc-50',
   outline: 'text-foreground dark:text-zinc-50',
   ghost: 'text-foreground dark:text-zinc-50',

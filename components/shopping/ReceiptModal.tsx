@@ -208,7 +208,7 @@ export function ReceiptModal({ open, onClose, onSaved, ownerUid, actorUid, accou
           Total: {totalMinor === null ? 'enter every price' : fmt(totalMinor)}
         </Text>
         {error ? <Text role="alert" className="text-sm text-destructive dark:text-red-300">{error}</Text> : null}
-        <AppButton label={saving ? 'Saving…' : 'Next'} size="touch-lg" className="w-full dark:bg-zinc-50" textClassName="text-base dark:text-zinc-900" disabled={saving || !lines.length} onPress={() => void next()} />
+        <AppButton label={saving ? 'Saving…' : 'Next'} size="touch-lg" className="w-full" textClassName="text-base" disabled={saving || !lines.length} onPress={() => void next()} />
         <AppButton label="Cancel" variant="ghost" size="touch" onPress={onClose} />
       </>
     ) : (
@@ -225,8 +225,8 @@ export function ReceiptModal({ open, onClose, onSaved, ownerUid, actorUid, accou
         <AppButton
           label={saving ? 'Saving…' : mode === 'NEW' ? 'Save expense' : 'Link receipt'}
           size="touch-lg"
-          className="w-full dark:bg-zinc-50"
-          textClassName="text-base dark:text-zinc-900"
+          className="w-full"
+          textClassName="text-base"
           disabled={saving || (mode === 'NEW' ? !accountId : !txId)}
           onPress={() => void save()}
         />

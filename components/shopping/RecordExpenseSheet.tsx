@@ -51,8 +51,8 @@ export function RecordExpenseSheet(p: Props) {
         label={p.busy ? p.busyLabel || 'Saving…' : 'Save expense'}
         accessibilityLabel="Save expense"
         size="touch-lg"
-        className="w-full dark:bg-zinc-50"
-        textClassName="text-base dark:text-zinc-900"
+        className="w-full"
+        textClassName="text-base"
         disabled={!p.ready || p.busy}
         onPress={p.onSave}
       />
@@ -130,7 +130,7 @@ export function GotItFooter({ count, total, onRecord, onReceipt }: { count: numb
         {`${count} item${count === 1 ? '' : 's'} got${total ? ` · ${total}` : ''}`}
       </Text>
       <View className="flex-row gap-2">
-        <AppButton textClassName="dark:text-zinc-900" label="Record expense" size="touch" className="min-w-0 flex-1 dark:bg-zinc-50" onPress={onRecord} />
+        <AppButton label="Record expense" size="touch" className="min-w-0 flex-1" onPress={onRecord} />
         <AppButton label="Add receipt" variant="outline" size="touch" className="min-w-0 flex-1" onPress={onReceipt} />
       </View>
     </View>
