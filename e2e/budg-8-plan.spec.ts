@@ -160,3 +160,29 @@ test('S6 lifecycle: New month sheet, Close month asks first, Keep open changes n
   expect(JSON.stringify(await listIds('periods'))).toBe(before);
   guard.assertOnlyLoopback();
 });
+
+test('S7 Plan Year: Coming up first, months as one list, item sheet at 5 widths', async ({ page }, info) => {
+  test.setTimeout(300_000);
+  const guard = await signIn(page, info);
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate((t) => window.localStorage.setItem('budgeter:theme', t), theme);
+    for (const width of WIDTHS) {
+      await open(page, '/budgets?view=year', width, 'year-plan-view');
+      const scroll = await noPageScroll(page);
+      expect(scroll.scrollWidth, `year scroll at ${width}`).toBeLessThanOrEqual(scroll.innerWidth);
+      expect(await clippedAmounts(page), `year clipped at ${width}`).toEqual([]);
+      const upcomingY = (await page.getByText(/^Upcoming · next/).boundingBox())?.y ?? 0;
+      const monthsY = (await page.getByTestId('year-months').boundingBox())?.y ?? 0;
+      expect(upcomingY).toBeLessThan(monthsY); // Coming up first
+      if (width < 768) expect(await smallTargets(page.getByTestId('year-plan-view')), `year targets at ${width}`).toEqual([]);
+      await snap(page, `S7-year-w${width}-${theme}`);
+      await page.getByText('Add dated item', { exact: true }).first().click();
+      await expect(page.getByTestId('year-item-sheet')).toBeVisible();
+      if (width < 768) expect(await smallTargets(page.getByTestId('year-item-sheet')), `item sheet targets at ${width}`).toEqual([]);
+      await snap(page, `S7-item-sheet-w${width}-${theme}`);
+      await page.keyboard.press('Escape');
+      await expect(page.getByTestId('year-item-sheet')).toHaveCount(0);
+    }
+  }
+  guard.assertOnlyLoopback();
+});

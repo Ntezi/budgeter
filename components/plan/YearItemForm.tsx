@@ -165,7 +165,7 @@ export function YearItemForm({ uid, open, onClose, item, defaultDueDate, account
   const hasUpdates = Boolean(preview?.some((r) => r.action === 'update'));
 
   return (
-    <AppModal open={open} onClose={onClose} title={item ? 'Edit year item' : 'Add dated item'}>
+    <AppModal presentation="sheet" open={open} onClose={onClose} title={item ? 'Edit year item' : 'Add dated item'} testID="year-item-sheet">
       {preview ? (
         <View className="gap-3" testID="year-edit-preview">
           <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Months that include this item</Text>
@@ -179,66 +179,66 @@ export function YearItemForm({ uid, open, onClose, item, defaultDueDate, account
               ) : (
                 <View className="gap-2">
                   <Text className="text-xs text-amber-700 dark:text-amber-300">{`Item is ${row.reason}; this month keeps ${fmtMoney(row.from)} until you remove it`}</Text>
-                  <AppButton label={`Remove from ${monthTitle(row.pid)}`} variant="outline" size="sm" onPress={() => removeFrom(row.pid)} disabled={busy} />
+                  <AppButton label={`Remove from ${monthTitle(row.pid)}`} variant="outline" size="touch" onPress={() => removeFrom(row.pid)} disabled={busy} />
                 </View>
               )}
             </View>
           ))}
           {error ? <Text className="text-xs text-red-600 dark:text-red-300">{error}</Text> : null}
           <View className="flex-row flex-wrap justify-end gap-2">
-            <AppButton label="Back" variant="outline" size="sm" onPress={() => setPreview(null)} disabled={busy} />
-            <AppButton label="Save year plan only" variant="outline" size="sm" onPress={() => apply(false)} disabled={busy} />
-            {hasUpdates ? <AppButton label="Apply to drafts" size="sm" onPress={() => apply(true)} disabled={busy} textClassName="text-white" /> : null}
+            <AppButton label="Back" variant="outline" size="touch" onPress={() => setPreview(null)} disabled={busy} />
+            <AppButton label="Save year plan only" variant="outline" size="touch" onPress={() => apply(false)} disabled={busy} />
+            {hasUpdates ? <AppButton label="Apply to drafts" size="touch" onPress={() => apply(true)} disabled={busy} textClassName="text-white" /> : null}
           </View>
         </View>
       ) : (
         <View className="gap-3">
           <View className="gap-1">
-            <Text className="text-xs text-muted-foreground">Title</Text>
-            <AppInput value={title} onChangeText={setTitle} placeholder="e.g. Residence card renewal" accessibilityLabel="Title" maxLength={80} />
+            <Text className="text-sm font-medium text-foreground dark:text-zinc-50">Title</Text>
+            <AppInput className="text-base" style={{ height: 44 }} value={title} onChangeText={setTitle} placeholder="e.g. Residence card renewal" accessibilityLabel="Title" maxLength={80} />
           </View>
           <View className="z-20 flex-col gap-3 md:flex-row">
-            <View className="flex-1 gap-1">
-              <Text className="text-xs text-muted-foreground">Due date</Text>
-              <AppInput value={dueDate} onChangeText={setDueDate} placeholder="YYYY-MM-DD" accessibilityLabel="Due date" maxLength={10} />
+            <View className="gap-1 md:flex-1">
+              <Text className="text-sm font-medium text-foreground dark:text-zinc-50">Due date</Text>
+              <AppInput className="text-base" style={{ height: 44 }} value={dueDate} onChangeText={setDueDate} placeholder="YYYY-MM-DD" accessibilityLabel="Due date" maxLength={10} />
             </View>
-            <View className="z-20 flex-1 gap-1">
-              <Text className="text-xs text-muted-foreground">Budget in</Text>
+            <View className="z-20 gap-1 md:flex-1">
+              <Text className="text-sm font-medium text-foreground dark:text-zinc-50">Budget in</Text>
               <DropdownField
                 value={budgetIn || dueDate.slice(0, 7)}
                 options={monthOptions}
                 onChange={setBudgetIn}
                 placeholder="Due month"
-                menuStrategy="inline"
+                menuStrategy="inline" triggerClassName="h-11"
                 menuClassName="max-h-44"
                 disabled={!monthOptions.length}
               />
             </View>
           </View>
           <View className="gap-1">
-            <Text className="text-xs text-muted-foreground">Estimate (leave empty for date only)</Text>
-            <AppInput value={estimate} onChangeText={setEstimate} placeholder="Date only" keyboardType="decimal-pad" accessibilityLabel="Estimate" />
+            <Text className="text-sm font-medium text-foreground dark:text-zinc-50">Estimate (leave empty for date only)</Text>
+            <AppInput className="text-base" style={{ height: 44 }} value={estimate} onChangeText={setEstimate} placeholder="Date only" keyboardType="decimal-pad" accessibilityLabel="Estimate" />
           </View>
           {estimate.trim() ? (
             <>
               <View className="z-10 gap-1">
-                <Text className="text-xs text-muted-foreground">Category</Text>
+                <Text className="text-sm font-medium text-foreground dark:text-zinc-50">Category</Text>
                 <DropdownField
                   value={categoryId}
                   options={[{ label: 'No category', value: '' }, ...expenses.filter((e) => e.id).map((e) => ({ label: e.name, value: e.id! }))]}
                   onChange={onCategory}
                   placeholder="No category"
-                  menuStrategy="inline"
+                  menuStrategy="inline" triggerClassName="h-11"
                   menuClassName="max-h-44"
                 />
               </View>
               <View className="gap-1">
-                <Text className="text-xs text-muted-foreground">Group</Text>
-                <DropdownField value={group} options={PLAN_GROUP_OPTIONS as any} onChange={setGroup} menuStrategy="inline" />
+                <Text className="text-sm font-medium text-foreground dark:text-zinc-50">Group</Text>
+                <DropdownField value={group} options={PLAN_GROUP_OPTIONS as any} onChange={setGroup} menuStrategy="inline" triggerClassName="h-11" />
               </View>
               <View className="gap-1">
-                <Text className="text-xs text-muted-foreground">Funding account (optional)</Text>
-                <DropdownField value={accountId} options={accountOptions} onChange={setAccountId} placeholder="No account" menuStrategy="inline" menuClassName="max-h-44" />
+                <Text className="text-sm font-medium text-foreground dark:text-zinc-50">Funding account (optional)</Text>
+                <DropdownField value={accountId} options={accountOptions} onChange={setAccountId} placeholder="No account" menuStrategy="inline" triggerClassName="h-11" menuClassName="max-h-44" />
                 {category && suggestion.accountId ? (
                   <Text className="text-xs text-muted-foreground">{`Default for ${category.name}: ${accounts.find((a) => a.id === suggestion.accountId)?.name ?? ''}`}</Text>
                 ) : null}
@@ -248,14 +248,14 @@ export function YearItemForm({ uid, open, onClose, item, defaultDueDate, account
           {item ? (
             <View className="gap-1">
               <Text className="text-xs text-muted-foreground">Status</Text>
-              <DropdownField value={status} options={STATUS_OPTIONS} onChange={setStatus} menuStrategy="inline" />
+              <DropdownField value={status} options={STATUS_OPTIONS} onChange={setStatus} menuStrategy="inline" triggerClassName="h-11" />
             </View>
           ) : null}
           <Text className="text-xs text-muted-foreground">Nothing is added to a month until you add it from that month&apos;s draft.</Text>
           {error ? <Text className="text-xs text-red-600 dark:text-red-300">{error}</Text> : null}
           <View className="flex-row flex-wrap justify-end gap-2">
-            <AppButton label="Cancel" variant="outline" size="sm" onPress={onClose} />
-            <AppButton label={busy ? 'Saving…' : 'Save'} size="sm" onPress={save} disabled={busy} textClassName="text-white" />
+            <AppButton label="Cancel" variant="outline" size="touch" onPress={onClose} />
+            <AppButton label={busy ? 'Saving…' : 'Save'} size="touch" onPress={save} disabled={busy} textClassName="text-white" />
           </View>
         </View>
       )}

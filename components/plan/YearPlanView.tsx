@@ -1,6 +1,7 @@
 // BUDG-2 Year view inside Plan: annual outline, upcoming dated items and the items of the
 // year by due month. Reads only; writes happen in YearItemForm (year items, outline) and in a
 // month's draft (From your year plan). Existing components and classes only.
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -65,6 +66,8 @@ export function YearPlanView({ uid, periods }: Props) {
   const totals = useMemo(() => yearTotals(yearItems, lines), [yearItems, lines]);
   const freeMonths = Object.entries(byMonth).filter(([, rows]) => !rows.length).map(([pid]) => MONTHS_SHORT[Number(pid.slice(5)) - 1]);
 
+  const [closedMonths, setClosedMonths] = useState<Record<string, boolean>>({});
+
   function openForm(item: YearItemRow | null) {
     setEditing(item);
     setFormOpen(true);
@@ -83,20 +86,20 @@ export function YearPlanView({ uid, periods }: Props) {
     const canAdd = showOpen && where.variant === 'warning' && period && (period.status ?? 'DRAFT') === 'DRAFT';
     const state = statusOf(item);
     return (
-      <View key={item.id} className="gap-1 border-b border-border py-2 dark:border-zinc-800" testID={`year-item-${item.id}`}>
-        <Pressable onPress={() => openForm(item)} accessibilityRole="button" accessibilityLabel={`Edit ${item.title}`}>
-          <View className="flex-row items-start justify-between gap-2">
-            <Text className="flex-1 text-sm font-medium text-foreground dark:text-zinc-50">{item.title}</Text>
-            <Text className="text-sm font-medium text-foreground dark:text-zinc-50">
+      <View key={item.id} className="gap-1 border-t border-border px-4 py-3 dark:border-zinc-800" testID={`year-item-${item.id}`}>
+        <Pressable onPress={() => openForm(item)} accessibilityRole="button" accessibilityLabel={`Edit ${item.title}`} className="min-h-11 justify-center">
+          <View className="flex-row items-center gap-3">
+            <Text className="min-w-0 flex-1 text-base font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>{item.title}</Text>
+            <Text className="shrink-0 text-base font-semibold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>
               {hasEstimate(item) ? fmtMoney(fromMinor(item.estimateMinor!)) : '—'}
             </Text>
           </View>
-          <Text className="text-xs text-muted-foreground">{`Due ${dueLabel(item.dueDate)}${state !== 'ACTIVE' ? ` · ${state.toLowerCase()}` : ''}`}</Text>
+          <Text className="text-sm text-muted-foreground dark:text-zinc-400">{`Due ${dueLabel(item.dueDate)}${state !== 'ACTIVE' ? ` · ${state.toLowerCase()}` : ''}`}</Text>
         </Pressable>
         <View className="flex-row flex-wrap items-center gap-2">
           <AppBadge label={where.label} variant={where.variant} />
           {canAdd ? (
-            <AppButton label={`Open ${monthTitle(where.pid)}`} variant="ghost" size="sm" onPress={() => router.push(`/budgets/${where.pid}`)} />
+            <AppButton label={`Open ${monthTitle(where.pid)}`} variant="ghost" size="touch" onPress={() => router.push(`/budgets/${where.pid}`)} />
           ) : null}
         </View>
       </View>
@@ -121,18 +124,49 @@ export function YearPlanView({ uid, periods }: Props) {
     <View className="gap-4" testID="year-plan-view">
       <View className="flex-row flex-wrap items-center justify-between gap-2">
         <View className="z-20 w-32">
-          <DropdownField value={String(year)} options={yearOptions} onChange={(v) => setYear(Number(v))} menuStrategy="inline" />
+          <DropdownField value={String(year)} options={yearOptions} onChange={(v) => setYear(Number(v))} menuStrategy="inline" triggerClassName="h-11" />
         </View>
-        <AppButton label="Add dated item" size="sm" onPress={() => openForm(null)} textClassName="text-white" />
+        <AppButton label="Add dated item" size="touch" onPress={() => openForm(null)} />
       </View>
 
-      <AppCard className="gap-2">
-        <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">{`Upcoming · next ${UPCOMING_DAYS} days`}</Text>
-        {soon.length ? soon.map((item) => renderItem(item, true)) : (
-          <Text className="text-sm text-muted-foreground">Nothing due in the next {UPCOMING_DAYS} days.</Text>
-        )}
-      </AppCard>
+      <View className="gap-2">
+        <Text className="px-1 text-base font-semibold text-foreground dark:text-zinc-50">{`Upcoming · next ${UPCOMING_DAYS} days`}</Text>
+        <View className="overflow-hidden rounded-xl border border-border bg-card dark:border-zinc-800 dark:bg-zinc-900">
+          {soon.length ? soon.map((item) => renderItem(item, true)) : (
+            <Text className="px-4 py-4 text-base text-muted-foreground dark:text-zinc-400">Nothing due in the next {UPCOMING_DAYS} days.</Text>
+          )}
+        </View>
+      </View>
 
+      <View className="gap-2" testID="year-months">
+        <Text className="px-1 text-base font-semibold text-foreground dark:text-zinc-50">{`${year} by month`}</Text>
+        <View className="overflow-hidden rounded-xl border border-border bg-card dark:border-zinc-800 dark:bg-zinc-900">
+          {Object.entries(byMonth)
+            .filter(([, rows]) => rows.length)
+            .map(([pid, rows], i) => {
+              const isClosed = closedMonths[pid] === true;
+              const sum = rows.reduce((acc, r) => acc + (hasEstimate(r) ? fromMinor(r.estimateMinor!) : 0), 0);
+              return (
+                <View key={pid} className={i > 0 ? 'border-t border-border dark:border-zinc-800' : undefined}>
+                  <Pressable
+                    accessibilityRole="button"
+                    aria-expanded={!isClosed}
+                    onPress={() => setClosedMonths((prev) => ({ ...prev, [pid]: !isClosed }))}
+                    className="min-h-12 flex-row items-center gap-3 px-4"
+                  >
+                    <Text className="min-w-0 flex-1 text-base font-semibold text-foreground dark:text-zinc-50" numberOfLines={1}>{monthTitle(pid)}</Text>
+                    <Text className="shrink-0 text-sm text-muted-foreground dark:text-zinc-400">{`${rows.length} ${rows.length === 1 ? 'item' : 'items'} · ${fmtMoney(sum)}`}</Text>
+                    <MaterialCommunityIcons name={isClosed ? 'chevron-down' : 'chevron-up'} size={20} color="#717182" />
+                  </Pressable>
+                  {isClosed ? null : rows.map((item) => renderItem(item))}
+                </View>
+              );
+            })}
+          {freeMonths.length === 12 ? (
+            <Text className="px-4 py-4 text-base text-muted-foreground dark:text-zinc-400">Add dates you must not forget, like renewals.</Text>
+          ) : null}
+        </View>
+      </View>
       <AppCard className="gap-2">
         <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">{`Outline ${year}`}</Text>
         <AppInput
@@ -144,11 +178,11 @@ export function YearPlanView({ uid, periods }: Props) {
           multiline
           placeholder="Goals and big moments for this year"
           accessibilityLabel={`Outline ${year}`}
-          className="min-h-20 py-2"
+          className="min-h-20 py-2 text-base"
         />
         <View className="flex-row items-center justify-end gap-2">
           {outlineMsg ? <Text className="text-xs text-muted-foreground">{outlineMsg}</Text> : null}
-          <AppButton label="Save outline" variant="outline" size="sm" onPress={saveOutlineText} disabled={outlineDraft === null} />
+          <AppButton label="Save outline" variant="outline" size="touch" onPress={saveOutlineText} disabled={outlineDraft === null} />
         </View>
         <View className="mt-1 gap-1 border-t border-border pt-2 dark:border-zinc-800" testID="year-totals">
           <View className="flex-row items-center justify-between">
@@ -161,16 +195,6 @@ export function YearPlanView({ uid, periods }: Props) {
         </View>
       </AppCard>
 
-      <View className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {Object.entries(byMonth)
-          .filter(([, rows]) => rows.length)
-          .map(([pid, rows]) => (
-            <AppCard key={pid} className="gap-1">
-              <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">{monthTitle(pid)}</Text>
-              {rows.map((item) => renderItem(item))}
-            </AppCard>
-          ))}
-      </View>
       {freeMonths.length ? (
         <Text className="text-xs text-muted-foreground">{freeMonths.length === 12 ? `No dated items in ${year} yet.` : `Nothing planned in ${freeMonths.join(', ')}.`}</Text>
       ) : null}
