@@ -20,6 +20,7 @@ import {
 } from 'firebase/firestore';
 import { connectAuthEmulator, getAuth, signInWithEmailAndPassword } from 'firebase/auth';
 import { resolveFirebaseTarget } from '../../lib/firebaseEmulator';
+import { emulatorPorts } from '../../lib/emulatorPorts';
 import { createPeriodDocIfAbsent } from '../../lib/repo/periodCreateCore';
 import {
   addLinkedExpenseLine,
@@ -30,7 +31,7 @@ import {
 } from '../../lib/repo/planLinesCore';
 import { addMonthsToId, monthIdFromDate } from '../../lib/rules/months';
 
-const target = resolveFirebaseTarget({ useEmulators: '1', projectId: 'demo-budgeta', host: '127.0.0.1' });
+const target = resolveFirebaseTarget({ useEmulators: '1', projectId: 'demo-budgeta', host: '127.0.0.1', authPort: String(emulatorPorts().auth), firestorePort: String(emulatorPorts().firestore) });
 if (!target.useEmulators) throw new Error('emulator target required');
 const EVIDENCE = process.env.BUDG_EVIDENCE_DIR || path.resolve('test-results/evidence');
 const apps: { app: FirebaseApp; db: Firestore }[] = [];

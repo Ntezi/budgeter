@@ -9,6 +9,7 @@ import { deleteApp, initializeApp, type FirebaseApp } from 'firebase/app';
 import { collection, connectFirestoreEmulator, doc, getDoc, getDocs, getFirestore, setDoc, terminate, updateDoc, type Firestore } from 'firebase/firestore';
 import { connectAuthEmulator, getAuth, signInWithEmailAndPassword } from 'firebase/auth';
 import { resolveFirebaseTarget } from '../../lib/firebaseEmulator';
+import { emulatorPorts } from '../../lib/emulatorPorts';
 import { createPeriodDocIfAbsent } from '../../lib/repo/periodCreateCore';
 import {
   applyYearItemEdit,
@@ -23,7 +24,7 @@ import {
 import { offersForDraft, yearTotals, type YearItemInput } from '../../lib/rules/yearPlan';
 import { addMonthsToId, monthIdFromDate } from '../../lib/rules/months';
 
-const target = resolveFirebaseTarget({ useEmulators: '1', projectId: 'demo-budgeta', host: '127.0.0.1' });
+const target = resolveFirebaseTarget({ useEmulators: '1', projectId: 'demo-budgeta', host: '127.0.0.1', authPort: String(emulatorPorts().auth), firestorePort: String(emulatorPorts().firestore) });
 if (!target.useEmulators) throw new Error('emulator target required');
 const EVIDENCE = process.env.BUDG_EVIDENCE_DIR || path.resolve('test-results/evidence');
 const apps: { app: FirebaseApp; db: Firestore }[] = [];
