@@ -2,9 +2,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Platform, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useSheet } from '@/components/patterns/AppSheet';
 import { AppButton } from '@/components/ui/AppButton';
-import { CsvImportSheet } from '@/components/regular/CsvImportSheet';
 import { RegularCostsView } from '@/components/regular/RegularCostsView';
 import { draftValues, type RegularDraft, type RegularGroup, type RegularItem } from '@/components/regular/types';
 import { useWorkspaceUid } from '@/providers/WorkspaceProvider';
@@ -24,7 +22,6 @@ import { applyAllocationDefaultsForPeriod } from '@/lib/repo/allocations';
 export default function RecurringScreen() {
   const router = useRouter();
   const uid = useWorkspaceUid();
-  const csv = useSheet();
   const [rows, setRows] = useState<Recurring[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [notice, setNotice] = useState('');
@@ -160,7 +157,7 @@ export default function RecurringScreen() {
           disabled={busy}
           onPress={generateCurrentPeriod}
         />
-        <AppButton label="Import from a file" variant="ghost" size="touch" onPress={(e) => csv.show(e)} />
+        <AppButton label="Import from a file" variant="ghost" size="touch" onPress={() => router.push('/settings?page=import&kind=regular')} />
       </View>
     </View>
   );
@@ -179,7 +176,6 @@ export default function RecurringScreen() {
         }}
         footer={footer}
       />
-      <CsvImportSheet uid={uid} open={csv.open} onClose={() => csv.hide()} onImported={(count) => setNotice(`${count} repeats added from the file.`)} />
     </>
   );
 }
