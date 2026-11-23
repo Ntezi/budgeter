@@ -31,6 +31,11 @@ import { exportTextFile } from '@/lib/export';
 import { periodIdFromDate, type PeriodDoc, watchPeriods } from '@/lib/repo/periods';
 import { type PlanItem, watchPlanTotals } from '@/lib/repo/plans';
 import { fmtMoney } from '@/lib/format';
+import { db } from '@/lib/firebase';
+import { fromMinor } from '@/lib/money';
+import { displayUnitPriceMinor, lastComparable, priceChipText, type PriceObservation } from '@/lib/rules/priceCompare';
+import { deleteReceiptIn, listPriceObservationsIn } from '@/lib/repo/receiptsOps';
+import { APP_CURRENCY } from '@/components/shopping/ReceiptModal';
 import { planGroupLabel } from '@/lib/groups';
 import { parseTagsInput, tagsToInput } from '@/lib/tags';
 
@@ -91,6 +96,23 @@ export default function ShoppingItemsScreen() {
 
   const [selectedItem, setSelectedItem] = useState<ShoppingCatalogItem | null>(null);
   const [priceHistory, setPriceHistory] = useState<PriceHistoryEntry[]>([]);
+  const [receiptPrices, setReceiptPrices] = useState<PriceObservation[]>([]);
+  const [receiptPricesTick, setReceiptPricesTick] = useState(0);
+
+  // BUDG-5: comparable unit prices from confirmed receipts (newest first).
+  useEffect(() => {
+    if (!uid || !selectedItem?.id) {
+      setReceiptPrices([]);
+      return;
+    }
+    let live = true;
+    listPriceObservationsIn(db, uid, selectedItem.id)
+      .then((rows) => live && setReceiptPrices(rows.sort((a, b) => (b.observedOn + b.id).localeCompare(a.observedOn + a.id))))
+      .catch(() => live && setReceiptPrices([]));
+    return () => {
+      live = false;
+    };
+  }, [uid, selectedItem?.id, receiptPricesTick]);
 
   useEffect(() => {
     if (!uid) return;
@@ -960,8 +982,38 @@ export default function ShoppingItemsScreen() {
             </View>
           )}
 
+          <View className="gap-2" testID="receipt-prices">
+            <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Receipt Prices</Text>
+            {receiptPrices.length ? (
+              <AppBadge label={priceChipText(receiptPrices[0], lastComparable(receiptPrices[0], receiptPrices), (m) => fmtMoney(fromMinor(m), receiptPrices[0].currencyCode))} variant="outline" />
+            ) : (
+              <Text className="text-xs text-muted-foreground">No receipt prices yet. Add a receipt from a shopping list.</Text>
+            )}
+            {receiptPrices.map((o) => {
+              const unit = displayUnitPriceMinor(o);
+              return (
+                <View key={o.id} className="flex-row flex-wrap items-center justify-between gap-2 border-b border-border py-1 dark:border-zinc-800">
+                  <Text className="min-w-0 flex-1 text-xs text-foreground dark:text-zinc-100">
+                    {o.observedOn}{o.storeName ? ` · ${o.storeName}` : ''} · {o.quantity} {o.unit}{o.packSize ? ` (pack ${o.packSize})` : ''} · {fmtMoney(fromMinor(o.lineTotalMinor), o.currencyCode)}
+                    {unit ? ` · ${fmtMoney(fromMinor(unit.minor), o.currencyCode)} / ${unit.unitLabel}` : ' · Missing quantity or price'}
+                    {o.isReturn ? ' · Return' : ''}{o.promo ? ' · Promo' : ''}{o.currencyCode !== APP_CURRENCY ? ' · Other currency' : ''}
+                  </Text>
+                  <IconActionButton
+                    icon="trash-can-outline"
+                    label="Delete receipt"
+                    variant="danger"
+                    onPress={() => {
+                      void deleteReceiptIn(db, uid || '', o.receiptId).then(() => setReceiptPricesTick((t) => t + 1));
+                    }}
+                  />
+                </View>
+              );
+            })}
+          </View>
+
           <View className="gap-2">
             <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Price History</Text>
+            <Text className="text-xs text-muted-foreground">Estimates from shopping lists (no currency or unit): not compared.</Text>
             <ScrollView className="max-h-60 rounded-md border border-border bg-muted/20 dark:border-zinc-800 dark:bg-zinc-800/30">
               {priceHistory.length ? (
                 priceHistory.map((entry) => (

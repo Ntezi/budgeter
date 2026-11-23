@@ -151,5 +151,14 @@ service cloud.firestore {
       allow create: if creatingForSelf();
       allow read, update, delete: if isOwner();
     }
+
+    // BUDG-5 receipts (design-BUDG-5, SEC-14): these blocks mirror the users/{uid}/** wildcard on
+    // purpose. Firestore ORs every matching allow, so they cannot restrict anything while the
+    // wildcard exists (residual risk R-1); they pin the paths for the rules tests. Create-only
+    // receiptLinks, DRAFT-never-posts and the locked-month check are client-transaction guarantees,
+    // tested on the emulator (tests/emulator/receipts.test.ts), not rule guarantees.
+    match /users/{uid}/receipts/{receiptId} { allow read, write: if isHouseholdOf(uid); }
+    match /users/{uid}/receiptLinks/{linkId} { allow read, write: if isHouseholdOf(uid); }
+    match /users/{uid}/priceObservations/{observationId} { allow read, write: if isHouseholdOf(uid); }
   }
 }

@@ -159,3 +159,12 @@ Potential future indexes:
 2. `users/{uid}/periods/{pid}/allocations` on `createdAt`.
 3. `users/{uid}/allocationDefaults` on `createdAt`.
 4. `users/{uid}/accounts` on `createdAt`.
+
+## BUDG-5 receipts and price observations (additive, C-10)
+New collections only; no existing document changes shape and nothing is migrated.
+- `users/{uid}/receipts/{receiptId}`: id is a UUID made when the receipt form opens (retries write the same doc). `status` DRAFT|CONFIRMED, `storeName?` (<= 120), `purchaseDate` YYYY-MM-DD, `currencyCode` (3 letters), `totalMinor` (integer minor units, signed sum of lines; returns subtract), `lines[]` (<= 200: `lineId`, `name` <= 120, `catalogItemId?`, `variant?{packSize,unit,brand}`, `quantity`, `unit` pc|g|kg|ml|l|pack, `lineTotalMinor`, `promo?`, `isReturn?`), `link?{periodId,txId,mode EXISTING|NEW}`, `sourceListId?`, `createdBy`, timestamps. No photo, payer, card, loyalty or address fields (SEC-17).
+- `users/{uid}/receiptLinks/{periodId}_{txId}`: `{receiptId, periodId, txId}`; one receipt per expense; written in the same transaction as the CONFIRMED receipt; create-only by client transaction (SEC-14: not a rule guarantee).
+- New expense from a receipt: `periods/{periodId}/transactions/rcpt_{receiptId}` in the month of `purchaseDate`, `amount` = `fromMinor(totalMinor)` (existing major-unit field, 2 decimals, ADR-1), plus optional `receiptId`. Linking to an existing expense never modifies it.
+- `users/{uid}/priceObservations/{receiptId}_{lineId}`: one per CONFIRMED line with a confirmed `catalogItemId`: `catalogItemId`, `variantKey` (brand, '' if none; pack size is data, not key), `currencyCode`, `observedOn`, `lineTotalMinor`, `baseUnit` g|ml|pc, `baseQty` (integer), `isReturn`, `promo`, `quantity`, `unit`, `packSize`, `storeName?`. Unit prices are never stored; they are compared by cross-multiplication.
+- Delete of a receipt removes its receiptLinks doc and its priceObservations in one batch; the expense stays (SEC-18).
+- Legacy `shoppingCatalog/{id}/priceHistory` (no currency, no unit) is shown as an estimate and never compared.

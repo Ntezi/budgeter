@@ -17,10 +17,11 @@ import type { Group } from './periods';
 import { docMatchesActiveScope, withWorkspaceWrite } from './scope';
 import { toSharedItemFields, toSharedPatch } from './sharedListsCore';
 
+import type { CloseShoppingOptions, ShoppingImportBatch, ShoppingItemMatchResult } from '@/lib/shopping/import/shoppingImportTypes';
+
 /** BUDG-4 design: a household write to a shared list goes to the private item and its chef twin in one writeBatch. */
 export type SharedMirror = { shareId: string; actorUid: string };
 const sharedItemRef = (m: SharedMirror, itemId: string) => doc(db, 'sharedLists', m.shareId, 'items', itemId);
-import type { CloseShoppingOptions, ShoppingImportBatch, ShoppingItemMatchResult } from '@/lib/shopping/import/shoppingImportTypes';
 
 export type ShoppingList = {
   id?: string;

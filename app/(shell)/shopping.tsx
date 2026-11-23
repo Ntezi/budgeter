@@ -59,6 +59,7 @@ import {
   type SharedList,
 } from '@/lib/repo/sharedLists';
 import { SharedListView } from '@/components/SharedListView';
+import { ReceiptModal, lineDraftsFromItems } from '@/components/shopping/ReceiptModal';
 import { useWorkspace, useWorkspaceUid } from '@/providers/WorkspaceProvider';
 
 type PlanOption = {
@@ -206,6 +207,8 @@ export default function ShoppingScreen() {
   const [sharing, setSharing] = useState(false);
   const [memberUids, setMemberUids] = useState<string[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [receiptOpen, setReceiptOpen] = useState(false);
+  const [receiptNotice, setReceiptNotice] = useState('');
   const [expenseDate, setExpenseDate] = useState(localDateISO());
   const [expenseAccountId, setExpenseAccountId] = useState('');
   const [addOpen, setAddOpen] = useState(false);
@@ -1329,6 +1332,16 @@ export default function ShoppingScreen() {
                     Selected total: {fmtMoney(selectedTotal)} ({selectedItems.length} item{selectedItems.length === 1 ? '' : 's'})
                   </Text>
                   <View className="mt-1 flex-row flex-wrap items-center gap-2">
+                    <AppButton
+                      label="Add receipt"
+                      variant="outline"
+                      size="sm"
+                      disabled={isShoppingListEmpty}
+                      onPress={() => {
+                        setReceiptNotice('');
+                        setReceiptOpen(true);
+                      }}
+                    />
                     {selectedList.shareId ? (
                       <>
                         <Text className="text-xs font-medium text-muted-foreground">Shared with {selectedList.sharedWithLabel || 'chef'}</Text>
@@ -1346,6 +1359,7 @@ export default function ShoppingScreen() {
                       />
                     )}
                   </View>
+                  {receiptNotice ? <Text className="text-xs font-medium text-muted-foreground">{receiptNotice}</Text> : null}
                   {selectedMissingUnitPriceCount > 0 ? (
                     <Text className="text-xs font-semibold text-amber-700 dark:text-amber-300">
                       {selectedMissingUnitPriceCount} selected item{selectedMissingUnitPriceCount === 1 ? '' : 's'} missing unit price
@@ -1822,6 +1836,17 @@ export default function ShoppingScreen() {
         </View>
       </AppModal>
 
+      <ReceiptModal
+        open={receiptOpen}
+        onClose={() => setReceiptOpen(false)}
+        onSaved={setReceiptNotice}
+        ownerUid={uid || ''}
+        actorUid={myUid}
+        accounts={accounts}
+        catalog={catalogRows}
+        prefill={receiptOpen ? lineDraftsFromItems(items.some((it) => it.bought) ? items.filter((it) => it.bought) : items, catalogRows) : []}
+        sourceListId={selectedListId || undefined}
+      />
       <AppModal open={editItemOpen} onClose={() => setEditItemOpen(false)} title="Edit Shopping Item">
         <View className="gap-3">
           <View className="gap-1">
