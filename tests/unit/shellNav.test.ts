@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { activeAreaId, activeItem, layoutFor, NAV_ITEMS, showsMonthChip, tapsTo, visibleItems } from '../../lib/shell/nav';
+import { activeAreaId, activeItem, audienceFor, chefMayOpen, firstRouteFor, layoutFor, NAV_ITEMS, showsMonthChip, tapsTo, visibleItems } from '../../lib/shell/nav';
 
 test('S2 layout: bottom bar < 768, rail 768-1023, sidebar >= 1024', () => {
   assert.equal(layoutFor(320), 'phone');
@@ -28,7 +28,7 @@ test('S2 every shell route reachable: phone <= 2 taps, desktop 1; routes unchang
     assert.ok(tapsTo(it.id, 'phone') <= 2, it.id);
     assert.equal(tapsTo(it.id, 'desktop'), 1, it.id);
   }
-  assert.deepEqual(NAV_ITEMS.filter((i) => i.group === 'primary').map((i) => i.label), ['Home', 'Plan', 'Shopping', 'Accounts']);
+  assert.deepEqual(visibleItems('household').filter((i) => i.group === 'primary').map((i) => i.label), ['Home', 'Plan', 'Shopping', 'Accounts']);
 });
 
 test('S2 data-driven: a new entry slots in without code changes', () => {
@@ -45,4 +45,23 @@ test('S2 month chip only where the screen reads ?month=', () => {
   assert.ok(showsMonthChip('/transactions'));
   assert.ok(!showsMonthChip('/shopping'));
   assert.ok(!showsMonthChip('/settings'));
+});
+
+test('BUDG-6 audience: chef only with an ACTIVE share and no household of their own; unknown hides nav', () => {
+  assert.equal(audienceFor({ sharedWithMe: 1, ownMonths: 0, memberships: 0 }), 'chef');
+  assert.equal(audienceFor({ sharedWithMe: 1, ownMonths: 2, memberships: 0 }), 'household');
+  assert.equal(audienceFor({ sharedWithMe: 1, ownMonths: 0, memberships: 1 }), 'household');
+  assert.equal(audienceFor({ sharedWithMe: 0, ownMonths: 0, memberships: 0 }), 'household');
+  assert.equal(audienceFor({ sharedWithMe: null, ownMonths: 0, memberships: 0 }), null);
+});
+
+test('BUDG-6 nav: chef sees the shared list only; household sees year plan, catalog, regular costs, reports, settings', () => {
+  assert.deepEqual(visibleItems('chef').map((i) => i.href), ['/shopping']);
+  assert.ok(!visibleItems('household').some((i) => i.id === 'shared'));
+  const more = visibleItems('household').filter((i) => i.group === 'more').map((i) => i.id);
+  assert.deepEqual(more, ['year-plan', 'reports', 'regular', 'catalog', 'settings']);
+  assert.equal(chefMayOpen('/shopping'), true);
+  assert.equal(chefMayOpen('/dashboard'), false);
+  assert.equal(firstRouteFor('household'), '/dashboard');
+  assert.equal(firstRouteFor('chef'), '/shopping');
 });

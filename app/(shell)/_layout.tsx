@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Image, Pressable, View, useWindowDimensions } from 'react-native';
 import { Slot, usePathname, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -10,7 +10,11 @@ import { MoreSheet } from '@/components/shell/MoreSheet';
 import { NavIcon } from '@/components/shell/NavIcon';
 import { SideRail } from '@/components/shell/SideRail';
 import { Sidebar } from '@/components/shell/Sidebar';
-import { activeAreaId, activeItem, layoutFor, showsMonthChip, visibleItems } from '@/lib/shell/nav';
+import { activeAreaId, activeItem, audienceFor, chefMayOpen, CHEF_ROUTE, layoutFor, showsMonthChip, visibleItems, type Audience } from '@/lib/shell/nav';
+import { useAuthUser } from '@/providers/AuthProvider';
+import { useWorkspace } from '@/providers/WorkspaceProvider';
+import { watchPeriods } from '@/lib/repo/periods';
+import { watchSharedWithMe } from '@/lib/repo/sharedLists';
 import { useThemeMode } from '@/providers/ThemeProvider';
 
 /**
@@ -26,7 +30,50 @@ export default function ShellLayout() {
   );
 }
 
+/** Who the shell is for (lib/shell/nav audienceFor); null while loading. */
+function useAudience(): Audience | null {
+  const myUid = useAuthUser()?.uid || '';
+  const { workspaceOptions, ready } = useWorkspace();
+  const [shared, setShared] = useState<number | null>(null);
+  const [months, setMonths] = useState<number | null>(null);
+  useEffect(() => {
+    if (!myUid) return;
+    return watchSharedWithMe(myUid, (rows) => setShared(rows.length), () => setShared(0));
+  }, [myUid]);
+  useEffect(() => {
+    if (!myUid) return;
+    return watchPeriods(myUid, (rows) => setMonths(rows.length));
+  }, [myUid]);
+  const memberships = ready ? workspaceOptions.filter((w) => w.ownerUid !== myUid).length : null;
+  return audienceFor({ sharedWithMe: shared, ownMonths: months, memberships });
+}
+
 function Shell() {
+  const audience = useAudience();
+  if (audience === 'chef') return <ChefShell />;
+  return <HouseholdShell ready={audience === 'household'} />;
+}
+
+/** BUDG-4 chef: the shared list only, never household navigation. */
+function ChefShell() {
+  const pathname = usePathname();
+  const router = useRouter();
+  const ok = chefMayOpen(pathname);
+  useEffect(() => {
+    if (!ok) router.replace(CHEF_ROUTE as any);
+  }, [ok, router]);
+  return (
+    <View className="flex-1 bg-background dark:bg-zinc-950">
+      <SafeAreaView edges={['top', 'left', 'right', 'bottom']} className="flex-1">
+        <View role="main" testID="chef-shell" className="min-h-0 flex-1 px-4 pb-4 pt-3 md:px-6 md:pt-4 lg:px-8 lg:pt-6">
+          <View className="mx-auto w-full max-w-[1200px] flex-1">{ok ? <Slot /> : null}</View>
+        </View>
+      </SafeAreaView>
+    </View>
+  );
+}
+
+function HouseholdShell({ ready }: { ready: boolean }) {
   const { width } = useWindowDimensions();
   const mode = layoutFor(width);
   const pathname = usePathname();
@@ -52,11 +99,11 @@ function Shell() {
     <View className="flex-1 bg-background dark:bg-zinc-950">
       <SafeAreaView edges={['top', 'left', 'right']} className="flex-1">
         <View className="flex-1 flex-row">
-          {mode === 'desktop' ? <Sidebar primary={primary} more={moreItems} activeAreaId={areaId} activeItemId={itemId} onGo={go} onAdd={onAdd} /> : null}
-          {mode === 'tablet' ? <SideRail items={primary} activeId={areaId} onGo={go} onAdd={onAdd} onMore={more.show} /> : null}
+          {ready && mode === 'desktop' ? <Sidebar primary={primary} more={moreItems} activeAreaId={areaId} activeItemId={itemId} onGo={go} onAdd={onAdd} /> : null}
+          {ready && mode === 'tablet' ? <SideRail items={primary} activeId={areaId} onGo={go} onAdd={onAdd} onMore={more.show} /> : null}
 
           <View className="min-w-0 flex-1">
-            {mode === 'phone' ? (
+            {ready && mode === 'phone' ? (
               <View testID="top-bar" className="h-14 flex-row items-center gap-2 border-b border-border bg-card pl-4 pr-1 dark:border-zinc-800 dark:bg-zinc-900">
                 <Image source={logo} style={{ width: 96, height: 24 }} resizeMode="contain" accessibilityLabel="Budgeta" />
                 <View className="min-w-0 flex-1" />
@@ -77,7 +124,7 @@ function Shell() {
               </View>
             </View>
 
-            {mode === 'phone' ? <BottomBar items={primary} activeId={areaId} onGo={go} onAdd={onAdd} /> : null}
+            {ready && mode === 'phone' ? <BottomBar items={primary} activeId={areaId} onGo={go} onAdd={onAdd} /> : null}
           </View>
         </View>
         <MoreSheet open={more.open} items={moreItems} onClose={() => more.hide()} onGo={(href) => more.hide(() => go(href))} />

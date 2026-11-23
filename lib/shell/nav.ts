@@ -22,16 +22,44 @@ export type NavItem = {
   audience?: Audience[];
 };
 
+const H: Audience[] = ['household'];
+
 export const NAV_ITEMS: NavItem[] = [
-  { id: 'home', label: 'Home', href: '/dashboard', icon: 'home-outline', group: 'primary' },
-  { id: 'plan', label: 'Plan', href: '/budgets', icon: 'calendar-month-outline', group: 'primary' },
-  { id: 'shopping', label: 'Shopping', href: '/shopping', icon: 'cart-outline', group: 'primary' },
-  { id: 'accounts', label: 'Accounts', href: '/accounts', icon: 'bank-outline', group: 'primary', match: ['/transactions'] },
-  { id: 'reports', label: 'Reports', href: '/reports', icon: 'chart-bar', group: 'more' },
-  { id: 'regular', label: 'Regular costs', href: '/expenses', icon: 'repeat', group: 'more', match: ['/recurring'] },
-  { id: 'catalog', label: 'Catalog', href: '/shopping-items', icon: 'format-list-bulleted-square', group: 'more', area: 'shopping' },
-  { id: 'settings', label: 'Settings', href: '/settings', icon: 'cog-outline', group: 'more' },
+  { id: 'home', label: 'Home', href: '/dashboard', icon: 'home-outline', group: 'primary', audience: H },
+  { id: 'plan', label: 'Plan', href: '/budgets', icon: 'calendar-month-outline', group: 'primary', audience: H },
+  { id: 'shopping', label: 'Shopping', href: '/shopping', icon: 'cart-outline', group: 'primary', audience: H },
+  { id: 'accounts', label: 'Accounts', href: '/accounts', icon: 'bank-outline', group: 'primary', match: ['/transactions'], audience: H },
+  // BUDG-2 year plan: Plan's Year view (route unchanged, ?view=year).
+  { id: 'year-plan', label: 'Year plan', href: '/budgets?view=year', icon: 'calendar-range', group: 'more', area: 'plan', audience: H },
+  { id: 'reports', label: 'Reports', href: '/reports', icon: 'chart-bar', group: 'more', audience: H },
+  { id: 'regular', label: 'Regular costs', href: '/expenses', icon: 'repeat', group: 'more', match: ['/recurring'], audience: H },
+  { id: 'catalog', label: 'Catalog', href: '/shopping-items', icon: 'format-list-bulleted-square', group: 'more', area: 'shopping', audience: H },
+  { id: 'settings', label: 'Settings', href: '/settings', icon: 'cog-outline', group: 'more', audience: H },
+  // BUDG-4 chef: the shared list only (Shopping screen, "Shared with you").
+  { id: 'shared', label: 'Shared with you', href: '/shopping', icon: 'chef-hat', group: 'primary', audience: ['chef'] },
 ];
+
+/** First screen after sign-in (spec 00: Home for the household at every width; the chef's shared list). */
+export function firstRouteFor(audience: Audience): string {
+  return audience === 'chef' ? CHEF_ROUTE : '/dashboard';
+}
+export const CHEF_ROUTE = '/shopping';
+
+/**
+ * BUDG-6 (decided here, to confirm with the solution-architect): accounts are not typed, so a
+ * signed-in user is a chef when someone shares an ACTIVE list with them and they have no
+ * household of their own (no month in their own workspace) and no household membership.
+ * Anything else is a household user. Unknown (still loading) is null: show no navigation.
+ */
+export function audienceFor(s: { sharedWithMe: number | null; ownMonths: number | null; memberships: number | null }): Audience | null {
+  if (s.sharedWithMe == null || s.ownMonths == null || s.memberships == null) return null;
+  return s.sharedWithMe > 0 && s.ownMonths === 0 && s.memberships === 0 ? 'chef' : 'household';
+}
+
+/** A chef may only be on the shared-list screen. */
+export function chefMayOpen(pathname: string): boolean {
+  return pathname === CHEF_ROUTE;
+}
 
 /** Routes whose screen reads ?month= today; add /accounts, /reports, /budgets/[pid] when S5/S8/S14 do. */
 export const MONTH_CHIP_ROUTES = ['/dashboard', '/transactions'];

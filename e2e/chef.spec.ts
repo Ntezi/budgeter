@@ -100,6 +100,12 @@ test('BUDG-4 shopping: catalog, duplicates, chef sharing and revoke', async ({ b
   const guardC = await signIn(chefPage, testInfo, CHEF);
   await chefPage.goto('/shopping');
   await expect(chefPage.getByText('Shared with you')).toBeVisible();
+  // BUDG-6: a chef is never shown household navigation and cannot open household screens.
+  await expect(chefPage.getByTestId('chef-shell')).toBeVisible();
+  await expect(chefPage.getByRole('navigation')).toHaveCount(0);
+  await chefPage.goto('/dashboard');
+  await expect(chefPage).toHaveURL(/\/shopping$/);
+  await expect(chefPage.getByText('Shared with you')).toBeVisible();
   await chefPage.getByText('Weekend party', { exact: true }).click();
   await expect(chefPage.getByText('Juice')).toBeVisible();
   const chefText = await chefPage.locator('body').innerText();

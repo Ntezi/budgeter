@@ -1,13 +1,14 @@
 import '../global.css';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Stack, usePathname, useRouter } from 'expo-router';
-import { ActivityIndicator, Platform, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Platform, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '@/providers/AuthProvider';
 import { ThemeProvider, useThemeMode } from '@/providers/ThemeProvider';
 import { WorkspaceProvider, useWorkspace } from '@/providers/WorkspaceProvider';
 import { getOnboardingComplete } from '@/lib/onboarding';
 import { decideGate } from '@/lib/rules/appGate';
+import { firstRouteFor } from '@/lib/shell/nav';
 
 // The navigator mounts only after auth/workspace load, so on web a refresh or deep link
 // (e.g. /transactions?month=YYYY-MM) would otherwise fall back to "/". Remember it once.
@@ -31,8 +32,8 @@ function AppGate() {
   const { ready: workspaceReady } = useWorkspace();
   const pathname = usePathname();
   const router = useRouter();
-  const { width } = useWindowDimensions();
-  const firstShellRoute = width >= 980 ? '/dashboard' : '/shopping';
+  // Spec 00: Home is the first screen at every width; the shell sends a chef on to the shared list.
+  const firstShellRoute = firstRouteFor('household');
 
   const [checkedOnboarding, setCheckedOnboarding] = useState(false);
   const [onboardingComplete, setOnboardingCompleteFlag] = useState(false);
