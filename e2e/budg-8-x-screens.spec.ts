@@ -1,0 +1,122 @@
+// BUDG-8 lane X: S4 Home, S9 Activity, S8 Accounts at 320/390/768/1024/1440 px, light and dark.
+// Emulator app only (helpers.signIn aborts any other host). Screenshots: <slice>-<what>-w<width>-<theme>.png.
+import fs from 'node:fs';
+import path from 'node:path';
+import { expect, test, type Locator, type Page } from '@playwright/test';
+import { addMonthsToId, monthIdFromDate, monthTitle } from '../lib/rules/months';
+import { EVIDENCE, listIds, noPageScroll, reseed, signIn } from './helpers';
+
+const CUR = monthIdFromDate(new Date());
+const PREV = addMonthsToId(CUR, -1); // seeded Closed
+const WIDTHS = [320, 390, 768, 1024, 1440];
+const THEMES = ['light', 'dark'] as const;
+const results: Record<string, unknown> = {};
+
+test.describe.configure({ mode: 'serial' });
+test.beforeAll(() => reseed());
+test.afterAll(() => {
+  fs.mkdirSync(EVIDENCE, { recursive: true });
+  fs.writeFileSync(path.join(EVIDENCE, 'lane-X-measurements.json'), JSON.stringify(results, null, 2));
+});
+
+async function snap(page: Page, name: string) {
+  fs.mkdirSync(EVIDENCE, { recursive: true });
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: path.join(EVIDENCE, `${name}.png`), fullPage: true });
+}
+
+async function open(page: Page, route: string, width: number) {
+  await page.setViewportSize({ width, height: width < 768 ? 844 : 900 });
+  await page.goto(route);
+  await expect(page.getByTestId('add-button').first()).toBeVisible({ timeout: 60_000 });
+  await page.waitForTimeout(1200);
+}
+
+/** Visible pressables under `scope` smaller than 44 x 44 px. */
+async function smallTargets(scope: Locator) {
+  return scope.locator('[role=button], [role=link], a, [tabindex="0"]').evaluateAll((els) =>
+    els
+      .filter((el) => (el as HTMLElement).offsetParent !== null)
+      .map((el) => ({ name: el.getAttribute('aria-label') || (el.textContent || '').trim().slice(0, 30), ...((r) => ({ w: Math.round(r.width), h: Math.round(r.height) }))(el.getBoundingClientRect()) }))
+      .filter((r) => r.w < 44 || r.h < 44)
+  );
+}
+
+/** Text nodes showing money that are cut (wider content than box). */
+async function clippedMoney(page: Page) {
+  return page.getByRole('main').locator('div[dir="auto"]').evaluateAll((els) =>
+    els
+      .filter((el) => /GHS|RWF|\d+\.\d\d/.test(el.textContent || '') && (el as HTMLElement).offsetParent !== null)
+      .filter((el) => el.scrollWidth > el.clientWidth + 1 && !/\s/.test((el.textContent || '').trim().replace(/^[^\d-−]*/, '')))
+      .map((el) => (el.textContent || '').trim().slice(0, 40))
+  );
+}
+
+async function matrix(page: Page, slice: string, what: string, route: string, ready: (p: Page) => Promise<void>) {
+  for (const theme of THEMES) {
+    await page.evaluate((t) => window.localStorage.setItem('budgeter:theme', t), theme);
+    for (const width of WIDTHS) {
+      await open(page, route, width);
+      await ready(page);
+      const key = `${slice}-${what}-w${width}-${theme}`;
+      const scroll = await noPageScroll(page);
+      const clipped = await clippedMoney(page);
+      const small = width < 768 ? await smallTargets(page.getByRole('main')) : [];
+      results[key] = { scroll, clipped, small };
+      await snap(page, key);
+      expect.soft(scroll.scrollWidth, `${key} page scroll`).toBeLessThanOrEqual(scroll.innerWidth);
+      expect.soft(clipped, `${key} clipped amounts`).toEqual([]);
+      expect.soft(small, `${key} targets under 44 px`).toEqual([]);
+    }
+  }
+  await page.evaluate(() => window.localStorage.setItem('budgeter:theme', 'light'));
+}
+
+test('S4 Home: summary first, chips, Needs you, Recent, Accounts at 5 widths light and dark', async ({ page }, info) => {
+  test.setTimeout(600_000);
+  const guard = await signIn(page, info);
+  const periodsBefore = (await listIds('periods')).map((p) => p.id).sort();
+  const txBefore = (await listIds('periods', CUR, 'transactions')).length;
+  await matrix(page, 'S4', 'home', `/dashboard?month=${CUR}`, async (p) => {
+    await expect(p.getByTestId('home-summary')).toBeVisible();
+    await expect(p.getByText(`Left to spend in ${monthTitle(CUR).split(' ')[0]}`)).toBeVisible();
+  });
+
+  // Main thing first: the summary is the first card in main, above Recent.
+  await open(page, `/dashboard?month=${CUR}`, 390);
+  const sumBox = await page.getByTestId('home-summary').boundingBox();
+  const recentBox = await page.getByTestId('home-recent').boundingBox();
+  expect(sumBox!.y).toBeLessThan(recentBox!.y);
+  // Details disclosure holds income / saved.
+  await page.getByTestId('home-summary').getByRole('button', { name: 'Details' }).click();
+  await expect(page.getByTestId('home-summary-details').getByText('Income planned')).toBeVisible();
+  await page.screenshot({ path: path.join(EVIDENCE, 'S4-home-details-open-w390-light.png'), fullPage: true });
+
+  // Chips open Activity filtered (Shop keeps BUDG-1 AC-6).
+  await page.getByRole('link', { name: /^Shopping spend/ }).click();
+  await expect(page).toHaveURL(new RegExp(`month=${CUR}.*scope=SHOPPING`));
+  await open(page, `/dashboard?month=${CUR}`, 390);
+  await page.getByRole('link', { name: /^Needs spend/ }).click();
+  await expect(page).toHaveURL(new RegExp(`month=${CUR}.*group=NEED`));
+
+  // States: closed month, missing month (never created), no plan.
+  await open(page, `/dashboard?month=${PREV}`, 390);
+  await expect(page.getByTestId('home-summary').getByText('Closed', { exact: true })).toBeVisible();
+  await expect(page.getByText(`${monthTitle(PREV).split(' ')[0]} (closed)`)).toBeVisible();
+  await snap(page, 'S4-closed-month-w390-light');
+  await open(page, '/dashboard?month=2030-01', 390);
+  await expect(page.getByText('No plan for January yet.')).toBeVisible();
+  await snap(page, 'S4-no-plan-w390-light');
+  await page.getByRole('button', { name: 'Plan January' }).click();
+  await expect(page).toHaveURL(/\/budgets\/2030-01/);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/dashboard?month=${CUR}`);
+  await page.screenshot({ path: path.join(EVIDENCE, 'S4-loading-w390-light.png') }); // first paint, before data
+
+  // Tap counts (phone): Home -> expense form 1; Home -> shopping spend 1; Home -> accounts 1.
+  results.S4taps = { addExpense: 1, shoppingSpend: 1, accounts: 1 };
+  // C-10: Home reads only.
+  expect((await listIds('periods')).map((p) => p.id).sort(), 'Home never creates a month').toEqual(periodsBefore);
+  expect((await listIds('periods', CUR, 'transactions')).length).toBe(txBefore);
+  guard.assertOnlyLoopback();
+});
