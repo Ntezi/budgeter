@@ -192,8 +192,16 @@ test('S10/S11 household and chef in two contexts, tap counts, Add sheet shopping
   expect((await listIds('periods', pid, 'transactions')).length).toBe(txBefore);
   await household.keyboard.press('Escape');
 
-  // Share a second list (so the chef keeps one share and stays in the chef shell), then
-  // Stop sharing the open one -> the chef sees Access ended.
+  // Stop sharing the chef's only list -> the chef stays in the chef shell and sees Access ended.
+  await household.getByText('Stop sharing', { exact: true }).click();
+  await household.getByTestId('confirm-stop-sharing').click();
+  await expect(household.getByText('Share with chef', { exact: true })).toBeVisible();
+  await expect(chef.getByText('Access ended')).toBeVisible();
+  await expect(chef.getByText('Lemons')).toHaveCount(0);
+  await snap(chef, 'S11-chef-access-ended-w390-light');
+  await expect(chef.getByTestId('chef-shell')).toBeVisible();
+  await expect(chef.getByRole('navigation')).toHaveCount(0);
+  // Sharing again works from the Share sheet.
   await household.getByLabel('Back to lists').click();
   await openList(household, 'Weekend party');
   await household.getByText('Share with chef', { exact: true }).click();
@@ -201,14 +209,53 @@ test('S10/S11 household and chef in two contexts, tap counts, Add sheet shopping
   await snap(household, 'S11-share-sheet-w390-light');
   await household.getByText('Share list', { exact: true }).click();
   await expect(household.getByText('Shared with Chef')).toBeVisible();
-  await household.getByLabel('Back to lists').click();
-  await openList(household, 'Weekly groceries');
-  await household.getByText('Stop sharing', { exact: true }).click();
-  await household.getByTestId('confirm-stop-sharing').click();
-  await expect(household.getByText('Share with chef', { exact: true })).toBeVisible();
-  await expect(chef.getByText('Access ended')).toBeVisible();
-  await expect(chef.getByText('Lemons')).toHaveCount(0);
-  await snap(chef, 'S11-chef-access-ended-w390-light');
   guardH.assertOnlyLoopback();
   guardC.assertOnlyLoopback();
 });
+
+for (const theme of THEMES) {
+  test(`S12 catalog rows, item sheet and Manage at 5 widths, ${theme}`, async ({ page }, info) => {
+    test.setTimeout(600_000);
+    reseed();
+    const guard = await signIn(page, info);
+    await setTheme(page, theme);
+    for (const width of WIDTHS) {
+      const key = `w${width}-${theme}`;
+      await page.setViewportSize({ width, height: width < 768 ? 844 : 900 });
+      await page.goto('/shopping-items');
+      await expect(page.getByTestId('catalog-rows')).toBeVisible({ timeout: 60_000 });
+      await page.waitForTimeout(600);
+      await expect(page.getByTestId('catalog-price-chip').first()).toBeVisible();
+      const row = { scroll: await noPageScroll(page), clipped: await clippedAmounts(page), small: width < 768 ? await smallTargets(page.locator('[role=main]').first()) : [] };
+      results[`S12-catalog-${key}`] = row;
+      expect.soft(row.scroll.scrollWidth, `scroll ${key}`).toBeLessThanOrEqual(row.scroll.innerWidth);
+      expect.soft(row.clipped, `clipped ${key}`).toEqual([]);
+      expect.soft(row.small, `targets ${key}`).toEqual([]);
+      await snap(page, `S12-catalog-${key}`);
+      await page.getByText('Rice 5 kg', { exact: true }).first().click();
+      await expect(page.getByTestId('receipt-prices')).toBeVisible();
+      await expect(page.getByText('Estimates from shopping lists (no currency or unit): not compared.')).toBeVisible();
+      await snap(page, `S12-item-sheet-${key}`);
+      await page.keyboard.press('Escape');
+      await expect(page.getByTestId('receipt-prices')).toHaveCount(0);
+      await page.getByTestId('catalog-manage').click();
+      await expect(page.getByTestId('catalog-manage-sheet')).toBeVisible();
+      results[`S12-manage-${key}`] = { scroll: await noPageScroll(page) };
+      await snap(page, `S12-manage-${key}`);
+      if (width === 390 && theme === 'light') {
+        // CSV import previews before it writes: nothing changes until Import.
+        const before = (await listIds('shoppingCatalog')).length;
+        await page.getByLabel('CSV text').fill('name,category,tags,budgetItemName\nLane Z flour,Pantry,,\nLane Z salt,Pantry,,');
+        await page.getByText('Preview', { exact: true }).click();
+        await expect(page.getByTestId('csv-preview')).toContainText('2 rows will be imported');
+        expect((await listIds('shoppingCatalog')).length).toBe(before);
+        await snap(page, 'S12-csv-preview-w390-light');
+        await page.getByText('Import 2 rows', { exact: true }).click();
+        await expect.poll(async () => (await listIds('shoppingCatalog')).length).toBe(before + 2);
+      }
+      await page.keyboard.press('Escape');
+      await expect(page.getByTestId('catalog-manage-sheet')).toHaveCount(0);
+    }
+    guard.assertOnlyLoopback();
+  });
+}
