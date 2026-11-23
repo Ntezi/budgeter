@@ -67,11 +67,11 @@ export default function OnboardingScreen() {
         </View>
 
         <View className="gap-2">
-          {step === 0 ? <AppButton label="Next" size="touch-lg" className="w-full dark:bg-zinc-50" textClassName="dark:text-zinc-900" onPress={() => setStep(1)} /> : null}
-          {step === 1 ? <AppButton label="I'll add them on Accounts" accessibilityLabel="Next: I'll add them on Accounts" size="touch-lg" className="w-full dark:bg-zinc-50" textClassName="dark:text-zinc-900" onPress={() => setStep(2)} /> : null}
+          {step === 0 ? <AppButton label="Next" size="touch-lg" className="w-full" onPress={() => setStep(1)} /> : null}
+          {step === 1 ? <AppButton label="I'll add them on Accounts" accessibilityLabel="Next: I'll add them on Accounts" size="touch-lg" className="w-full" onPress={() => setStep(2)} /> : null}
           {step === 2 ? (
             <>
-              <AppButton label={`Plan ${monthTitle}`} size="touch-lg" className="w-full dark:bg-zinc-50" textClassName="dark:text-zinc-900" onPress={() => {
+              <AppButton label={`Plan ${monthTitle}`} size="touch-lg" className="w-full" onPress={() => {
                   rememberPlanAfterSignIn();
                   void finish('/auth');
                 }} />

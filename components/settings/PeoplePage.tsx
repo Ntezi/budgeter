@@ -64,7 +64,7 @@ export function PeoplePage(p: {
   return (
     <SettingsPage testID="settings-people" title="People" intro="People here see the whole household. To share one shopping list only, use Share on that list." onBack={p.onBack}>
       {p.ownedByMe ? (
-        <AppButton label="Invite someone" size="touch" className="self-start dark:bg-zinc-50" textClassName="dark:text-zinc-900" onPress={(e) => invite.show(e)} />
+        <AppButton label="Invite someone" size="touch" className="self-start" onPress={(e) => invite.show(e)} />
       ) : (
         <Text className="text-sm text-muted-foreground dark:text-zinc-400">You are in a shared workspace. Switch to your own workspace to invite people.</Text>
       )}
@@ -109,7 +109,7 @@ export function PeoplePage(p: {
         onClose={() => invite.hide()}
         title="Invite someone"
         testID="invite-sheet"
-        footer={<AppButton textClassName="dark:text-zinc-900" label={busy ? 'Sending…' : 'Send invite'} size="touch-lg" className="w-full dark:bg-zinc-50" disabled={busy} onPress={send} />}
+        footer={<AppButton label={busy ? 'Sending…' : 'Send invite'} size="touch-lg" className="w-full" disabled={busy} onPress={send} />}
       >
         <View className="gap-4">
           <Text className="text-sm text-muted-foreground dark:text-zinc-400">Ask them for the ID under Settings › Your ID for sharing. They will see this whole household.</Text>
