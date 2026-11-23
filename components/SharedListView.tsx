@@ -11,6 +11,7 @@ import { AddItemBar } from '@/components/shopping/AddItemBar';
 import { ItemRow, ItemSection, qtyLabel } from '@/components/shopping/ItemRow';
 import { ItemSheet } from '@/components/shopping/ItemSheet';
 import { AppButton } from '@/components/ui/AppButton';
+import { useSheetEffects } from '@/components/shopping/useSheetEffects';
 import {
   addSharedItem,
   deleteSharedItem,
@@ -30,6 +31,7 @@ export function SharedListView({ shareId, myUid, onBack, showBack = true }: { sh
   const [newName, setNewName] = useState('');
   const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState('');
+  useSheetEffects(Boolean(draft), () => setDraft(null));
 
   useEffect(() => {
     let stopItems: (() => void) | null = null;

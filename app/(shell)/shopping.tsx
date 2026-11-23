@@ -71,6 +71,7 @@ import { ItemSheet } from '@/components/shopping/ItemSheet';
 import { ListsList } from '@/components/shopping/ListsList';
 import { GotItFooter, RecordExpenseSheet, type RecordRow } from '@/components/shopping/RecordExpenseSheet';
 import { ShareSheet, StopSharingDialog } from '@/components/shopping/ShareSheet';
+import { useSheetEffects } from '@/components/shopping/useSheetEffects';
 
 type PlanOption = {
   id: string;
@@ -231,6 +232,13 @@ export default function ShoppingScreen() {
   const [revoking, setRevoking] = useState(false);
   const [recordError, setRecordError] = useState('');
   const moreSheet = useSheet();
+  useSheetEffects(addOpen, () => setAddOpen(false));
+  useSheetEffects(editItemOpen, () => setEditItemOpen(false));
+  useSheetEffects(completing, () => setCompleting(false));
+  useSheetEffects(shareOpen, () => setShareOpen(false));
+  useSheetEffects(receiptOpen, () => setReceiptOpen(false));
+  useSheetEffects(createListOpen, () => setCreateListOpen(false));
+  useSheetEffects(importOpen, () => setImportOpen(false));
 
   useEffect(() => {
     if (!uid) return;
