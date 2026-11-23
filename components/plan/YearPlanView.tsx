@@ -11,6 +11,7 @@ import { AppCard } from '@/components/ui/AppCard';
 import { AppInput } from '@/components/ui/AppInput';
 import { DropdownField } from '@/components/ui/DropdownField';
 import { YearItemForm } from '@/components/plan/YearItemForm';
+import { useSheet } from '@/components/patterns/AppSheet';
 import { watchAccounts, type Account } from '@/lib/repo/accounts';
 import { watchExpenses, type ExpenseItem } from '@/lib/repo/expenses';
 import type { PeriodDoc } from '@/lib/repo/periods';
@@ -45,7 +46,8 @@ export function YearPlanView({ uid, periods }: Props) {
   const [outline, setOutline] = useState('');
   const [outlineDraft, setOutlineDraft] = useState<string | null>(null);
   const [outlineMsg, setOutlineMsg] = useState('');
-  const [formOpen, setFormOpen] = useState(false);
+  // Same sheet rules as every other plan sheet: Escape from anywhere, Back closes it, focus returns to the trigger.
+  const form = useSheet();
   const [editing, setEditing] = useState<YearItemRow | null>(null);
 
   useEffect(() => watchYearItems(uid, setItems), [uid]);
@@ -68,9 +70,9 @@ export function YearPlanView({ uid, periods }: Props) {
 
   const [closedMonths, setClosedMonths] = useState<Record<string, boolean>>({});
 
-  function openForm(item: YearItemRow | null) {
+  function openForm(item: YearItemRow | null, e?: unknown) {
     setEditing(item);
-    setFormOpen(true);
+    form.show(e);
   }
 
   function whereBudgeted(item: YearItemRow) {
@@ -87,7 +89,7 @@ export function YearPlanView({ uid, periods }: Props) {
     const state = statusOf(item);
     return (
       <View key={item.id} className="gap-1 border-t border-border px-4 py-3 dark:border-zinc-800" testID={`year-item-${item.id}`}>
-        <Pressable onPress={() => openForm(item)} accessibilityRole="button" accessibilityLabel={`Edit ${item.title}`} className="min-h-11 justify-center">
+        <Pressable onPress={(e) => openForm(item, e)} accessibilityRole="button" accessibilityLabel={`Edit ${item.title}`} className="min-h-11 justify-center">
           <View className="flex-row items-center gap-3">
             <Text className="min-w-0 flex-1 text-base font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>{item.title}</Text>
             <Text className="shrink-0 text-base font-semibold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>
@@ -126,7 +128,7 @@ export function YearPlanView({ uid, periods }: Props) {
         <View className="z-20 w-32">
           <DropdownField value={String(year)} options={yearOptions} onChange={(v) => setYear(Number(v))} menuStrategy="inline" triggerClassName="h-11" />
         </View>
-        <AppButton label="Add dated item" size="touch" onPress={() => openForm(null)} />
+        <AppButton label="Add dated item" size="touch" onPress={(e) => openForm(null, e)} />
       </View>
 
       <View className="gap-2">
@@ -201,8 +203,8 @@ export function YearPlanView({ uid, periods }: Props) {
 
       <YearItemForm
         uid={uid}
-        open={formOpen}
-        onClose={() => setFormOpen(false)}
+        open={form.open}
+        onClose={() => form.hide()}
         item={editing ? items.find((i) => i.id === editing.id) ?? editing : null}
         defaultDueDate={year === thisYear ? today : `${year}-01-01`}
         accounts={accounts}
