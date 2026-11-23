@@ -4,9 +4,10 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { ListGroup } from '@/components/patterns/ListRow';
 import { EmptyState, LoadingState } from '@/components/patterns/States';
 import { AppButton } from '@/components/ui/AppButton';
+import { AppProgressBar } from '@/components/ui/AppProgressBar';
 import { cn } from '@/lib/cn';
 
-export type ListSummary = { id: string; name: string; count?: number; sharedWith?: string };
+export type ListSummary = { id: string; name: string; count?: number; got?: number; sharedWith?: string };
 export type SharedSummary = { id: string; name: string };
 
 type Props = {
@@ -21,7 +22,7 @@ type Props = {
   onCatalog?: () => void;
 };
 
-function Row({ title, sub, active, onPress, shared }: { title: string; sub: string; active?: boolean; onPress: () => void; shared?: boolean }) {
+function Row({ title, sub, active, onPress, shared, progress }: { title: string; sub: string; active?: boolean; onPress: () => void; shared?: boolean; progress?: number }) {
   return (
     <Pressable
       accessibilityRole="button"
@@ -35,6 +36,7 @@ function Row({ title, sub, active, onPress, shared }: { title: string; sub: stri
           {shared ? <MaterialCommunityIcons name="account-multiple-outline" size={14} color="#717182" /> : null}
           <Text className="min-w-0 shrink text-sm text-muted-foreground dark:text-zinc-400" numberOfLines={1}>{sub}</Text>
         </View>
+        {progress !== undefined ? <AppProgressBar value={progress} className="mt-1 h-1" /> : null}
       </View>
       <MaterialCommunityIcons name="chevron-right" size={20} color="#717182" />
     </Pressable>
@@ -57,7 +59,8 @@ export function ListsList({ loading, lists, shared, selectedId, onOpen, onOpenSh
               title={l.name}
               active={l.id === selectedId}
               shared={Boolean(l.sharedWith)}
-              sub={[l.count === undefined ? 'Counting…' : `${l.count} item${l.count === 1 ? '' : 's'}`, l.sharedWith ? `Shared · ${l.sharedWith}` : ''].filter(Boolean).join(' · ')}
+              progress={l.count ? ((l.got || 0) / l.count) * 100 : undefined}
+              sub={[l.count === undefined ? 'Counting…' : l.count ? `${l.got || 0} / ${l.count} got` : 'No items yet', l.sharedWith ? `Shared · ${l.sharedWith}` : ''].filter(Boolean).join(' · ')}
               onPress={() => onOpen(l.id)}
             />
           ))}

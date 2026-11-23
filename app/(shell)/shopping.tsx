@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -152,6 +152,7 @@ export default function ShoppingScreen() {
 
   const [lists, setLists] = useState<ShoppingList[]>([]);
   const [listItemCounts, setListItemCounts] = useState<Record<string, number>>({});
+  const [listGotCounts, setListGotCounts] = useState<Record<string, number>>({}); // BUDG-8: "2 / 5" from the same read
   const [selectedListId, setSelectedListId] = useState('');
   const [privateItems, setItems] = useState<ShoppingListItem[]>([]);
   const [catalogRows, setCatalogRows] = useState<ShoppingCatalogItem[]>([]);
@@ -228,6 +229,10 @@ export default function ShoppingScreen() {
   // BUDG-8 S10 view state only.
   const [listsLoaded, setListsLoaded] = useState(false);
   const [gotFolded, setGotFolded] = useState(false);
+  const foldTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (foldTimer.current) clearTimeout(foldTimer.current);
+  }, []);
   const [stopShareOpen, setStopShareOpen] = useState(false);
   const [revoking, setRevoking] = useState(false);
   const [recordError, setRecordError] = useState('');
@@ -272,12 +277,13 @@ export default function ShoppingScreen() {
         .filter((list): list is ShoppingList & { id: string } => Boolean(list.id))
         .map(async (list) => {
           const rows = await listShoppingListItems(uid, list.id);
-          return [list.id, rows.length] as const;
+          return [list.id, rows.length, rows.filter((row) => row.bought).length] as const;
         })
     )
       .then((entries) => {
         if (cancelled) return;
-        setListItemCounts(Object.fromEntries(entries));
+        setListItemCounts(Object.fromEntries(entries.map(([id, total]) => [id, total])));
+        setListGotCounts(Object.fromEntries(entries.map(([id, , got]) => [id, got])));
       })
       .catch(() => {
         if (!cancelled) setListItemCounts({});
@@ -726,6 +732,10 @@ export default function ShoppingScreen() {
     if (!uid || !selectedListId || !item.id) return;
     // Check-off writes only bought/status: never a transaction (AC-7, SEC-22).
     const bought = !item.bought;
+    if (bought) {
+      if (foldTimer.current) clearTimeout(foldTimer.current);
+      foldTimer.current = setTimeout(() => setGotFolded(true), 3000); // BUDG-8 07: Got it folds 3 s after a tick
+    }
     if (item.fromChef) {
       await setShoppingListItemFields(uid, selectedListId, item.id, compactItem({ ...item, bought }), mirror);
     } else {
@@ -1409,7 +1419,7 @@ export default function ShoppingScreen() {
           <ScrollView className={cn(isWide ? 'w-64 flex-none' : 'flex-1')} contentContainerClassName="pb-6">
             <ListsList
               loading={!listsLoaded}
-              lists={orderedLists.filter((l) => l.id).map((l) => ({ id: l.id as string, name: l.name, count: listItemCounts[l.id as string], sharedWith: l.shareId ? l.sharedWithLabel || 'chef' : undefined }))}
+              lists={orderedLists.filter((l) => l.id).map((l) => ({ id: l.id as string, name: l.name, count: listItemCounts[l.id as string], got: listGotCounts[l.id as string], sharedWith: l.shareId ? l.sharedWithLabel || 'chef' : undefined }))}
               shared={sharedWithMe.filter((s) => s.id).map((s) => ({ id: s.id as string, name: s.listName }))}
               selectedId={chefShareId || selectedListId}
               onOpen={(id) => {
