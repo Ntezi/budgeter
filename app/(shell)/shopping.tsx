@@ -1553,7 +1553,7 @@ export default function ShoppingScreen() {
         footer={
           <>
             {listError ? <Text role="alert" className="text-sm text-destructive dark:text-red-300">{listError}</Text> : null}
-            <AppButton label="Create list" size="touch-lg" className="w-full" textClassName="text-base" onPress={() => void createList()} />
+            <AppButton label="Create list" size="touch-lg" className="w-full dark:bg-zinc-50" textClassName="text-base dark:text-zinc-900" onPress={() => void createList()} />
             <AppButton label="Cancel" variant="ghost" size="touch" onPress={() => setCreateListOpen(false)} />
           </>
         }
@@ -1593,7 +1593,7 @@ export default function ShoppingScreen() {
         title="Add from catalog"
         footer={
           <>
-            <AppButton label={`Add selected (${selectedImportCount})`} size="touch-lg" className="w-full" textClassName="text-base" onPress={importSelected} disabled={selectedImportCount === 0} />
+            <AppButton label={`Add selected (${selectedImportCount})`} size="touch-lg" className="w-full dark:bg-zinc-50" textClassName="text-base dark:text-zinc-900" onPress={importSelected} disabled={selectedImportCount === 0} />
             <AppButton label="Cancel" variant="ghost" size="touch" onPress={() => setImportOpen(false)} />
           </>
         }

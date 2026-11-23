@@ -72,7 +72,7 @@ export function ListsList({ loading, lists, shared, selectedId, onOpen, onOpenSh
       ) : null}
       {onNew && !nothing ? (
         <View className="flex-row flex-wrap items-center justify-between gap-2">
-          <AppButton label="+ New list" size="touch" onPress={onNew} />
+          <AppButton textClassName="dark:text-zinc-900" className="dark:bg-zinc-50" label="+ New list" size="touch" onPress={onNew} />
           {onCatalog ? <AppButton label="Catalog ›" variant="ghost" size="touch" onPress={onCatalog} /> : null}
         </View>
       ) : null}

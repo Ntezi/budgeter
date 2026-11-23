@@ -33,7 +33,7 @@ export function AddItemBar({ value, onChangeText, onSubmit, suggestions, onPick,
           onSubmitEditing={onSubmit}
           className="h-12 min-w-0 flex-1 text-base"
         />
-        <AppButton label="Add" size="touch-lg" className="px-5" textClassName="text-base" disabled={!typed} onPress={onSubmit} />
+        <AppButton label="Add" size="touch-lg" className="px-5 dark:bg-zinc-50" textClassName="text-base dark:text-zinc-900" disabled={!typed} onPress={onSubmit} />
       </View>
       {showMenu ? (
         <View className="overflow-hidden rounded-xl border border-border bg-card dark:border-zinc-800 dark:bg-zinc-900" accessibilityRole="list">

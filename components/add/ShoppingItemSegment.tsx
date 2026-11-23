@@ -189,7 +189,7 @@ export function ShoppingItemSegment({ open, uid, onDone, onGo }: Props) {
               <Switch value={saveToCatalog} onValueChange={setSaveToCatalog} accessibilityLabel="Save to catalog" />
             </View>
           ) : null}
-          <AppButton label={busy ? 'Adding…' : `Add "${pending}" to list`} size="touch-lg" textClassName="text-base" disabled={busy || (candidates.length > 0 && !choice)} onPress={() => void addTyped()} />
+          <AppButton className="dark:bg-zinc-50" label={busy ? 'Adding…' : `Add "${pending}" to list`} size="touch-lg" textClassName="text-base dark:text-zinc-900" disabled={busy || (candidates.length > 0 && !choice)} onPress={() => void addTyped()} />
         </View>
       ) : null}
       {notice ? <Text accessibilityLiveRegion="polite" className="text-base text-foreground dark:text-zinc-50">{notice}</Text> : null}

@@ -22,7 +22,7 @@ export function ShareSheet({ open, onClose, chefUid, label, onChange, error, bus
   const footer = (
     <>
       {error ? <Text role="alert" className="text-sm text-destructive dark:text-red-300">{error}</Text> : null}
-      <AppButton label={busy ? 'Sharing…' : 'Share list'} size="touch-lg" className="w-full" textClassName="text-base" disabled={busy || !chefUid.trim()} onPress={onShare} />
+      <AppButton label={busy ? 'Sharing…' : 'Share list'} size="touch-lg" className="w-full dark:bg-zinc-50" textClassName="text-base dark:text-zinc-900" disabled={busy || !chefUid.trim()} onPress={onShare} />
       <AppButton label="Cancel" variant="ghost" size="touch" disabled={busy} onPress={onClose} />
     </>
   );
