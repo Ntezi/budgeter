@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Text, View } from 'react-native';
 import { collection, getDocs } from 'firebase/firestore';
-import { AppModal } from '@/components/ui/AppModal';
+import { AppSheet } from '@/components/patterns/AppSheet';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppInput } from '@/components/ui/AppInput';
 import { AppSegmented } from '@/components/ui/AppSegmented';
@@ -200,59 +200,79 @@ export function ReceiptModal({ open, onClose, onSaved, ownerUid, actorUid, accou
   const monthLabel = periodId ? `${MONTHS[Number(periodId.slice(5, 7)) - 1]} ${periodId.slice(0, 4)}` : '';
   const accountName = activeAccounts.find((a) => a.id === accountId)?.name || '';
 
+  const addLine = () => setLines((prev) => [...prev, { lineId: shortId(), name: '', qty: '1', unit: 'pc', total: '', catalogItemId: '', promo: false, isReturn: false }]);
+  const footer =
+    step === 1 ? (
+      <>
+        <Text className="text-base font-semibold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>
+          Total: {totalMinor === null ? 'enter every price' : fmt(totalMinor)}
+        </Text>
+        {error ? <Text role="alert" className="text-sm text-destructive dark:text-red-300">{error}</Text> : null}
+        <AppButton label={saving ? 'Saving…' : 'Next'} size="touch-lg" className="w-full" textClassName="text-base" disabled={saving || !lines.length} onPress={() => void next()} />
+        <AppButton label="Cancel" variant="ghost" size="touch" onPress={onClose} />
+      </>
+    ) : (
+      <>
+        {mode === 'NEW' ? (
+          <View className="gap-1" testID="receipt-save-summary">
+            <Text className="text-sm font-semibold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>
+              {`Posts to ${monthLabel} · ${accountName || 'choose account'} · ${totalMinor === null ? '-' : fmt(totalMinor)} · ${purchaseDate}`}
+            </Text>
+            <Text className="text-sm text-muted-foreground dark:text-zinc-400">{`Date: ${purchaseDate} · Account: ${accountName || 'choose one'} · Amount: ${totalMinor === null ? '-' : fmt(totalMinor)}`}</Text>
+          </View>
+        ) : null}
+        {error ? <Text role="alert" className="text-sm text-destructive dark:text-red-300">{error}</Text> : null}
+        <AppButton
+          label={saving ? 'Saving…' : mode === 'NEW' ? 'Save expense' : 'Link receipt'}
+          size="touch-lg"
+          className="w-full"
+          textClassName="text-base"
+          disabled={saving || (mode === 'NEW' ? !accountId : !txId)}
+          onPress={() => void save()}
+        />
+        <AppButton label="Back" variant="ghost" size="touch" disabled={saving} onPress={() => setStep(1)} />
+      </>
+    );
+
   return (
-    <AppModal open={open} onClose={() => !saving && onClose()} title={step === 1 ? 'Add Receipt' : 'Save Receipt'}>
+    <AppSheet open={open} onClose={() => !saving && onClose()} title={step === 1 ? 'Receipt: check items' : 'Receipt: save'} footer={footer} testID="receipt-sheet">
       {step === 1 ? (
-        <View className="gap-3">
-          <View className="flex-row gap-2">
-            <AppInput value={storeName} onChangeText={setStoreName} placeholder="Store (optional)" accessibilityLabel="Store" className="flex-1" />
-            <AppInput value={purchaseDate} onChangeText={setPurchaseDate} placeholder="YYYY-MM-DD" accessibilityLabel="Purchase date" className="w-28 text-center" />
+        <View className="gap-4">
+          <View className="flex-row flex-wrap gap-2">
+            <AppInput value={storeName} onChangeText={setStoreName} placeholder="Store (optional)" accessibilityLabel="Store" className="h-11 min-w-40 flex-1 text-base" />
+            <AppInput value={purchaseDate} onChangeText={setPurchaseDate} placeholder="YYYY-MM-DD" accessibilityLabel="Purchase date" className="h-11 w-36 text-center text-base" />
           </View>
-          <Text className="text-xs text-muted-foreground">Check each item, quantity and the price paid.</Text>
-          {parsed.map((p) => (
-            <View key={p.l.lineId} className="gap-2 rounded-md border border-border px-3 py-2 dark:border-zinc-800" testID="receipt-line">
-              <View className="flex-row items-center gap-2">
-                <AppInput value={p.l.name} onChangeText={(v) => setLine(p.l.lineId, { name: v })} placeholder="Item" accessibilityLabel="Receipt item name" className="flex-1" />
-                <IconActionButton icon="trash-can-outline" label="Remove line" variant="danger" onPress={() => setLines((prev) => prev.filter((x) => x.lineId !== p.l.lineId))} />
-              </View>
-              <View className="flex-row gap-2">
-                <AppInput value={p.l.qty} onChangeText={(v) => setLine(p.l.lineId, { qty: v })} keyboardType="numeric" accessibilityLabel="Receipt quantity" className="w-20 text-center" />
-                <View className="flex-1">
-                  <DropdownField value={p.l.unit} options={UNIT_OPTIONS} onChange={(v) => setLine(p.l.lineId, { unit: v })} placeholder="Unit" menuStrategy="inline" />
+          <Text className="text-sm text-muted-foreground dark:text-zinc-400">Check each item, quantity and the price paid. Nothing is recorded yet.</Text>
+          <View className="overflow-hidden rounded-xl border border-border bg-card dark:border-zinc-800 dark:bg-zinc-900">
+            {parsed.map((p, i) => (
+              <View key={p.l.lineId} className={`gap-2 p-3 ${i > 0 ? 'border-t border-border dark:border-zinc-800' : ''}`} testID="receipt-line">
+                <View className="flex-row items-center gap-2">
+                  <AppInput value={p.l.name} onChangeText={(v) => setLine(p.l.lineId, { name: v })} placeholder="Item" accessibilityLabel="Receipt item name" className="h-11 min-w-0 flex-1 text-base" />
+                  <AppInput value={p.l.total} onChangeText={(v) => setLine(p.l.lineId, { total: v })} keyboardType="decimal-pad" placeholder="Paid" accessibilityLabel="Price paid" className="h-11 w-24 text-right text-base" />
                 </View>
-                <AppInput value={p.l.total} onChangeText={(v) => setLine(p.l.lineId, { total: v })} keyboardType="decimal-pad" placeholder="Paid" accessibilityLabel="Price paid" className="w-20 text-center" />
+                <View className="flex-row items-center gap-2">
+                  <AppInput value={p.l.qty} onChangeText={(v) => setLine(p.l.lineId, { qty: v })} keyboardType="numeric" accessibilityLabel="Receipt quantity" className="h-11 w-16 text-center text-base" />
+                  <View className="min-w-0 flex-1">
+                    <DropdownField value={p.l.unit} options={UNIT_OPTIONS} onChange={(v) => setLine(p.l.lineId, { unit: v })} placeholder="Unit" menuStrategy="inline" triggerClassName="min-h-11" />
+                  </View>
+                  <IconActionButton icon="trash-can-outline" label="Remove line" variant="danger" onPress={() => setLines((prev) => prev.filter((x) => x.lineId !== p.l.lineId))} />
+                </View>
+                <DropdownField value={p.l.catalogItemId} options={catalogOptions} onChange={(v) => setLine(p.l.lineId, { catalogItemId: v })} placeholder="Catalog item" menuStrategy="inline" triggerClassName="min-h-11" />
+                <Text className="text-sm text-muted-foreground dark:text-zinc-400" testID="price-chip">{chip(p)}</Text>
+                <View className="flex-row flex-wrap gap-2">
+                  <AppButton label={p.l.promo ? 'Promo' : 'No promo'} size="touch" variant={p.l.promo ? 'primary' : 'outline'} onPress={() => setLine(p.l.lineId, { promo: !p.l.promo })} />
+                  <AppButton label={p.l.isReturn ? 'Return' : 'Bought'} size="touch" variant={p.l.isReturn ? 'primary' : 'outline'} onPress={() => setLine(p.l.lineId, { isReturn: !p.l.isReturn })} />
+                </View>
               </View>
-              <DropdownField value={p.l.catalogItemId} options={catalogOptions} onChange={(v) => setLine(p.l.lineId, { catalogItemId: v })} placeholder="Catalog item" menuStrategy="inline" />
-              <View className="flex-row flex-wrap items-center justify-between gap-2">
-                <Text className="min-w-0 flex-1 text-xs text-muted-foreground" testID="price-chip">{chip(p)}</Text>
-                <AppButton label={p.l.promo ? 'Promo' : 'No promo'} size="sm" variant={p.l.promo ? 'primary' : 'outline'} textClassName={p.l.promo ? 'text-white' : undefined} onPress={() => setLine(p.l.lineId, { promo: !p.l.promo })} />
-                <AppButton label={p.l.isReturn ? 'Return' : 'Bought'} size="sm" variant={p.l.isReturn ? 'primary' : 'outline'} textClassName={p.l.isReturn ? 'text-white' : undefined} onPress={() => setLine(p.l.lineId, { isReturn: !p.l.isReturn })} />
-              </View>
-            </View>
-          ))}
-          <AppButton label="Add line" variant="outline" size="sm" onPress={() => setLines((prev) => [...prev, { lineId: shortId(), name: '', qty: '1', unit: 'pc', total: '', catalogItemId: '', promo: false, isReturn: false }])} />
-          <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">
-            Total: {totalMinor === null ? 'enter every price' : fmt(totalMinor)}
-          </Text>
-          {error ? <Text className="text-xs text-destructive">{error}</Text> : null}
-          <View className="flex-row gap-2">
-            <AppButton label="Cancel" variant="outline" className="flex-1" onPress={onClose} />
-            <AppButton label={saving ? 'Saving...' : 'Next'} className="flex-1" textClassName="text-white" disabled={saving || !lines.length} onPress={() => void next()} />
+            ))}
           </View>
+          <AppButton label="+ Add line" variant="ghost" size="touch" className="self-start" onPress={addLine} />
         </View>
       ) : (
-        <View className="gap-3">
-          <AppSegmented value={mode} options={[{ label: 'Record new expense', value: 'NEW' }, { label: 'Link existing', value: 'EXISTING' }]} onChange={setMode} />
+        <View className="gap-4">
+          <AppSegmented value={mode} touch options={[{ label: 'Record new expense', value: 'NEW' }, { label: 'Link existing', value: 'EXISTING' }]} onChange={setMode} />
           {mode === 'NEW' ? (
-            <>
-              <DropdownField value={accountId} options={activeAccounts.map((a) => ({ label: a.name, value: a.id as string }))} onChange={setAccountId} placeholder="Account that paid" menuStrategy="inline" />
-              <View className="gap-1 rounded-md border border-border px-3 py-2 dark:border-zinc-800" testID="receipt-save-summary">
-                <Text className="text-xs text-muted-foreground">Date: {purchaseDate}</Text>
-                <Text className="text-xs text-muted-foreground">Account: {accountName || 'choose one'}</Text>
-                <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Amount: {totalMinor === null ? '-' : fmt(totalMinor)}</Text>
-                <Text className="text-xs text-muted-foreground">Posts to {monthLabel}</Text>
-              </View>
-            </>
+            <DropdownField value={accountId} options={activeAccounts.map((a) => ({ label: a.name, value: a.id as string }))} onChange={setAccountId} placeholder="Account that paid" menuStrategy="inline" triggerClassName="min-h-11" />
           ) : (
             <DropdownField
               value={txId}
@@ -260,21 +280,11 @@ export function ReceiptModal({ open, onClose, onSaved, ownerUid, actorUid, accou
               onChange={setTxId}
               placeholder={`Expense in ${monthLabel}`}
               menuStrategy="inline"
+              triggerClassName="min-h-11"
             />
           )}
-          {error ? <Text className="text-xs text-destructive">{error}</Text> : null}
-          <View className="flex-row gap-2">
-            <AppButton label="Back" variant="outline" className="flex-1" disabled={saving} onPress={() => setStep(1)} />
-            <AppButton
-              label={saving ? 'Saving...' : mode === 'NEW' ? 'Save expense' : 'Link receipt'}
-              className="flex-1"
-              textClassName="text-white"
-              disabled={saving || (mode === 'NEW' ? !accountId : !txId)}
-              onPress={() => void save()}
-            />
-          </View>
         </View>
       )}
-    </AppModal>
+    </AppSheet>
   );
 }

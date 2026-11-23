@@ -51,9 +51,15 @@ export const CHEF_ROUTE = '/shopping';
  * household of their own (no month in their own workspace) and no household membership.
  * Anything else is a household user. Unknown (still loading) is null: show no navigation.
  */
-export function audienceFor(s: { sharedWithMe: number | null; ownMonths: number | null; memberships: number | null }): Audience | null {
+export function audienceFor(
+  s: { sharedWithMe: number | null; ownMonths: number | null; memberships: number | null },
+  /** BUDG-8: this session already showed the chef shell. A chef whose last share ends stays a chef
+   *  (and sees "Access ended") until they get a household of their own. */
+  wasChef = false
+): Audience | null {
   if (s.sharedWithMe == null || s.ownMonths == null || s.memberships == null) return null;
-  return s.sharedWithMe > 0 && s.ownMonths === 0 && s.memberships === 0 ? 'chef' : 'household';
+  const noHousehold = s.ownMonths === 0 && s.memberships === 0;
+  return noHousehold && (s.sharedWithMe > 0 || wasChef) ? 'chef' : 'household';
 }
 
 /** A chef may only be on the shared-list screen. */

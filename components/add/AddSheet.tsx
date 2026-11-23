@@ -9,6 +9,7 @@ import { AppInput } from '@/components/ui/AppInput';
 import { AppSegmented } from '@/components/ui/AppSegmented';
 import { DropdownField } from '@/components/ui/DropdownField';
 import { useExpenseForm } from '@/components/add/useExpenseForm';
+import { ShoppingItemSegment } from '@/components/add/ShoppingItemSegment';
 import { cn } from '@/lib/cn';
 import { fmtMoney } from '@/lib/format';
 import { monthTitle } from '@/lib/rules/months';
@@ -85,12 +86,7 @@ export function AddSheet({ open, uid, onClose, onSaved, onGo }: Props) {
           <AppButton label="Go to Accounts" size="touch" onPress={() => onGo('/accounts')} />
         </View>
       ) : null}
-      {kind === 'shopping' ? (
-        <View className="gap-3">
-          <Text className="text-base text-foreground dark:text-zinc-50">Add an item to a shopping list. Ticking it off never posts money.</Text>
-          <AppButton label="Go to Shopping" size="touch" onPress={() => onGo('/shopping')} />
-        </View>
-      ) : null}
+      {kind === 'shopping' && open ? <ShoppingItemSegment open={open} uid={uid} onDone={() => undefined} onGo={onGo} /> : null}
       {kind === 'expense' ? (
         <View className="gap-4">
           <FormField label="Amount">
