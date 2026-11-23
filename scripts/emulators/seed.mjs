@@ -7,6 +7,7 @@ import { initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { PROJECT_ID, assertLoopback, childEnv } from './env.mjs';
+import { seedDefaultAccounts } from './seed.default-accounts.mjs';
 
 const env = childEnv();
 for (const key of ['FIRESTORE_EMULATOR_HOST', 'FIREBASE_AUTH_EMULATOR_HOST', 'GCLOUD_PROJECT']) {
@@ -117,6 +118,7 @@ async function main() {
       batch.set(l.collection('items').doc(iid), { name: iname, quantity, price, category, bought, status: bought ? 'purchased' : 'planned', source: 'manual', createdAt: ts, updatedAt: ts });
     }
   }
+  seedDefaultAccounts({ batch, u, ts, prevId: pid(prev), curId: pid(cur) }); // BUDG-3
   await batch.commit();
   console.log(`[seed] demo-budgeta seeded: 3 users, 4 accounts, periods ${pid(prev)} (DECIDED) and ${pid(cur)} (DRAFT), 2 shopping lists`);
 }
