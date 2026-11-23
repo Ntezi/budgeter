@@ -14,7 +14,7 @@
     "web:emulators": "node ./scripts/emulators/dev.mjs",
     "emulators:up": "node ./scripts/emulators/dev.mjs --no-web",
     "emulators:seed": "node ./scripts/emulators/seed.mjs",
-    "emulators:down": "docker compose -f docker-compose.emulators.yml down",
+    "emulators:down": "node ./scripts/emulators/dev.mjs --down",
     "test": "node --require ./scripts/ts-register.cjs --test tests/unit/*.test.ts",
     "test:emulator": "node --require ./scripts/ts-register.cjs --test --test-concurrency=1 tests/emulator/*.test.ts",
     "e2e": "playwright test"

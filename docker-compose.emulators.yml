@@ -5,9 +5,11 @@ services:
     build: ./docker/firebase-emulators
     image: budgeta-firebase-emulators:14.17.0
     ports:
-      - "127.0.0.1:9099:9099"
-      - "127.0.0.1:8080:8080"
-      - "127.0.0.1:4000:4000"
+      # Host ports default to 9099/8080/4000; scripts/emulators/env.mjs sets the
+      # BUDGETA_EMU_* values from BUDGETA_EMULATOR_PORT_OFFSET. Always 127.0.0.1.
+      - "127.0.0.1:${BUDGETA_EMU_AUTH_PORT:-9099}:9099"
+      - "127.0.0.1:${BUDGETA_EMU_FIRESTORE_PORT:-8080}:8080"
+      - "127.0.0.1:${BUDGETA_EMU_UI_PORT:-4000}:4000"
     volumes:
       - ./firebase.emulators.json:/workspace/firebase.emulators.json:ro
       - ./firestore.rules:/workspace/firestore.rules:ro

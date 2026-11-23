@@ -2,6 +2,7 @@
 // Start the app first with `npm run web:emulators`; every test aborts and
 // fails on any request to a host other than localhost/127.0.0.1.
 import { defineConfig } from '@playwright/test';
+import { emulatorPorts } from './lib/emulatorPorts';
 
 export default defineConfig({
   testDir: './e2e',
@@ -12,15 +13,15 @@ export default defineConfig({
   reporter: [['list']],
   outputDir: 'test-results',
   use: {
-    baseURL: process.env.E2E_BASE_URL || 'http://127.0.0.1:8081',
+    baseURL: process.env.E2E_BASE_URL || `http://127.0.0.1:${emulatorPorts().web}`,
     channel: 'chrome',
     headless: true,
     trace: 'off',
   },
+  // Every spec runs at 320, 390 and 1440 px (BUDG-6 integration: one w390 project for all specs).
   projects: [
     { name: 'w320', use: { viewport: { width: 320, height: 740 } } },
+    { name: 'w390', use: { viewport: { width: 390, height: 844 } } },
     { name: 'w1440', use: { viewport: { width: 1440, height: 900 } } },
-    // BUDG-2: 390 px phone width for the year-plan flow only.
-    { name: 'w390', testMatch: /budg-2\.spec\.ts/, use: { viewport: { width: 390, height: 844 } } },
   ],
 });

@@ -2,7 +2,8 @@
 // npm run web:emulators — the one command for the local test environment:
 // docker check -> emulators up (127.0.0.1) -> synthetic seed -> expo web with
 // .env.emulator and EXPO_NO_DOTENV=1 (the production .env is never read).
-// Flags: --no-web (emulators + seed only), --no-seed.
+// Flags: --no-web (emulators + seed only), --no-seed, --down (stop this lane's containers).
+// BUDGETA_EMULATOR_PORT_OFFSET shifts every host port and the compose project (env.mjs).
 import { spawnSync, spawn } from 'node:child_process';
 import path from 'node:path';
 import { root, childEnv } from './env.mjs';
@@ -17,12 +18,18 @@ const run = (cmd, argv, opts = {}) => {
 };
 
 const env = childEnv();
+const compose = ['compose', '-p', env.COMPOSE_PROJECT_NAME, '-f', 'docker-compose.emulators.yml'];
+if (process.env.BUDGETA_EMULATOR_DOCKER_NETWORK === 'bridge') compose.push('-f', 'docker-compose.emulators.bridge.yml');
+if (args.has('--down')) {
+  run('docker', [...compose, 'down'], { env });
+  process.exit(0);
+}
 if (spawnSync('docker', ['info'], { stdio: 'ignore' }).status !== 0) {
   console.error('[web:emulators] Docker is not running. Start Docker Desktop and retry.');
   process.exit(1);
 }
-console.log('[web:emulators] starting Firebase emulators (project demo-budgeta, 127.0.0.1 only)');
-run('docker', ['compose', '-f', 'docker-compose.emulators.yml', 'up', '-d', '--build', '--wait']);
+console.log(`[web:emulators] starting Firebase emulators (project demo-budgeta, 127.0.0.1 only, auth ${env.BUDGETA_EMU_AUTH_PORT}, firestore ${env.BUDGETA_EMU_FIRESTORE_PORT}, compose ${env.COMPOSE_PROJECT_NAME})`);
+run('docker', [...compose, 'up', '-d', '--build', '--wait'], { env });
 if (!args.has('--no-seed')) run(process.execPath, [path.join('scripts', 'emulators', 'seed.mjs')], { env });
 if (args.has('--no-web')) process.exit(0);
 

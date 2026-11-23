@@ -1,0 +1,7 @@
+# Optional override (BUDG-4): run the emulator container on Docker's default bridge
+# instead of a per-project network, for hosts whose address pools are exhausted.
+# Used by scripts/emulators/dev.mjs when BUDGETA_EMULATOR_DOCKER_NETWORK=bridge.
+# Ports stay published on 127.0.0.1 only (base file).
+services:
+  firebase-emulators:
+    network_mode: bridge
