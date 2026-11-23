@@ -18,10 +18,12 @@ export default defineConfig({
     headless: true,
     trace: 'off',
   },
-  // Every spec runs at 320, 390 and 1440 px (BUDG-6 integration: one w390 project for all specs).
+  // Every spec runs at 320, 390 and 1440 px (BUDG-6 integration: one w390 project for all specs; budg-8 runs its own widths).
   projects: [
-    { name: 'w320', use: { viewport: { width: 320, height: 740 } } },
-    { name: 'w390', use: { viewport: { width: 390, height: 844 } } },
-    { name: 'w1440', use: { viewport: { width: 1440, height: 900 } } },
+    { name: 'w320', testIgnore: /budg-8/, use: { viewport: { width: 320, height: 740 } } },
+    { name: 'w390', testIgnore: /budg-8/, use: { viewport: { width: 390, height: 844 } } },
+    { name: 'w1440', testIgnore: /budg-8/, use: { viewport: { width: 1440, height: 900 } } },
+    // BUDG-8 shell and Add sheet: the spec sets 320/390/768/1024/1440 and light/dark itself.
+    { name: 'budg8', testMatch: /budg-8/, use: { viewport: { width: 390, height: 844 } } },
   ],
 });

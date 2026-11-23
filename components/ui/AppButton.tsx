@@ -3,7 +3,7 @@ import { Pressable, Text, type PressableProps } from 'react-native';
 import { cn } from '@/lib/cn';
 
 export type AppButtonVariant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'destructive';
-export type AppButtonSize = 'sm' | 'md' | 'lg' | 'icon';
+export type AppButtonSize = 'sm' | 'md' | 'lg' | 'icon' | 'touch' | 'touch-lg';
 
 type Props = Omit<PressableProps, 'children'> & {
   children?: ReactNode;
@@ -35,6 +35,10 @@ const SIZE_CLASS: Record<AppButtonSize, string> = {
   md: 'h-9 rounded-md px-4',
   lg: 'h-10 rounded-md px-6',
   icon: 'h-9 w-9 rounded-md items-center justify-center px-0',
+  // BUDG-8: 44 px touch target for phone widths (00 "Keyboard, focus, Back, touch").
+  touch: 'h-11 rounded-md px-4',
+  // BUDG-8: the one primary action at the bottom of a form or sheet (h-12).
+  'touch-lg': 'h-12 rounded-lg px-4',
 };
 
 export function AppButton({
@@ -57,6 +61,8 @@ export function AppButton({
         className
       )}
       disabled={disabled}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: !!disabled }}
       {...props}
     >
       {typeof children === 'string' || typeof children === 'number' || label ? (

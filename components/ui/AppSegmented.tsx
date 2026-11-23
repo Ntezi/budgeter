@@ -13,9 +13,11 @@ type Props<T extends string> = {
   onChange: (value: T) => void;
   className?: string;
   compact?: boolean;
+  /** BUDG-8: 44 px segments for phone widths. */
+  touch?: boolean;
 };
 
-export function AppSegmented<T extends string>({ value, options, onChange, className, compact }: Props<T>) {
+export function AppSegmented<T extends string>({ value, options, onChange, className, compact, touch }: Props<T>) {
   return (
     <View className={cn('rounded-md border border-border bg-muted p-0.5 dark:border-zinc-800 dark:bg-zinc-800/70', className)}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerClassName="gap-1">
@@ -25,10 +27,12 @@ export function AppSegmented<T extends string>({ value, options, onChange, class
             <Pressable
               key={option.value}
               className={cn(
-                'h-8 items-center justify-center rounded-md px-3',
-                compact && 'h-7 px-2.5',
+                'items-center justify-center rounded-md',
+                touch ? 'h-11 px-4' : compact ? 'h-7 px-2.5' : 'h-8 px-3',
                 active ? 'border border-border bg-card dark:border-zinc-800 dark:bg-zinc-900' : 'bg-transparent'
               )}
+              accessibilityRole="button"
+              aria-pressed={active}
               onPress={() => onChange(option.value)}
             >
               <Text
