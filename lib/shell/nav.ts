@@ -62,7 +62,7 @@ export function chefMayOpen(pathname: string): boolean {
 }
 
 /** Routes whose screen reads ?month= today; add /accounts, /reports, /budgets/[pid] when S5/S8/S14 do. */
-export const MONTH_CHIP_ROUTES = ['/dashboard', '/transactions'];
+export const MONTH_CHIP_ROUTES = ['/dashboard', '/transactions', '/budgets'];
 
 export const BREAKPOINT_RAIL = 768;
 export const BREAKPOINT_SIDEBAR = 1024;
