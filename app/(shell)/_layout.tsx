@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Image, Pressable, View, useWindowDimensions } from 'react-native';
 import { Slot, usePathname, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -45,7 +45,10 @@ function useAudience(): Audience | null {
     return watchPeriods(myUid, (rows) => setMonths(rows.length));
   }, [myUid]);
   const memberships = ready ? workspaceOptions.filter((w) => w.ownerUid !== myUid).length : null;
-  return audienceFor({ sharedWithMe: shared, ownMonths: months, memberships });
+  const chefFor = useRef(''); // uid that has seen the chef shell in this session
+  const audience = audienceFor({ sharedWithMe: shared, ownMonths: months, memberships }, chefFor.current === myUid && !!myUid);
+  if (audience === 'chef') chefFor.current = myUid;
+  return audience;
 }
 
 function Shell() {

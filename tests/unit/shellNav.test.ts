@@ -52,6 +52,12 @@ test('BUDG-6 audience: chef only with an ACTIVE share and no household of their 
   assert.equal(audienceFor({ sharedWithMe: 1, ownMonths: 2, memberships: 0 }), 'household');
   assert.equal(audienceFor({ sharedWithMe: 1, ownMonths: 0, memberships: 1 }), 'household');
   assert.equal(audienceFor({ sharedWithMe: 0, ownMonths: 0, memberships: 0 }), 'household');
+  // BUDG-8: a chef whose last share ends stays in the chef shell for the session (sees Access ended)...
+  assert.equal(audienceFor({ sharedWithMe: 0, ownMonths: 0, memberships: 0 }, true), 'chef');
+  // ...but never once they have a household of their own.
+  assert.equal(audienceFor({ sharedWithMe: 0, ownMonths: 1, memberships: 0 }, true), 'household');
+  assert.equal(audienceFor({ sharedWithMe: 0, ownMonths: 0, memberships: 1 }, true), 'household');
+  assert.equal(audienceFor({ sharedWithMe: null, ownMonths: 0, memberships: 0 }, true), null);
   assert.equal(audienceFor({ sharedWithMe: null, ownMonths: 0, memberships: 0 }), null);
 });
 
