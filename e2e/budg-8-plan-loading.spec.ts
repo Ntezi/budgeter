@@ -9,6 +9,9 @@ for (const theme of ['light', 'dark'] as const) {
   test(`Plan loading state at 390 and 1440, ${theme}`, async ({ page }, info) => {
     test.setTimeout(240_000);
     await signIn(page, info);
+    // BUDG-8 D-5: the shell renders nothing until it knows the audience; wait until the household
+    // shell is shown (audience known for this tab), then hold Firestore to see the Plan's own loading.
+    await expect(page.getByTestId('add-button')).toBeVisible({ timeout: 60_000 });
     await page.evaluate((t) => window.localStorage.setItem('budgeter:theme', t), theme);
     for (const width of [390, 1440]) {
       await page.setViewportSize({ width, height: width < 768 ? 844 : 900 });

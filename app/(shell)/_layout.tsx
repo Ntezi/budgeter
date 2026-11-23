@@ -48,13 +48,39 @@ function useAudience(): Audience | null {
   const chefFor = useRef(''); // uid that has seen the chef shell in this session
   const audience = audienceFor({ sharedWithMe: shared, ownMonths: months, memberships }, chefFor.current === myUid && !!myUid);
   if (audience === 'chef') chefFor.current = myUid;
+  if (audience === 'household') rememberHousehold(myUid);
+  // D-5: only a household seen earlier in this tab skips the wait (so its screens show their own
+  // loading states at once); a chef, or anyone new in this tab, waits for the live answer.
+  if (audience === null && myUid && wasHousehold(myUid)) return 'household';
   return audience;
+}
+
+const HOUSEHOLD_KEY = 'budgeta:shell-household';
+function rememberHousehold(uid: string) {
+  try {
+    if (uid && globalThis.sessionStorage?.getItem(HOUSEHOLD_KEY) !== uid) globalThis.sessionStorage?.setItem(HOUSEHOLD_KEY, uid);
+  } catch {}
+}
+function wasHousehold(uid: string): boolean {
+  try {
+    return globalThis.sessionStorage?.getItem(HOUSEHOLD_KEY) === uid;
+  } catch {
+    return false;
+  }
 }
 
 function Shell() {
   const audience = useAudience();
+  // BUDG-8 D-5: nothing household (no frame, no bar, no screen) renders until the audience is known,
+  // so a chef never sees an empty household frame; screens show their own loading state afterwards.
+  if (audience === null) return <ShellLoading />;
   if (audience === 'chef') return <ChefShell />;
-  return <HouseholdShell ready={audience === 'household'} />;
+  return <HouseholdShell ready />;
+}
+
+/** Neutral while the audience loads: the page background and a busy marker, no navigation, no text. */
+function ShellLoading() {
+  return <View testID="shell-loading" aria-busy accessibilityLabel="Loading" className="flex-1 bg-background dark:bg-zinc-950" />;
 }
 
 /**
