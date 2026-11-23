@@ -1,18 +1,21 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useAddSheet } from '@/components/add/AddSheetContext';
 import { localDateISO, postingPeriodId } from '@/lib/rules/postingMonth';
 import { isMonthId, monthTitle } from '@/lib/rules/months';
 import { Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { AppBadge } from '@/components/ui/AppBadge';
-import { AppCard } from '@/components/ui/AppCard';
 import { AppInput } from '@/components/ui/AppInput';
-import { AppSegmented } from '@/components/ui/AppSegmented';
 import { DropdownField } from '@/components/ui/DropdownField';
 import { IconActionButton } from '@/components/ui/IconActionButton';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppModal } from '@/components/ui/AppModal';
 import { cn } from '@/lib/cn';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { PageHeader } from '@/components/patterns/PageHeader';
+import { ListGroup, ListRow } from '@/components/patterns/ListRow';
+import { EmptyState, LoadingState, LockedState } from '@/components/patterns/States';
+import { AccountsSegment } from '@/components/accounts/AccountsSegment';
+import { planGroupLabel } from '@/lib/groups';
 import { computeFundedBudgetByItemId, hasFundedAmount } from '@/lib/funding';
 import { fmtMoney, parseMoney } from '@/lib/format';
 import { watchIncomeItems } from '@/lib/repo/income';
@@ -62,14 +65,12 @@ export default function TransactionsScreen() {
   const uid = useWorkspaceUid();
   const { activePeriodId } = useWorkspace();
   const { width } = useWindowDimensions();
-  const isCompact = width < 768;
   const defaultPid = activePeriodId || periodIdFromDate();
   // Viewed month lives in the URL (?month=) so Back/refresh restore it; it never sets where an expense posts.
   const router = useRouter();
   const params = useLocalSearchParams<{ month?: string; scope?: string; action?: string }>();
   const monthParam = typeof params.month === 'string' && isMonthId(params.month) ? params.month : '';
   // BUDG-8 S3: the shell's Add sheet replaces the page's expense modal (and handles ?action=new-expense).
-  const { openAdd } = useAddSheet();
 
   const [periods, setPeriods] = useState<(PeriodDoc & { id: string })[]>([]);
   const [selectedPid, setSelectedPidState] = useState(monthParam || defaultPid);
@@ -80,6 +81,9 @@ export default function TransactionsScreen() {
   const [periodStatus, setPeriodStatus] = useState<PeriodStatus>('DRAFT');
 
   const [transactions, setTransactions] = useState<Tx[]>([]);
+  const [txLoaded, setTxLoaded] = useState(false);
+  const [totalsOpen, setTotalsOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [planItems, setPlanItems] = useState<PlanItem[]>([]);
   const [allocations, setAllocations] = useState<Allocation[]>([]);
   const [activeIncomeTotal, setActiveIncomeTotal] = useState(0);
@@ -103,8 +107,9 @@ export default function TransactionsScreen() {
     };
   }, [uid, receiptFor]);
 
-  const [filter, setFilter] = useState<Filter>('ALL');
-  const [scopeFilter, setScopeFilter] = useState<TxScopeFilter>(params.scope === 'SHOPPING' ? 'SHOPPING' : 'ALL');
+  const groupParam = (params as { group?: string }).group;
+  const [filter, setFilter] = useState<Filter>(groupParam === 'NEED' || groupParam === 'WANT' || groupParam === 'SAVINGS_DEBT' ? groupParam : 'ALL');
+  const [scopeFilter, setScopeFilter] = useState<TxScopeFilter>(params.scope === 'SHOPPING' || params.scope === 'UNCATEGORIZED' ? params.scope : 'ALL');
   const [searchText, setSearchText] = useState('');
   const [formError, setFormError] = useState('');
 
@@ -124,7 +129,7 @@ export default function TransactionsScreen() {
   }, [monthParam]);
 
   useEffect(() => {
-    if (params.scope === 'SHOPPING') setScopeFilter('SHOPPING');
+    if (params.scope === 'SHOPPING' || params.scope === 'UNCATEGORIZED') setScopeFilter(params.scope);
   }, [params.scope]);
 
   useEffect(() => {
@@ -145,7 +150,11 @@ export default function TransactionsScreen() {
 
   useEffect(() => {
     if (!uid || !selectedPid) return;
-    return watchTransactions(uid, selectedPid, setTransactions);
+    setTxLoaded(false);
+    return watchTransactions(uid, selectedPid, (rows) => {
+      setTransactions(rows);
+      setTxLoaded(true);
+    });
   }, [uid, selectedPid]);
 
   useEffect(() => {
@@ -513,11 +522,40 @@ export default function TransactionsScreen() {
   const selectedDraftBudget = resolveBudget(String(draft.name || ''), String(draft.categoryId || ''));
   const selectedDraftBudgetFunded = selectedDraftBudget ? budgetIsFunded(selectedDraftBudget.id) : false;
 
-  const periodOptions = periods.map((row) => ({ label: row.title || row.id, value: row.id }));
   const mobileDetailRow = useMemo(
     () => filteredTransactions.find((row) => row.id === mobileDetailId) || null,
     [filteredTransactions, mobileDetailId]
   );
+  const chipDefs = [
+    { id: 'ALL', label: 'All' },
+    { id: 'NEED', label: 'Needs' },
+    { id: 'WANT', label: 'Wants' },
+    { id: 'SAVINGS_DEBT', label: 'Savings' },
+    { id: 'SHOPPING', label: 'Shopping' },
+    { id: 'UNCATEGORIZED', label: `Review ${transactionSummary.uncategorizedCount}` },
+  ];
+  const activeChip = scopeFilter === 'SHOPPING' || scopeFilter === 'UNCATEGORIZED' ? scopeFilter : filter;
+  function pickChip(id: string) {
+    if (id === 'SHOPPING' || id === 'UNCATEGORIZED') {
+      setFilter('ALL');
+      setScopeFilter(id as TxScopeFilter);
+    } else {
+      setFilter(id as Filter);
+      setScopeFilter('ALL');
+    }
+  }
+  const groupWord = (g?: string) => (g ? planGroupLabel(g as Group) : null);
+  const accountNameById = useMemo(() => new Map(receiptAccounts.map((a) => [String(a.id), a.name] as [string, string])), [receiptAccounts]);
+  const dayGroups = useMemo(() => {
+    const byDay = new Map<string, Tx[]>();
+    [...filteredTransactions]
+      .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
+      .forEach((row) => {
+        const d = row.date || 'No date';
+        byDay.set(d, [...(byDay.get(d) ?? []), row]);
+      });
+    return [...byDay.entries()];
+  }, [filteredTransactions]);
   const mobileDetailEdit = mobileDetailRow?.id ? txEdits[mobileDetailRow.id] : null;
   const mobileDetailBudget = mobileDetailEdit ? resolveBudget(mobileDetailEdit.name, mobileDetailEdit.categoryId) : null;
   const mobileBudgetOptions = useMemo(
@@ -531,428 +569,108 @@ export default function TransactionsScreen() {
   }
 
   function closeMobileDetail() {
+    setConfirmDelete(false);
     if (mobileDetailId) cancelEdit(mobileDetailId);
     setMobileDetailId(null);
   }
 
   return (
     <ScrollView className="flex-1" contentContainerClassName="gap-4 pb-8">
+      <PageHeader title="Activity" right={<AccountsSegment active="activity" month={selectedPid} />} />
       <View className="gap-1">
-        <Text className="text-3xl font-bold text-foreground dark:text-zinc-50">Transactions</Text>
-        <Text className="text-sm text-muted-foreground">Transaction items are linked to budget items for this period.</Text>
-      </View>
-
-      <View className="flex-col gap-2 md:flex-row md:items-center md:justify-between">
-        <View className="w-full md:w-72">
-          <DropdownField
-            value={selectedPid}
-            options={periodOptions}
-            onChange={setSelectedPid}
-            placeholder="Select period"
-            menuStrategy="inline"
-            menuClassName="max-h-44"
-          />
-        </View>
-        <View className="flex-row flex-wrap items-center gap-2">
-          <AppBadge label={periodStatus} variant={readOnly ? 'secondary' : 'success'} />
-          <AppButton label="Add Expense" size="sm" onPress={openAdd} textClassName="text-white" />
-        </View>
-      </View>
-      <Text className="text-xs text-muted-foreground">Viewing {monthTitle(selectedPid)}. New expenses post to the month of their date.</Text>
-      {readOnly ? <Text className="text-xs text-muted-foreground">Closed budgets are view-only.</Text> : null}
-
-      <View className="grid grid-cols-1 gap-3 md:grid-cols-4">
-        <AppCard>
-          <Text className="text-xs uppercase tracking-wide text-muted-foreground">Needs</Text>
-          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">{fmtMoney(totals.needs)}</Text>
-        </AppCard>
-        <AppCard>
-          <Text className="text-xs uppercase tracking-wide text-muted-foreground">Wants</Text>
-          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">{fmtMoney(totals.wants)}</Text>
-        </AppCard>
-        <AppCard>
-          <Text className="text-xs uppercase tracking-wide text-muted-foreground">Savings-Debt</Text>
-          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">{fmtMoney(totals.sd)}</Text>
-        </AppCard>
-        <AppCard>
-          <Text className="text-xs uppercase tracking-wide text-muted-foreground">Total Spent</Text>
-          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">{fmtMoney(totals.total)}</Text>
-        </AppCard>
-      </View>
-
-      <View className="grid grid-cols-1 gap-3 md:grid-cols-4">
-        <AppCard>
-          <Text className="text-xs uppercase tracking-wide text-muted-foreground">Filtered Total</Text>
-          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">{fmtMoney(transactionSummary.filteredTotal)}</Text>
-          <Text className="text-xs text-muted-foreground">{transactionSummary.filteredCount} of {transactionSummary.count} transaction(s)</Text>
-        </AppCard>
-        <AppCard>
-          <Text className="text-xs uppercase tracking-wide text-muted-foreground">Average</Text>
-          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">{fmtMoney(transactionSummary.average)}</Text>
-          <Text className="text-xs text-muted-foreground">Average in current filter</Text>
-        </AppCard>
-        <AppCard>
-          <Text className="text-xs uppercase tracking-wide text-muted-foreground">Shopping Spend</Text>
-          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">{fmtMoney(transactionSummary.shoppingTotal)}</Text>
-          <Text className="text-xs text-muted-foreground">{transactionSummary.shoppingCount} shopping transaction(s)</Text>
-        </AppCard>
-        <AppCard>
-          <Text className="text-xs uppercase tracking-wide text-muted-foreground">Needs Review</Text>
-          <Text className={cn('mt-1 text-xl font-semibold', transactionSummary.uncategorizedCount ? 'text-amber-700 dark:text-amber-300' : 'text-foreground dark:text-zinc-50')}>
-            {transactionSummary.uncategorizedCount}
+        <Pressable
+          accessibilityRole="button"
+          aria-expanded={totalsOpen}
+          onPress={() => setTotalsOpen((v) => !v)}
+          testID="activity-spent"
+          className="min-h-11 flex-row items-center gap-2 rounded-lg px-1"
+        >
+          <Text className="min-w-0 flex-1 text-base font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>
+            Spent in {monthTitle(selectedPid).split(' ')[0]}
           </Text>
-          <Text className="text-xs text-muted-foreground">Uncategorized transaction(s)</Text>
-        </AppCard>
+          <Text className="shrink-0 text-xl font-bold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>
+            {fmtMoney(totals.total)}
+          </Text>
+          <MaterialCommunityIcons name={totalsOpen ? 'chevron-up' : 'chevron-down'} size={20} color="#717182" />
+        </Pressable>
+        {totalsOpen ? (
+          <View testID="activity-totals" className="gap-2 rounded-xl border border-border bg-card p-3 dark:border-zinc-800 dark:bg-zinc-900">
+            {[
+              ['Needs', totals.needs],
+              ['Wants', totals.wants],
+              ['Savings-Debt', totals.sd],
+              ['Shopping', transactionSummary.shoppingTotal],
+            ].map(([label, value]) => (
+              <View key={String(label)} className="flex-row items-center justify-between gap-3">
+                <Text className="text-sm text-muted-foreground dark:text-zinc-400">{label}</Text>
+                <Text className="text-sm font-semibold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>{fmtMoney(Number(value))}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+        <Text className="px-1 text-xs text-muted-foreground dark:text-zinc-400">Viewing {monthTitle(selectedPid)}. New expenses post to the month of their date.</Text>
       </View>
+      {readOnly ? <LockedState monthLabel={monthTitle(selectedPid).split(' ')[0]} testID="activity-closed" /> : null}
 
-      <AppCard className="gap-3">
-        <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Filter</Text>
-        <View className="gap-2">
-          <AppInput
-            value={searchText}
-            onChangeText={setSearchText}
-            placeholder="Search transactions, notes, or shopping list"
-            className="h-9"
-          />
-          <AppSegmented
-            value={filter}
-            onChange={(value) => setFilter(value as Filter)}
-            compact
-            options={[
-              { label: 'All', value: 'ALL' },
-              { label: 'Needs', value: 'NEED' },
-              { label: 'Wants', value: 'WANT' },
-              { label: 'Savings', value: 'SAVINGS_DEBT' },
-            ]}
-          />
-          <AppSegmented
-            value={scopeFilter}
-            onChange={(value) => setScopeFilter(value as TxScopeFilter)}
-            compact
-            options={[
-              { label: 'All Sources', value: 'ALL' },
-              { label: 'Shopping', value: 'SHOPPING' },
-              { label: 'Manual', value: 'MANUAL' },
-              { label: 'Needs Review', value: 'UNCATEGORIZED' },
-            ]}
-          />
-        </View>
-      </AppCard>
+      <View role="toolbar" aria-label="Filter costs" className="flex-row flex-wrap gap-2" testID="activity-chips">
+        {chipDefs.map((c) => {
+          const on = activeChip === c.id;
+          return (
+            <Pressable
+              key={c.id}
+              accessibilityRole="button"
+              aria-pressed={on}
+              onPress={() => pickChip(c.id)}
+              className={cn(
+                'h-11 justify-center rounded-full border px-4',
+                on ? 'border-primary bg-primary dark:border-zinc-700 dark:bg-zinc-800' : 'border-border bg-background hover:bg-muted dark:border-zinc-800 dark:bg-zinc-950 dark:hover:bg-zinc-800'
+              )}
+            >
+              <Text className={cn('text-sm font-medium', on ? 'text-primary-foreground dark:text-zinc-50' : 'text-foreground dark:text-zinc-50')}>{c.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      <AppInput value={searchText} onChangeText={setSearchText} placeholder="Search" accessibilityLabel="Search costs" className="h-11" />
 
-      <AppCard className="gap-3">
-        <View>
-          <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Transaction List</Text>
-          <Text className="text-xs text-muted-foreground">Use funded budget-item suggestions in the item name field.</Text>
-        </View>
-
-        {!isCompact ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator>
-          <View className="min-w-[820px] flex-1">
-            <View className="flex-row border-b border-border pb-2 dark:border-zinc-800">
-              <Text className="w-[140px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Date</Text>
-              <Text className="w-[420px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Item Name</Text>
-              <Text className="w-[130px] text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Amount</Text>
-              <Text className="w-[130px] text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Actions</Text>
-            </View>
-
-            {!readOnly ? (
-              <View className="flex-row items-start border-b border-border py-2 dark:border-zinc-800">
-                <View className="w-[140px] pr-2">
-                  <View className="h-9 justify-center px-2">
-                    <Text className="text-xs text-muted-foreground">{todayDate}</Text>
-                  </View>
-                </View>
-                <View className="w-[420px] pr-2">
-                  <View>
-                    <AppInput
-                      value={draft.name ?? ''}
-                      onChangeText={(value) => setDraft((prev) => ({ ...prev, name: value, categoryId: '' }))}
-                      placeholder="Type budget item..."
-                      className="h-9"
-                    />
-                    {normalize(String(draft.name || '')).length > 0 && draftSuggestions.length ? (
-                      <View className="mt-1 max-h-48 overflow-hidden rounded-md border border-border bg-card dark:border-zinc-700 dark:bg-zinc-900">
-                        <ScrollView>
-                          {draftSuggestions.map((row) => (
-                            <Pressable
-                              key={row.id}
-                              className="border-b border-border px-3 py-2 dark:border-zinc-800"
-                              onPress={() =>
-                                setDraft((prev) => ({
-                                  ...prev,
-                                  name: row.name,
-                                  categoryId: row.id,
-                                  group: row.group,
-                                }))
-                              }
-                            >
-                              <Text className="text-sm text-foreground dark:text-zinc-50">{row.name}</Text>
-                              <Text className="text-xs text-muted-foreground">{row.group}</Text>
-                            </Pressable>
-                          ))}
-                        </ScrollView>
-                      </View>
-                    ) : null}
-                  </View>
-                  <Text
-                    className={cn(
-                      'mt-1 text-xs',
-                      !selectedDraftBudget
-                        ? 'text-amber-600 dark:text-amber-300'
-                        : selectedDraftBudgetFunded
-                          ? 'text-muted-foreground'
-                          : 'text-red-600 dark:text-red-300'
-                    )}
-                  >
-                    {!selectedDraftBudget
-                      ? 'Select a funded budget item from suggestions'
-                      : selectedDraftBudgetFunded
-                        ? `Budget: ${selectedDraftBudget.name}`
-                        : `Budget: ${selectedDraftBudget.name} (not funded)`}
-                  </Text>
-                </View>
-                <View className="w-[130px] pr-2">
-                  <AppInput
-                    value={String(draft.amount || '')}
-                    onChangeText={(value) => setDraft((prev) => ({ ...prev, amount: parseMoney(value) }))}
-                    keyboardType="decimal-pad"
-                    placeholder="0.00"
-                    className="h-9 text-right"
-                  />
-                </View>
-                <View className="w-[130px] flex-row items-center justify-center gap-2">
-                  <IconActionButton icon="plus" label="Add transaction" onPress={addRow} />
-                </View>
-              </View>
-            ) : null}
-
-            {formError ? (
-              <View className="py-1">
-                <Text className="text-xs text-destructive">{formError}</Text>
-              </View>
-            ) : null}
-
-            {filteredTransactions.map((row) => {
-              const edit = row.id ? txEdits[row.id] : null;
-              if (!row.id || !edit) return null;
-              const isEditing = editingId === row.id;
-              const dirty = edit.dirty;
-              const currentBudget = resolveBudget(isEditing ? edit.name : row.name || '', isEditing ? edit.categoryId : row.categoryId);
-              const currentBudgetFunded = currentBudget ? budgetIsFunded(currentBudget.id) : false;
-              const rowSuggestions = isEditing ? getSuggestions(edit.name, fundedBudgetOptions) : [];
-
-              return (
-                <View
+      {!txLoaded ? (
+        <LoadingState rows={3} testID="activity-loading" />
+      ) : !budgetTransactions.length ? (
+        <EmptyState icon="receipt" message={`Nothing spent in ${monthTitle(selectedPid).split(' ')[0]} yet.`} testID="activity-empty" />
+      ) : !filteredTransactions.length ? (
+        <EmptyState
+          icon="filter-variant-remove"
+          message={`No ${chipDefs.find((c) => c.id === activeChip)?.label ?? ''} costs in ${monthTitle(selectedPid).split(' ')[0]}.`}
+          actionLabel="Clear filter"
+          onAction={() => {
+            pickChip('ALL');
+            setSearchText('');
+          }}
+          testID="activity-empty-filter"
+        />
+      ) : (
+        <View className="gap-4" testID="activity-list">
+          {dayGroups.map(([day, rows]) => (
+            <ListGroup key={day} title={day === localDateISO() ? 'Today' : day}>
+              {rows.map((row) => (
+                <ListRow
                   key={row.id}
-                  className={
-                    dirty
-                      ? 'flex-row items-start border-b border-primary/40 bg-primary/5 py-2 dark:border-zinc-800 dark:bg-zinc-800/70'
-                      : 'flex-row items-start border-b border-border py-2 dark:border-zinc-800'
-                  }
-                >
-                  <View className="w-[140px] pr-2">
-                    {isEditing ? (
-                      <AppInput
-                        value={edit.date}
-                        onChangeText={(value) => setEditField(row.id!, { date: value })}
-                        placeholder="YYYY-MM-DD"
-                        className="h-9"
-                        editable={!readOnly}
-                      />
-                    ) : (
-                      <Text className="text-xs text-foreground dark:text-zinc-50">{row.date || '-'}</Text>
-                    )}
-                  </View>
-
-                  <View className="w-[420px] pr-2">
-                    {isEditing ? (
-                      <View>
-                        <AppInput
-                          value={edit.name}
-                          onChangeText={(value) => setEditField(row.id!, { name: value, categoryId: '' })}
-                          placeholder="Budget item"
-                          className="h-9"
-                          editable={!readOnly}
-                        />
-                        {normalize(edit.name).length > 0 && rowSuggestions.length ? (
-                          <View className="mt-1 max-h-48 overflow-hidden rounded-md border border-border bg-card dark:border-zinc-700 dark:bg-zinc-900">
-                            <ScrollView>
-                              {rowSuggestions.map((suggestion) => (
-                                <Pressable
-                                  key={suggestion.id}
-                                  className="border-b border-border px-3 py-2 dark:border-zinc-800"
-                                  onPress={() =>
-                                    setEditField(row.id!, {
-                                      name: suggestion.name,
-                                      categoryId: suggestion.id,
-                                      group: suggestion.group,
-                                    })
-                                  }
-                                >
-                                  <Text className="text-sm text-foreground dark:text-zinc-50">{suggestion.name}</Text>
-                                  <Text className="text-xs text-muted-foreground">{suggestion.group}</Text>
-                                </Pressable>
-                              ))}
-                            </ScrollView>
-                          </View>
-                        ) : null}
-                      </View>
-                    ) : (
-                      <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{row.name || '-'}</Text>
-                    )}
-                    <Text
-                      className={cn(
-                        'mt-1 text-xs',
-                        !currentBudget
-                          ? 'text-amber-600 dark:text-amber-300'
-                          : currentBudgetFunded
-                            ? 'text-muted-foreground'
-                            : 'text-red-600 dark:text-red-300'
-                      )}
-                    >
-                      {!currentBudget
-                        ? 'Budget item required'
-                        : currentBudgetFunded
-                          ? `Budget: ${currentBudget.name}`
-                          : `Budget: ${currentBudget.name} (not funded)`}
-                    </Text>
-                    {row.shoppingItemName ? (
-                      <Text className="text-xs text-muted-foreground">
-                        Shopping: {row.shoppingListName || 'List'} / {row.shoppingItemName}
-                      </Text>
-                    ) : null}
-                  </View>
-
-                  <View className="w-[130px] pr-2">
-                    {isEditing ? (
-                      <AppInput
-                        value={edit.amount}
-                        onChangeText={(value) => setEditField(row.id!, { amount: value })}
-                        keyboardType="decimal-pad"
-                        placeholder="Amount"
-                        className="h-9 text-right"
-                        editable={!readOnly}
-                      />
-                    ) : (
-                      <Text className="text-right text-sm font-medium text-foreground dark:text-zinc-50">{fmtMoney(row.amount || 0)}</Text>
-                    )}
-                  </View>
-
-                  <View className="w-[130px] flex-row items-center justify-center gap-2">
-                    {!readOnly ? (
-                      isEditing ? (
-                        <>
-                          {dirty ? <AppBadge label="Unsaved" variant="warning" /> : null}
-                          <IconActionButton
-                            icon="content-save-outline"
-                            label="Save transaction"
-                            onPress={() => saveRow(row)}
-                            disabled={!dirty || edit.saving}
-                          />
-                          <IconActionButton icon="close" label="Cancel edit" variant="muted" onPress={() => cancelEdit(row.id!)} />
-                        </>
-                      ) : (
-                        <>
-                          <IconActionButton icon="pencil-outline" label="Edit transaction" onPress={() => beginEdit(row.id!)} />
-                          <IconActionButton icon="receipt" label="Attach receipt" onPress={() => setReceiptFor(row)} />
-                          <IconActionButton icon="trash-can-outline" label="Delete transaction" variant="danger" onPress={() => removeRow(row.id)} />
-                        </>
-                      )
-                    ) : (
-                      <AppBadge label="View only" variant="secondary" />
-                    )}
-                  </View>
-                </View>
-              );
-            })}
-
-            {!filteredTransactions.length ? (
-              <View className="py-4">
-                <Text className="text-sm text-muted-foreground">No transactions in this period/filter yet.</Text>
-              </View>
-            ) : null}
-          </View>
-        </ScrollView>
-        ) : (
-          <View className="gap-2">
-            {!readOnly ? (
-              <View className="gap-2 rounded-lg border border-border bg-muted/20 p-3 dark:border-zinc-800 dark:bg-zinc-800/30">
-                <Text className="text-xs uppercase tracking-wide text-muted-foreground">Quick Add</Text>
-                <DropdownField
-                  value={String(draft.categoryId || '')}
-                  options={mobileBudgetOptions}
-                  onChange={(value) => {
-                    const selected = fundedBudgetOptions.find((row) => row.id === value) || null;
-                    setDraft((prev) => ({
-                      ...prev,
-                      categoryId: selected?.id || '',
-                      name: selected?.name || '',
-                      group: selected?.group || prev.group,
-                    }));
-                  }}
-                  placeholder="Select funded budget item"
-                  menuStrategy="inline"
+                  testID={`activity-row-${row.id}`}
+                  title={row.name || 'No name'}
+                  sub={[groupWord(row.group), accountNameById.get(String((row as any).paidFromAccountId || '')), row.shoppingListName ? 'Shopping' : null, (row as any).receiptId || (row as any).receiptIds?.length ? 'Receipt' : null]
+                    .filter(Boolean)
+                    .join(' · ')}
+                  amount={fmtMoney(transactionSignedBudgetAmount(row))}
+                  onPress={() => row.id && openMobileDetail(row.id)}
                 />
-                <View className="flex-row items-center gap-2">
-                  <View className="flex-1">
-                    <AppInput
-                      value={String(draft.amount || '')}
-                      onChangeText={(value) => setDraft((prev) => ({ ...prev, amount: parseMoney(value) }))}
-                      keyboardType="decimal-pad"
-                      placeholder="Amount"
-                      className="h-9 text-right"
-                    />
-                  </View>
-                  <IconActionButton icon="plus" label="Add transaction" onPress={addRow} />
-                </View>
-              </View>
-            ) : null}
-
-            {formError ? (
-              <View className="py-1">
-                <Text className="text-xs text-destructive">{formError}</Text>
-              </View>
-            ) : null}
-
-            <View className="overflow-hidden rounded-lg border border-border dark:border-zinc-800">
-              <View className="flex-row border-b border-border bg-muted/30 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/40">
-                <Text className="w-[110px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Date</Text>
-                <Text className="flex-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Item</Text>
-              </View>
-              {filteredTransactions.map((row) => {
-                const edit = row.id ? txEdits[row.id] : null;
-                if (!row.id || !edit) return null;
-                return (
-                  <Pressable
-                    key={row.id}
-                    className={cn(
-                      'flex-row items-center border-b border-border px-3 py-2 last:border-b-0 dark:border-zinc-800',
-                      edit.dirty ? 'bg-primary/5 dark:bg-zinc-800/70' : 'bg-background dark:bg-zinc-900'
-                    )}
-                    onPress={() => openMobileDetail(row.id!)}
-                  >
-                    <Text className="w-[110px] text-xs text-muted-foreground">{row.date || '-'}</Text>
-                    <View className="flex-1">
-                      <Text className="text-sm font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>
-                        {row.name || '-'}
-                      </Text>
-                      <Text className="text-xs text-muted-foreground">{fmtMoney(row.amount || 0)}</Text>
-                    </View>
-                  </Pressable>
-                );
-              })}
-              {!filteredTransactions.length ? (
-                <View className="py-4">
-                  <Text className="text-center text-sm text-muted-foreground">No transactions in this period/filter yet.</Text>
-                </View>
-              ) : null}
-            </View>
-          </View>
-        )}
-      </AppCard>
+              ))}
+            </ListGroup>
+          ))}
+        </View>
+      )}
 
       {receiptNotice ? <Text className="text-sm text-muted-foreground">{receiptNotice}</Text> : null}
-      <AppModal open={Boolean(mobileDetailId)} onClose={closeMobileDetail} title="Transaction Details">
+      <AppModal open={Boolean(mobileDetailId)} onClose={closeMobileDetail} title="Expense" presentation="sheet">
         {mobileDetailRow && mobileDetailEdit ? (
           <View className="gap-3">
             <View className="gap-1">
@@ -1010,7 +728,7 @@ export default function TransactionsScreen() {
               )}
               {mobileDetailEdit.dirty ? <AppBadge label="Unsaved" variant="warning" /> : null}
             </View>
-            <View className="flex-row justify-end gap-2">
+            <View className="flex-row flex-wrap items-center justify-end gap-2">
               {!readOnly ? (
                 <IconActionButton
                   icon="receipt"
@@ -1026,12 +744,29 @@ export default function TransactionsScreen() {
                   icon="trash-can-outline"
                   label="Delete transaction"
                   variant="danger"
-                  onPress={async () => {
-                    await removeRow(mobileDetailRow.id);
-                    setMobileDetailId(null);
-                  }}
+                  onPress={() => setConfirmDelete(true)}
                 />
               ) : null}
+              {confirmDelete && !readOnly ? (
+                <View testID="activity-delete-confirm" className="w-full basis-full gap-2 rounded-lg border border-destructive p-3">
+                  <Text className="text-sm text-foreground dark:text-zinc-50">
+                    Delete {fmtMoney(Number(mobileDetailRow.amount || 0))} {mobileDetailRow.name || ''} on {mobileDetailRow.date}? This can&apos;t be undone.
+                  </Text>
+                  <View className="flex-row flex-wrap gap-2">
+                    <AppButton variant="outline" label="Keep" onPress={() => setConfirmDelete(false)} />
+                    <AppButton
+                      variant="destructive"
+                      label="Delete expense"
+                      onPress={async () => {
+                        await removeRow(mobileDetailRow.id);
+                        setConfirmDelete(false);
+                        setMobileDetailId(null);
+                      }}
+                    />
+                  </View>
+                </View>
+              ) : null}
+              {formError ? <Text className="w-full text-sm text-destructive">{formError}</Text> : null}
               <AppButton variant="outline" label="Close" onPress={closeMobileDetail} />
               {!readOnly ? (
                 <AppButton
