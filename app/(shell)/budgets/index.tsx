@@ -17,16 +17,20 @@ export default function BudgetsScreen() {
   const uid = useWorkspaceUid();
   const router = useRouter();
   // BUDG-2: Month | Year inside Plan; the view is kept in the URL so Back and reload keep it.
-  const params = useLocalSearchParams<{ view?: string; month?: string }>();
+  const params = useLocalSearchParams<{ view?: string; month?: string; new?: string }>();
   const { activePeriodId } = useWorkspace();
   const viewedMonth = viewedMonthId(params.month, activePeriodId);
   const view: 'MONTH' | 'YEAR' = params.view === 'year' ? 'YEAR' : 'MONTH';
   const setView = (next: 'MONTH' | 'YEAR') => router.setParams({ view: next === 'YEAR' ? 'year' : undefined } as any);
 
   const [periods, setPeriods] = useState<(PeriodDoc & { id: string })[]>([]);
+  const [periodsLoaded, setPeriodsLoaded] = useState(false);
   useEffect(() => {
     if (!uid) return;
-    return watchPeriods(uid, setPeriods);
+    return watchPeriods(uid, (rows) => {
+      setPeriods(rows);
+      setPeriodsLoaded(true);
+    });
   }, [uid]);
 
   // New Budget (BUDG-1 AC-2/AC-3): current local month by default, next month,
@@ -44,6 +48,15 @@ export default function BudgetsScreen() {
     setCreateError('');
     setPickerOpen(true);
   }
+
+  // BUDG-8 01: onboarding step 3 links to /budgets?new=1, which opens the New month sheet once the
+  // months are known (so the default choice is right); the param is dropped so Back/reload do not reopen it.
+  useEffect(() => {
+    if (params.new !== '1' || !periodsLoaded) return;
+    router.setParams({ new: undefined } as any);
+    openPicker();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.new, periodsLoaded]);
 
   function choiceLabel(row: MonthChoice) {
     const when = row.relation === 'CURRENT' ? 'this month' : row.relation === 'NEXT' ? 'next month' : 'missing';
