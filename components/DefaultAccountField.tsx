@@ -13,9 +13,13 @@ type Props = {
   collectionName: 'expenses' | 'recurring';
   sourceId: string;
   value?: string;
+  /** BUDG-8 S13: sentence-case label and hint for the Regular costs sheet; the defaults keep BUDG-3's look. */
+  label?: string;
+  hint?: string;
+  triggerClassName?: string;
 };
 
-export function DefaultAccountField({ uid, collectionName, sourceId, value }: Props) {
+export function DefaultAccountField({ uid, collectionName, sourceId, value, label, hint, triggerClassName }: Props) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [error, setError] = useState('');
   useEffect(() => (uid ? watchAccounts(uid, setAccounts, { includeArchived: true }) : undefined), [uid]);
@@ -44,9 +48,15 @@ export function DefaultAccountField({ uid, collectionName, sourceId, value }: Pr
 
   return (
     <View className="gap-1">
-      <Text className="text-xs uppercase tracking-wide text-muted-foreground">Default account</Text>
-      <DropdownField value={reason ? '' : current} options={options} onChange={onChange} placeholder="No default" menuStrategy="inline" />
-      <Text className="text-xs text-muted-foreground">Suggested for new lines in future months. Existing months stay as they are.</Text>
+      {label ? (
+        <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{label}</Text>
+      ) : (
+        <Text className="text-xs uppercase tracking-wide text-muted-foreground">Default account</Text>
+      )}
+      <DropdownField value={reason ? '' : current} options={options} onChange={onChange} placeholder="No default" menuStrategy="inline" triggerClassName={triggerClassName} />
+      <Text className={label ? 'text-sm text-muted-foreground dark:text-zinc-400' : 'text-xs text-muted-foreground'}>
+        {hint ?? 'Suggested for new lines in future months. Existing months stay as they are.'}
+      </Text>
       {reason && accounts.length ? (
         <Text className="text-xs text-amber-700 dark:text-amber-300">{`${repairReasonText(reason)} · choose another or clear it`}</Text>
       ) : null}

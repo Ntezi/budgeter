@@ -1,217 +1,83 @@
+// BUDG-8 S13: Regular costs › Repeats. Layout from briefs/redesign/06; repo calls and written fields as before.
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Platform, Pressable, ScrollView, Switch, Text, View, useWindowDimensions } from 'react-native';
+import { Alert, Platform, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { AppCard } from '@/components/ui/AppCard';
-import { AppInput } from '@/components/ui/AppInput';
+import { useSheet } from '@/components/patterns/AppSheet';
 import { AppButton } from '@/components/ui/AppButton';
-import { AppBadge } from '@/components/ui/AppBadge';
-import { AppSegmented } from '@/components/ui/AppSegmented';
-import { IconActionButton } from '@/components/ui/IconActionButton';
-import { DropdownField } from '@/components/ui/DropdownField';
-import { AppModal } from '@/components/ui/AppModal';
-import { DefaultAccountField } from '@/components/DefaultAccountField';
+import { CsvImportSheet } from '@/components/regular/CsvImportSheet';
+import { RegularCostsView } from '@/components/regular/RegularCostsView';
+import { draftValues, type RegularDraft, type RegularGroup, type RegularItem } from '@/components/regular/types';
 import { useWorkspaceUid } from '@/providers/WorkspaceProvider';
 import {
   addRecurring,
   deleteRecurring,
   inspectBudgetSeedState,
-  importRecurringCsv,
-  recurringCsvHeader,
   seedBudgetFromRecurring,
   type Recurring,
-  type RecurringFlow,
   updateRecurring,
   watchRecurring,
 } from '@/lib/repo/recurring';
 import { createPeriodIfAbsent } from '@/lib/repo/periodCreate';
 import { nextMonthMeta, periodIdFromDate, periodTitleFromId } from '@/lib/repo/periods';
 import { applyAllocationDefaultsForPeriod } from '@/lib/repo/allocations';
-import { fmtMoney, parseMoney } from '@/lib/format';
-import { PLAN_GROUP_OPTIONS } from '@/lib/groups';
-import { firstTag } from '@/lib/tags';
 
 export default function RecurringScreen() {
   const router = useRouter();
   const uid = useWorkspaceUid();
-  const { width } = useWindowDimensions();
-  const isCompact = width < 768;
-
+  const csv = useSheet();
   const [rows, setRows] = useState<Recurring[]>([]);
-  const [csvText, setCsvText] = useState(recurringCsvHeader);
-
-  const [draft, setDraft] = useState<Recurring>({
-    flow: 'EXPENSE',
-    name: '',
-    amount: 0,
-    tags: [],
-    group: 'NEED',
-    dayOfMonth: 1,
-    active: true,
-  });
-  const [formError, setFormError] = useState('');
-  const [tagFilter, setTagFilter] = useState('ALL');
-  const [typeFilter, setTypeFilter] = useState<'ALL' | RecurringFlow>('ALL');
-  const [categoryFilter, setCategoryFilter] = useState<'ALL' | 'NEED' | 'WANT' | 'SAVINGS_DEBT'>('ALL');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
-  const [searchText, setSearchText] = useState('');
-  const [sortMode, setSortMode] = useState<'CREATED' | 'TAG'>('CREATED');
-
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingDraft, setEditingDraft] = useState<Recurring | null>(null);
-  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [notice, setNotice] = useState('');
   const [isGeneratingCurrent, setIsGeneratingCurrent] = useState(false);
   const [isCreatingNextBudget, setIsCreatingNextBudget] = useState(false);
 
   useEffect(() => {
     if (!uid) return;
-    return watchRecurring(uid, setRows);
+    return watchRecurring(uid, (next) => {
+      setRows(next);
+      setLoaded(true);
+    });
   }, [uid]);
 
-  const activeRows = useMemo(() => rows.filter((row) => row.active !== false), [rows]);
-  const activeTotal = useMemo(() => activeRows.reduce((sum, row) => sum + (row.amount || 0), 0), [activeRows]);
-  const activeBreakdown = useMemo(() => {
-    return activeRows.reduce(
-      (acc, row) => {
-        const amount = Number(row.amount || 0);
-        if ((row.flow ?? 'EXPENSE') === 'INCOME') {
-          acc.income += amount;
-        } else if ((row.group ?? 'NEED') === 'NEED') {
-          acc.needs += amount;
-        } else if ((row.group ?? 'NEED') === 'WANT') {
-          acc.wants += amount;
-        } else {
-          acc.savings += amount;
-        }
-        return acc;
-      },
-      { income: 0, needs: 0, wants: 0, savings: 0 }
-    );
-  }, [activeRows]);
-  const tagOptions = useMemo(() => {
-    const tags = [...new Set(rows.flatMap((row) => row.tags || []).map((tag) => String(tag).trim().toLowerCase()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-    return [{ label: 'All tags', value: 'ALL' }, ...tags.map((tag) => ({ label: `#${tag}`, value: tag }))];
-  }, [rows]);
+  const items: RegularItem[] = useMemo(
+    () =>
+      rows
+        .filter((row): row is Recurring & { id: string } => Boolean(row.id))
+        .map((row) => ({
+          id: row.id,
+          name: row.name || '',
+          amount: Number(row.amount || 0),
+          group: ((row.flow ?? 'EXPENSE') === 'INCOME' ? 'INCOME' : row.group ?? 'NEED') as RegularGroup,
+          active: row.active !== false,
+          tags: row.tags || [],
+          defaultAccountId: row.defaultAccountId,
+        })),
+    [rows]
+  );
 
-  const categoryOptions = [
-    { label: 'All Categories', value: 'ALL' },
-    ...PLAN_GROUP_OPTIONS.map((opt) => ({ label: opt.label, value: opt.value })),
-  ];
-  const typeOptions = [
-    { label: 'All Types', value: 'ALL' },
-    { label: 'Expense', value: 'EXPENSE' },
-    { label: 'Income', value: 'INCOME' },
-  ];
-  const statusOptions = [
-    { label: 'All Statuses', value: 'ALL' },
-    { label: 'Active', value: 'ACTIVE' },
-    { label: 'Inactive', value: 'INACTIVE' },
-  ];
-
-  const displayRows = useMemo(() => {
-    let out = [...rows];
-    const q = searchText.trim().toLowerCase();
-    if (typeFilter !== 'ALL') {
-      out = out.filter((row) => (row.flow ?? 'EXPENSE') === typeFilter);
+  async function save(id: string | null, draft: RegularDraft): Promise<string | null> {
+    if (!uid) return 'Not signed in.';
+    const { name, amount, tags } = draftValues(draft);
+    const flow = draft.group === 'INCOME' ? 'INCOME' : 'EXPENSE';
+    const group = flow === 'INCOME' ? undefined : (draft.group as Recurring['group']);
+    if (!name) return 'Template name is required.';
+    if (!id) {
+      if (amount <= 0) return 'Amount must be greater than 0.';
+      await addRecurring(uid, { flow, name, amount, tags, group, dayOfMonth: 1, active: draft.active, note: undefined });
+      return null;
     }
-    if (categoryFilter !== 'ALL') {
-      out = out.filter((row) => (row.flow === 'INCOME' ? false : (row.group ?? 'NEED') === categoryFilter));
-    }
-    if (tagFilter !== 'ALL') out = out.filter((row) => (row.tags || []).includes(tagFilter));
-    if (statusFilter !== 'ALL') out = out.filter((row) => (statusFilter === 'ACTIVE' ? row.active !== false : row.active === false));
-    if (q) {
-      out = out.filter((row) => {
-        return (
-          String(row.name || '').toLowerCase().includes(q) ||
-          String(row.note || '').toLowerCase().includes(q) ||
-          (row.tags || []).some((tag) => String(tag).toLowerCase().includes(q))
-        );
-      });
-    }
-    if (sortMode === 'TAG') {
-      out.sort((a, b) => {
-        const ta = firstTag(a.tags);
-        const tb = firstTag(b.tags);
-        if (ta !== tb) return ta.localeCompare(tb);
-        return (a.name || '').localeCompare(b.name || '');
-      });
-    }
-    return out;
-  }, [rows, sortMode, tagFilter, categoryFilter, searchText, statusFilter, typeFilter]);
-
-  async function addRow() {
-    if (!uid) return;
-    if (!draft.name?.trim()) {
-      setFormError('Template name is required.');
-      return;
-    }
-    if (!draft.amount || draft.amount <= 0) {
-      setFormError('Amount must be greater than 0.');
-      return;
-    }
-    await addRecurring(uid, {
-      flow: draft.flow ?? 'EXPENSE',
-      name: draft.name.trim(),
-      amount: draft.amount,
-      tags: draft.tags ?? [],
-      group: draft.flow === 'INCOME' ? undefined : draft.group ?? 'NEED',
-      dayOfMonth: 1,
-      active: draft.active !== false,
-      note: draft.note?.trim() || undefined,
+    const source = rows.find((row) => row.id === id);
+    await updateRecurring(uid, id, {
+      flow,
+      name,
+      amount,
+      tags,
+      group,
+      dayOfMonth: source?.dayOfMonth ?? 1,
+      active: draft.active,
+      note: source?.note?.trim() || undefined,
     });
-    setDraft((prev) => ({ ...prev, name: '', amount: 0, tags: [] }));
-    setFormError('');
-  }
-
-  function beginEdit(row: Recurring) {
-    if (!row.id) return;
-    setEditingId(row.id);
-    setEditingDraft({ ...row });
-  }
-
-  function cancelEdit() {
-    setEditingId(null);
-    setEditingDraft(null);
-  }
-
-  function openMobileDetail(row: Recurring) {
-    beginEdit(row);
-    setMobileDetailOpen(true);
-  }
-
-  function closeMobileDetail() {
-    cancelEdit();
-    setMobileDetailOpen(false);
-  }
-
-  async function saveRow(row: Recurring) {
-    if (!uid || !row.id) return;
-    await updateRecurring(uid, row.id, {
-      flow: row.flow ?? 'EXPENSE',
-      name: row.name,
-      amount: row.amount,
-      tags: row.tags ?? [],
-      group: row.flow === 'INCOME' ? undefined : row.group ?? 'NEED',
-      dayOfMonth: row.dayOfMonth ?? 1,
-      active: row.active !== false,
-      note: row.note?.trim() || undefined,
-    });
-  }
-
-  async function saveEditingRow() {
-    if (!editingDraft || !editingId) return;
-    await saveRow({ ...editingDraft, id: editingId });
-    cancelEdit();
-    setMobileDetailOpen(false);
-  }
-
-  async function removeRow(row: Recurring) {
-    if (!uid || !row.id) return;
-    await deleteRecurring(uid, row.id);
-    if (editingId === row.id) {
-      cancelEdit();
-      setMobileDetailOpen(false);
-    }
+    return null;
   }
 
   async function generateCurrentPeriod() {
@@ -225,22 +91,22 @@ export default function RecurringScreen() {
       let overwriteRecurring = false;
       if (state.existingPlanRows > 0 || state.existingIncomeRows > 0) {
         const message =
-          `${pid} already has budget rows.\n` +
-          `Plan rows: ${state.existingPlanRows}\n` +
-          `Income rows: ${state.existingIncomeRows}\n\n` +
-          'Overwrite will remove previously generated recurring rows only. Manual/non-recurring rows stay unchanged.';
+          `${periodTitleFromId(pid)} already has lines.\n` +
+          `Plan lines: ${state.existingPlanRows}\n` +
+          `Income lines: ${state.existingIncomeRows}\n\n` +
+          'Replacing removes only lines that came from repeats before. Lines you added yourself stay.';
 
         if (Platform.OS === 'web' && typeof window !== 'undefined') {
-          overwriteRecurring = window.confirm(`${message}\n\nClick OK to overwrite recurring rows, or Cancel to keep existing rows.`);
+          overwriteRecurring = window.confirm(`${message}\n\nOK replaces lines from repeats. Cancel keeps them and adds what is missing.`);
         } else {
           const choice = await new Promise<'cancel' | 'keep' | 'overwrite'>((resolve) => {
             Alert.alert(
-              'Current Budget Has Items',
+              'This month has lines',
               message,
               [
                 { text: 'Cancel', style: 'cancel', onPress: () => resolve('cancel') },
-                { text: 'Keep Existing', onPress: () => resolve('keep') },
-                { text: 'Overwrite Recurring', style: 'destructive', onPress: () => resolve('overwrite') },
+                { text: 'Keep existing', onPress: () => resolve('keep') },
+                { text: 'Replace lines from repeats', style: 'destructive', onPress: () => resolve('overwrite') },
               ],
               { cancelable: true, onDismiss: () => resolve('cancel') }
             );
@@ -251,24 +117,14 @@ export default function RecurringScreen() {
       }
 
       const out = await seedBudgetFromRecurring(uid, pid, rows, { overwriteRecurring });
-      Alert.alert(
-        'Current Budget Updated',
-        `${pid}\nPlan rows from recurring: ${out.planWritten}\nIncome rows from recurring: ${out.incomeWritten}\nRemoved recurring rows: Plan ${out.planRemoved}, Income ${out.incomeRemoved}`
-      );
+      setNotice(`${periodTitleFromId(pid)}: ${out.planWritten} plan lines and ${out.incomeWritten} income lines from repeats.`);
       router.push(`/budgets/${pid}`);
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
-      Alert.alert('Could Not Generate Current Budget', message || 'An unexpected error occurred.');
+      setNotice(`Could not add repeats to this month: ${message || 'an unexpected error occurred.'}`);
     } finally {
       setIsGeneratingCurrent(false);
     }
-  }
-
-  async function importCsv() {
-    if (!uid) return;
-    const count = await importRecurringCsv(uid, csvText);
-    setCsvText(recurringCsvHeader);
-    Alert.alert('CSV Imported', `${count} templates added.`);
   }
 
   async function createNextBudgetFromRecurring() {
@@ -279,509 +135,51 @@ export default function RecurringScreen() {
       await createPeriodIfAbsent(uid, next.id, { title: next.title });
       const seeded = await seedBudgetFromRecurring(uid, next.id, rows);
       const defaults = await applyAllocationDefaultsForPeriod(uid, next.id);
-      Alert.alert(
-        'Next Budget Ready',
-        `${next.id}\nPlan rows: ${seeded.planWritten}\nIncome rows: ${seeded.incomeWritten}\nDefaults: ${defaults}`
-      );
+      setNotice(`${next.title}: ${seeded.planWritten} plan lines, ${seeded.incomeWritten} income lines, ${defaults} accounts suggested.`);
       router.push(`/budgets/${next.id}`);
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
-      Alert.alert('Could Not Create Next Budget', message || 'An unexpected error occurred.');
+      setNotice(`Could not start next month: ${message || 'an unexpected error occurred.'}`);
     } finally {
       setIsCreatingNextBudget(false);
     }
   }
 
-  const col = {
-    name: 'w-[220px]',
-    flow: 'w-[150px]',
-    group: 'w-[190px]',
-    amount: 'w-[130px]',
-    status: 'w-[110px]',
-    actions: 'w-[140px]',
-  };
-  const recurringActionsBusy = isGeneratingCurrent || isCreatingNextBudget;
+  const busy = isGeneratingCurrent || isCreatingNextBudget;
+  const next = nextMonthMeta();
+  const footer = (
+    <View testID="repeats-use" className="gap-3 rounded-xl border border-border bg-card p-4 dark:border-zinc-800 dark:bg-zinc-900">
+      <Text role="heading" aria-level={2} className="text-base font-semibold text-foreground dark:text-zinc-50">Use repeats in a month</Text>
+      <Text className="text-sm text-muted-foreground dark:text-zinc-400">Active repeats become plan and income lines. Paused ones are skipped.</Text>
+      <View className="flex-row flex-wrap gap-2">
+        <AppButton label={isCreatingNextBudget ? 'Starting…' : `Start ${next.title}`} size="touch" disabled={busy} onPress={createNextBudgetFromRecurring} />
+        <AppButton
+          label={isGeneratingCurrent ? 'Adding…' : `Add to ${periodTitleFromId(periodIdFromDate())}`}
+          variant="outline"
+          size="touch"
+          disabled={busy}
+          onPress={generateCurrentPeriod}
+        />
+        <AppButton label="Import from a file" variant="ghost" size="touch" onPress={(e) => csv.show(e)} />
+      </View>
+    </View>
+  );
 
   return (
-    <ScrollView className="flex-1" contentContainerClassName="gap-4 pb-8">
-      <View className="gap-1">
-        <Text className="text-3xl font-bold text-foreground dark:text-zinc-50">Recurring Items</Text>
-        <Text className="text-sm text-muted-foreground">Manage recurring templates and generate them into budgets.</Text>
-      </View>
-
-      <View className="flex-row flex-wrap gap-2">
-        <AppButton onPress={generateCurrentPeriod} variant="outline" disabled={recurringActionsBusy}>
-          <View className="flex-row items-center gap-2">
-            <MaterialCommunityIcons name="refresh" size={18} color="#717182" />
-            <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">{isGeneratingCurrent ? 'Generating...' : 'Generate Current Month'}</Text>
-          </View>
-        </AppButton>
-        <AppButton onPress={createNextBudgetFromRecurring} disabled={recurringActionsBusy}>
-          <View className="flex-row items-center gap-2">
-            <MaterialCommunityIcons name="repeat" size={18} color="#FFFFFF" />
-            <Text className="text-sm font-semibold text-white">{isCreatingNextBudget ? 'Creating...' : 'Create Next Budget'}</Text>
-          </View>
-        </AppButton>
-      </View>
-
-      <View className="grid grid-cols-1 gap-3 md:grid-cols-3">
-        <AppCard>
-          <Text className="text-xs uppercase tracking-wide text-muted-foreground">Active templates</Text>
-          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">{activeRows.length}</Text>
-        </AppCard>
-        <AppCard>
-          <Text className="text-xs uppercase tracking-wide text-muted-foreground">Expense templates</Text>
-          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">
-            {activeRows.filter((row) => (row.flow ?? 'EXPENSE') === 'EXPENSE').length}
-          </Text>
-        </AppCard>
-        <AppCard>
-          <Text className="text-xs uppercase tracking-wide text-muted-foreground">Active amount total</Text>
-          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">{fmtMoney(activeTotal)}</Text>
-          <View className="mt-2 flex-row flex-wrap gap-1">
-            <AppBadge label={`Needs ${fmtMoney(activeBreakdown.needs)}`} variant="outline" />
-            <AppBadge label={`Wants ${fmtMoney(activeBreakdown.wants)}`} variant="outline" />
-            <AppBadge label={`Savings ${fmtMoney(activeBreakdown.savings)}`} variant="outline" />
-            <AppBadge label={`Income ${fmtMoney(activeBreakdown.income)}`} variant="success" />
-          </View>
-        </AppCard>
-      </View>
-
-      <View className="grid grid-cols-1 gap-3 md:grid-cols-4">
-        <AppCard>
-          <Text className="text-xs uppercase tracking-wide text-muted-foreground">Needs</Text>
-          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">{fmtMoney(activeBreakdown.needs)}</Text>
-        </AppCard>
-        <AppCard>
-          <Text className="text-xs uppercase tracking-wide text-muted-foreground">Wants</Text>
-          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">{fmtMoney(activeBreakdown.wants)}</Text>
-        </AppCard>
-        <AppCard>
-          <Text className="text-xs uppercase tracking-wide text-muted-foreground">Savings / Debt</Text>
-          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">{fmtMoney(activeBreakdown.savings)}</Text>
-        </AppCard>
-        <AppCard>
-          <Text className="text-xs uppercase tracking-wide text-muted-foreground">Income</Text>
-          <Text className="mt-1 text-xl font-semibold text-emerald-600 dark:text-emerald-300">{fmtMoney(activeBreakdown.income)}</Text>
-        </AppCard>
-      </View>
-
-      <AppCard className="gap-3">
-        <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">CSV Import</Text>
-        <Text className="text-xs text-muted-foreground">Header: {recurringCsvHeader}</Text>
-        <AppInput
-          value={csvText}
-          onChangeText={setCsvText}
-          multiline
-          numberOfLines={8}
-          className="h-40 items-start py-2"
-          autoCapitalize="none"
-        />
-        <AppButton onPress={importCsv} variant="outline">
-          <View className="flex-row items-center gap-2">
-            <MaterialCommunityIcons name="file-delimited-outline" size={18} color="#717182" />
-            <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Import CSV</Text>
-          </View>
-        </AppButton>
-      </AppCard>
-
-      <AppCard className="gap-3">
-        <View className="gap-3">
-          <AppInput
-            value={searchText}
-            onChangeText={setSearchText}
-            placeholder="Search template name, note, or tag"
-            className="h-9"
-          />
-          <View className="flex-row flex-wrap gap-2">
-            <View className="w-full md:w-48">
-              <DropdownField
-                value={typeFilter}
-                options={typeOptions}
-                onChange={(v) => setTypeFilter(v as any)}
-                placeholder="Filter by type"
-                menuStrategy="inline"
-              />
-            </View>
-            <View className="w-full md:w-64">
-              <DropdownField
-                value={categoryFilter}
-                options={categoryOptions}
-                onChange={(v) => setCategoryFilter(v as any)}
-                placeholder="Filter by category"
-                menuStrategy="inline"
-              />
-            </View>
-            <View className="w-full md:w-56">
-              <DropdownField value={tagFilter} options={tagOptions} onChange={setTagFilter} placeholder="Filter by tag" menuStrategy="inline" />
-            </View>
-            <View className="w-full md:w-52">
-              <DropdownField value={statusFilter} options={statusOptions} onChange={(v) => setStatusFilter(v as any)} placeholder="Filter by status" menuStrategy="inline" />
-            </View>
-          </View>
-          <View className="self-start">
-            <AppSegmented
-              value={sortMode}
-              onChange={(value) => setSortMode(value as 'CREATED' | 'TAG')}
-              compact
-              options={[
-                { label: 'Created', value: 'CREATED' },
-                { label: 'Tag', value: 'TAG' },
-              ]}
-            />
-          </View>
-        </View>
-
-        <View>
-          <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Templates</Text>
-          <Text className="text-xs text-muted-foreground">Aligned list view from redesign baseline.</Text>
-        </View>
-
-        {!isCompact ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator>
-          <View className="min-w-[940px] flex-1">
-            <View className="flex-row border-b border-border pb-2 dark:border-zinc-800">
-              <Text className={`${col.name} text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Name</Text>
-              <Text className={`${col.flow} text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Type</Text>
-              <Text className={`${col.group} text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Category</Text>
-              <Text className={`${col.amount} text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Amount</Text>
-              <Text className={`${col.status} text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Status</Text>
-              <Text className={`${col.actions} text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground`}>Actions</Text>
-            </View>
-
-            <View className="flex-row items-center border-b border-border py-2 hover:bg-muted/35 dark:border-zinc-800 dark:hover:bg-zinc-800/55">
-              <View className={`${col.name} pr-2`}>
-                <AppInput
-                  value={draft.name}
-                  onChangeText={(value) => setDraft((prev) => ({ ...prev, name: value }))}
-                  placeholder="New template..."
-                  className="h-9"
-                />
-              </View>
-              <View className={`${col.flow} pr-2`}>
-                <AppSegmented
-                  value={(draft.flow ?? 'EXPENSE') as RecurringFlow}
-                  compact
-                  onChange={(value) => setDraft((prev) => ({ ...prev, flow: value as RecurringFlow }))}
-                  options={[
-                    { label: 'Expense', value: 'EXPENSE' },
-                    { label: 'Income', value: 'INCOME' },
-                  ]}
-                />
-              </View>
-              <View className={`${col.group} pr-2`}>
-                {(draft.flow ?? 'EXPENSE') === 'EXPENSE' ? (
-                  <AppSegmented
-                    value={draft.group ?? 'NEED'}
-                    compact
-                    onChange={(value) => setDraft((prev) => ({ ...prev, group: value as any }))}
-                    options={PLAN_GROUP_OPTIONS.map((option) => ({ label: option.label, value: option.value }))}
-                  />
-                ) : (
-                  <View className="h-9 items-start justify-center rounded-lg border border-border bg-muted px-3 dark:border-zinc-800 dark:bg-zinc-800">
-                    <Text className="text-xs text-muted-foreground">Income</Text>
-                  </View>
-                )}
-              </View>
-              <View className={`${col.amount} pr-2`}>
-                <AppInput
-                  value={String(draft.amount || '')}
-                  onChangeText={(value) => setDraft((prev) => ({ ...prev, amount: parseMoney(value) }))}
-                  keyboardType="decimal-pad"
-                  placeholder="0.00"
-                  className="h-9 text-right"
-                />
-              </View>
-              <View className={`${col.status} items-center pr-2`}>
-                <Switch value={draft.active !== false} onValueChange={(value) => setDraft((prev) => ({ ...prev, active: value }))} />
-              </View>
-              <View className={`${col.actions} items-center`}>
-                <IconActionButton icon="plus" label="Add template" onPress={addRow} />
-              </View>
-            </View>
-            {formError ? (
-              <View className="py-1">
-                <Text className="text-xs text-destructive">{formError}</Text>
-              </View>
-            ) : null}
-
-            {displayRows.map((row) => {
-              const isEditing = editingId === row.id && Boolean(editingDraft);
-              const editingRow = isEditing && editingDraft ? editingDraft : null;
-              const normalizeTags = (input?: string[]) =>
-                (input || []).map((tag) => String(tag).trim().toLowerCase()).filter(Boolean).join(',');
-              const isDirty = Boolean(
-                isEditing &&
-                  editingRow &&
-                  (
-                    String(editingRow.name || '').trim() !== String(row.name || '').trim() ||
-                    (editingRow.flow ?? 'EXPENSE') !== (row.flow ?? 'EXPENSE') ||
-                    (editingRow.group ?? 'NEED') !== (row.group ?? 'NEED') ||
-                    normalizeTags(editingRow.tags) !== normalizeTags(row.tags) ||
-                    Number(editingRow.amount || 0) !== Number(row.amount || 0) ||
-                    (editingRow.active !== false) !== (row.active !== false)
-                  )
-              );
-              return (
-                <View key={row.id}>
-                <View
-                  className={`flex-row items-center border-b py-2 dark:border-zinc-800 ${
-                    isDirty
-                      ? 'border-primary/40 bg-primary/5 dark:bg-zinc-800/70'
-                      : 'border-border hover:bg-muted/35 dark:hover:bg-zinc-800/55'
-                  }`}
-                >
-                  <View className={`${col.name} pr-2`}>
-                    {isEditing && editingRow ? (
-                      <AppInput
-                        value={editingRow.name}
-                        onChangeText={(value) => setEditingDraft((prev) => (prev ? { ...prev, name: value } : prev))}
-                        className="h-9"
-                      />
-                    ) : (
-                      <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{row.name}</Text>
-                    )}
-                  </View>
-
-                  <View className={`${col.flow} pr-2`}>
-                    {isEditing && editingRow ? (
-                      <AppSegmented
-                        value={(editingRow.flow ?? 'EXPENSE') as RecurringFlow}
-                        compact
-                        onChange={(value) => setEditingDraft((prev) => (prev ? { ...prev, flow: value as RecurringFlow } : prev))}
-                        options={[
-                          { label: 'Expense', value: 'EXPENSE' },
-                          { label: 'Income', value: 'INCOME' },
-                        ]}
-                      />
-                    ) : (
-                      <Text className="text-sm text-muted-foreground">{row.flow ?? 'EXPENSE'}</Text>
-                    )}
-                  </View>
-
-                  <View className={`${col.group} pr-2`}>
-                    {isEditing && editingRow ? (
-                      (editingRow.flow ?? 'EXPENSE') === 'EXPENSE' ? (
-                        <AppSegmented
-                          value={editingRow.group ?? 'NEED'}
-                          compact
-                          onChange={(value) => setEditingDraft((prev) => (prev ? { ...prev, group: value as any } : prev))}
-                          options={PLAN_GROUP_OPTIONS.map((option) => ({ label: option.label, value: option.value }))}
-                        />
-                      ) : (
-                        <View className="h-9 items-start justify-center rounded-lg border border-border bg-muted px-3 dark:border-zinc-800 dark:bg-zinc-800">
-                          <Text className="text-xs text-muted-foreground">Income</Text>
-                        </View>
-                      )
-                    ) : (
-                      <AppBadge label={(row.flow ?? 'EXPENSE') === 'EXPENSE' ? row.group ?? 'NEED' : 'INCOME'} variant="outline" />
-                    )}
-                  </View>
-
-                  <View className={`${col.amount} pr-2`}>
-                    {isEditing && editingRow ? (
-                      <AppInput
-                        value={String(editingRow.amount || '')}
-                        onChangeText={(value) => setEditingDraft((prev) => (prev ? { ...prev, amount: parseMoney(value) } : prev))}
-                        keyboardType="decimal-pad"
-                        className="h-9 text-right"
-                      />
-                    ) : (
-                      <Text className="text-right text-sm font-medium text-foreground dark:text-zinc-50">{fmtMoney(row.amount || 0)}</Text>
-                    )}
-                  </View>
-
-                  <View className={`${col.status} items-center pr-2`}>
-                    {isEditing && editingRow ? (
-                      <Switch
-                        value={editingRow.active !== false}
-                        onValueChange={(value) => setEditingDraft((prev) => (prev ? { ...prev, active: value } : prev))}
-                      />
-                    ) : (
-                      <Switch
-                        value={row.active !== false}
-                        onValueChange={(value) => {
-                          void saveRow({ ...row, active: value });
-                        }}
-                      />
-                    )}
-                  </View>
-
-                  <View className={`${col.actions} flex-row items-center justify-center gap-2`}>
-                    {isEditing ? (
-                      <>
-                        {isDirty ? <AppBadge label="Unsaved" variant="warning" /> : null}
-                        <IconActionButton icon="content-save-outline" label="Save template" onPress={saveEditingRow} disabled={!isDirty} />
-                        <IconActionButton icon="close" label="Cancel edit" variant="muted" onPress={cancelEdit} />
-                      </>
-                    ) : (
-                      <>
-                        <IconActionButton icon="pencil-outline" label="Edit template" onPress={() => beginEdit(row)} />
-                        <IconActionButton icon="trash-can-outline" label="Delete template" variant="danger" onPress={() => removeRow(row)} />
-                      </>
-                    )}
-                  </View>
-                </View>
-                {isEditing && uid && row.id ? (
-                  <View className="w-[360px] border-b border-border py-2 dark:border-zinc-800">
-                    <DefaultAccountField uid={uid} collectionName="recurring" sourceId={row.id} value={row.defaultAccountId} />
-                  </View>
-                ) : null}
-                </View>
-              );
-            })}
-
-            {!displayRows.length ? (
-              <View className="py-4">
-                <Text className="text-sm text-muted-foreground">No templates for this filter.</Text>
-              </View>
-            ) : null}
-          </View>
-        </ScrollView>
-        ) : (
-          <View className="gap-2">
-            <View className="gap-2 rounded-lg border border-border bg-muted/20 p-3 dark:border-zinc-800 dark:bg-zinc-800/30">
-              <Text className="text-xs uppercase tracking-wide text-muted-foreground">Quick Add</Text>
-              <AppInput
-                value={draft.name}
-                onChangeText={(value) => setDraft((prev) => ({ ...prev, name: value }))}
-                placeholder="New template..."
-                className="h-9"
-              />
-              <AppSegmented
-                value={(draft.flow ?? 'EXPENSE') as RecurringFlow}
-                compact
-                onChange={(value) => setDraft((prev) => ({ ...prev, flow: value as RecurringFlow }))}
-                options={[
-                  { label: 'Expense', value: 'EXPENSE' },
-                  { label: 'Income', value: 'INCOME' },
-                ]}
-              />
-              {(draft.flow ?? 'EXPENSE') === 'EXPENSE' ? (
-                <AppSegmented
-                  value={draft.group ?? 'NEED'}
-                  compact
-                  onChange={(value) => setDraft((prev) => ({ ...prev, group: value as any }))}
-                  options={PLAN_GROUP_OPTIONS.map((option) => ({ label: option.label, value: option.value }))}
-                />
-              ) : null}
-              <View className="flex-row items-center gap-2">
-                <View className="flex-1">
-                  <AppInput
-                    value={String(draft.amount || '')}
-                    onChangeText={(value) => setDraft((prev) => ({ ...prev, amount: parseMoney(value) }))}
-                    keyboardType="decimal-pad"
-                    placeholder="0.00"
-                    className="h-9 text-right"
-                  />
-                </View>
-                <Switch value={draft.active !== false} onValueChange={(value) => setDraft((prev) => ({ ...prev, active: value }))} />
-                <IconActionButton icon="plus" label="Add template" onPress={addRow} />
-              </View>
-            </View>
-
-            {formError ? (
-              <View className="py-1">
-                <Text className="text-xs text-destructive">{formError}</Text>
-              </View>
-            ) : null}
-
-            <View className="overflow-hidden rounded-lg border border-border dark:border-zinc-800">
-              <View className="flex-row border-b border-border bg-muted/30 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/40">
-                <Text className="w-[180px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Name</Text>
-                <Text className="flex-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Type</Text>
-              </View>
-              {displayRows.map((row) => (
-                <Pressable
-                  key={row.id}
-                  className="flex-row items-center border-b border-border px-3 py-2 last:border-b-0 dark:border-zinc-800"
-                  onPress={() => openMobileDetail(row)}
-                >
-                  <Text className="w-[180px] text-sm font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>
-                    {row.name}
-                  </Text>
-                  <Text className="flex-1 text-xs text-muted-foreground">
-                    {row.flow ?? 'EXPENSE'}
-                  </Text>
-                </Pressable>
-              ))}
-              {!displayRows.length ? (
-                <View className="py-4">
-                  <Text className="text-center text-sm text-muted-foreground">No templates for this filter.</Text>
-                </View>
-              ) : null}
-            </View>
-          </View>
-        )}
-      </AppCard>
-
-      <AppModal open={isCompact && mobileDetailOpen} onClose={closeMobileDetail} title="Recurring Template">
-        {editingDraft ? (
-          <View className="gap-3">
-            <View className="gap-1">
-              <Text className="text-xs uppercase tracking-wide text-muted-foreground">Name</Text>
-              <AppInput
-                value={editingDraft.name}
-                onChangeText={(value) => setEditingDraft((prev) => (prev ? { ...prev, name: value } : prev))}
-              />
-            </View>
-            <View className="gap-1">
-              <Text className="text-xs uppercase tracking-wide text-muted-foreground">Type</Text>
-              <AppSegmented
-                value={(editingDraft.flow ?? 'EXPENSE') as RecurringFlow}
-                compact
-                onChange={(value) => setEditingDraft((prev) => (prev ? { ...prev, flow: value as RecurringFlow } : prev))}
-                options={[
-                  { label: 'Expense', value: 'EXPENSE' },
-                  { label: 'Income', value: 'INCOME' },
-                ]}
-              />
-            </View>
-            {(editingDraft.flow ?? 'EXPENSE') === 'EXPENSE' ? (
-              <View className="gap-1">
-                <Text className="text-xs uppercase tracking-wide text-muted-foreground">Category</Text>
-                <AppSegmented
-                  value={editingDraft.group ?? 'NEED'}
-                  compact
-                  onChange={(value) => setEditingDraft((prev) => (prev ? { ...prev, group: value as any } : prev))}
-                  options={PLAN_GROUP_OPTIONS.map((option) => ({ label: option.label, value: option.value }))}
-                />
-              </View>
-            ) : null}
-            <View className="gap-1">
-              <Text className="text-xs uppercase tracking-wide text-muted-foreground">Amount</Text>
-              <AppInput
-                value={String(editingDraft.amount || '')}
-                onChangeText={(value) => setEditingDraft((prev) => (prev ? { ...prev, amount: parseMoney(value) } : prev))}
-                keyboardType="decimal-pad"
-              />
-            </View>
-            {uid && editingId && (editingDraft.flow ?? 'EXPENSE') === 'EXPENSE' ? (
-              <DefaultAccountField uid={uid} collectionName="recurring" sourceId={editingId} value={rows.find((r) => r.id === editingId)?.defaultAccountId} />
-            ) : null}
-            <View className="flex-row items-center justify-between rounded-md border border-border bg-muted/20 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/30">
-              <Text className="text-sm text-muted-foreground">Active</Text>
-              <Switch value={editingDraft.active !== false} onValueChange={(value) => setEditingDraft((prev) => (prev ? { ...prev, active: value } : prev))} />
-            </View>
-            <View className="flex-row justify-end gap-2">
-              {editingId ? (
-                <IconActionButton
-                  icon="trash-can-outline"
-                  label="Delete template"
-                  variant="danger"
-                  onPress={async () => {
-                    await removeRow({ ...editingDraft, id: editingId });
-                  }}
-                />
-              ) : null}
-              <AppButton variant="outline" label="Close" onPress={closeMobileDetail} />
-              <AppButton label="Save" onPress={saveEditingRow} />
-            </View>
-          </View>
-        ) : (
-          <Text className="text-sm text-muted-foreground">No template selected.</Text>
-        )}
-      </AppModal>
-    </ScrollView>
+    <>
+      <RegularCostsView
+        kind="repeats"
+        uid={uid}
+        items={items}
+        loaded={loaded}
+        notice={notice}
+        onSave={save}
+        onDelete={async (id) => {
+          if (uid) await deleteRecurring(uid, id);
+        }}
+        footer={footer}
+      />
+      <CsvImportSheet uid={uid} open={csv.open} onClose={() => csv.hide()} onImported={(count) => setNotice(`${count} repeats added from the file.`)} />
+    </>
   );
 }

@@ -186,3 +186,113 @@ test('S7 Plan Year: Coming up first, months as one list, item sheet at 5 widths'
   }
   guard.assertOnlyLoopback();
 });
+
+// ---- S13 Regular costs (06-expenses-recurring.md) ----
+async function docField(collection: string, id: string, name: string) {
+  const f = (await listIds(collection)).find((r) => r.id === id)?.fields?.[name];
+  return f?.stringValue ?? f?.booleanValue ?? f?.doubleValue ?? f?.integerValue ?? null;
+}
+
+test('S13 Regular costs: Categories and Repeats at 5 widths, item sheet, keyboard and Back', async ({ page }, info) => {
+  test.setTimeout(600_000);
+  const guard = await signIn(page, info);
+  for (const theme of THEMES) {
+    await page.evaluate((t) => window.localStorage.setItem('budgeter:theme', t), theme);
+    for (const width of WIDTHS) {
+      const key = `S13-w${width}-${theme}`;
+      for (const [route, name] of [['/expenses', 'categories'], ['/recurring', 'repeats']] as const) {
+        await open(page, route, width, 'regular-costs');
+        await expect(page.getByTestId('regular-group-NEED')).toBeVisible();
+        const scroll = await noPageScroll(page);
+        expect(scroll.scrollWidth, `page scroll ${route} ${key}`).toBeLessThanOrEqual(scroll.innerWidth);
+        expect(await clippedAmounts(page), `clipped ${route} ${key}`).toEqual([]);
+        if (width < 768) expect(await smallTargets(page.getByTestId('regular-costs')), `targets ${route} ${key}`).toEqual([]);
+        await snap(page, `S13-${name}-w${width}-${theme}`);
+        results[`${key}-${name}`] = scroll;
+      }
+      // Item: sheet below 1024 (focus returns, Back closes), inline panel from 1024.
+      await open(page, '/expenses', width, 'regular-costs');
+      const row = page.getByTestId('regular-row-exp-water');
+      await expect(row).toContainText('Default: Household account');
+      await row.focus();
+      await page.keyboard.press('Enter');
+      const form = page.getByTestId(width >= 1024 ? 'regular-item-panel' : 'regular-item-sheet');
+      await expect(form).toBeVisible();
+      await expect(form.getByText('Paid from', { exact: true })).toBeVisible();
+      await expect(form.getByLabel('Amount per month')).toHaveValue('30');
+      if (width < 768) expect(await smallTargets(form), `sheet targets ${key}`).toEqual([]);
+      await snap(page, `S13-item-sheet-w${width}-${theme}`);
+      if (width < 1024) {
+        await page.keyboard.press('Escape');
+        await expect(form).toHaveCount(0);
+        await expect.poll(() => row.evaluate((el) => el === document.activeElement || el.contains(document.activeElement))).toBe(true);
+        await row.click();
+        await expect(form).toBeVisible();
+        await page.goBack();
+        await expect(form).toHaveCount(0);
+        expect(page.url()).toContain('/expenses');
+      }
+    }
+  }
+  // States once each: empty filter on Repeats, Categories | Repeats switch.
+  await page.evaluate(() => window.localStorage.setItem('budgeter:theme', 'light'));
+  await open(page, '/recurring', 390, 'regular-costs');
+  await page.getByRole('button', { name: 'Wants', exact: true }).click();
+  await expect(page.getByText('No Wants repeats.')).toBeVisible();
+  await snap(page, 'S13-empty-filter-w390-light');
+  await page.getByRole('button', { name: 'Clear filter' }).click();
+  await expect(page.getByTestId('regular-row-rec-internet')).toBeVisible();
+  await page.getByRole('button', { name: 'Categories', exact: true }).click();
+  await expect(page).toHaveURL(/\/expenses/);
+  guard.assertOnlyLoopback();
+});
+
+test('S13 tap counts: quick add pre-fills only; default account in 4; pause a repeat in 3', async ({ page }, info) => {
+  const guard = await signIn(page, info);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/expenses');
+  await expect(page.getByTestId('regular-costs')).toBeVisible({ timeout: 60_000 });
+  // Quick add: "Internet 30" opens the sheet pre-filled; closing it writes nothing.
+  const before = (await listIds('expenses')).length;
+  await page.getByLabel('Add a cost: name and amount').fill('Gym 30');
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  const sheet = page.getByTestId('regular-item-sheet');
+  await expect(sheet.getByLabel('Name')).toHaveValue('Gym');
+  await expect(sheet.getByLabel('Amount per month')).toHaveValue('30');
+  await snap(page, 'S13-quick-add-prefill-w390-light');
+  await page.keyboard.press('Escape');
+  await expect(sheet).toHaveCount(0);
+  expect((await listIds('expenses')).length).toBe(before);
+  // Set a category's default account: row, Paid from, pick, Save = 4 taps.
+  let taps = 0;
+  await page.getByTestId('regular-row-exp-water').click();
+  taps++;
+  await sheet.getByText('Household account', { exact: true }).click();
+  taps++;
+  await sheet.getByText('Cash wallet', { exact: true }).click();
+  taps++;
+  await sheet.getByRole('button', { name: 'Save', exact: true }).click();
+  taps++;
+  await expect(sheet).toHaveCount(0);
+  await expect.poll(() => docField('expenses', 'exp-water', 'defaultAccountId')).toBe('acc-cash');
+  results.tapCountDefaultAccount = { taps, before: 5 };
+  expect(taps).toBe(4);
+  // Pause a repeat: row, Active, Save = 3 taps; nothing posted.
+  await page.goto('/recurring');
+  await expect(page.getByTestId('regular-costs')).toBeVisible({ timeout: 60_000 });
+  const tx = JSON.stringify(await listIds('periods', CUR, 'transactions'));
+  taps = 0;
+  await page.getByTestId('regular-row-rec-internet').click();
+  taps++;
+  await sheet.getByRole('switch', { name: 'Active' }).click();
+  taps++;
+  await sheet.getByRole('button', { name: 'Save', exact: true }).click();
+  taps++;
+  await expect.poll(() => docField('recurring', 'rec-internet', 'active')).toBe(false);
+  await expect(page.getByTestId('regular-row-rec-internet')).toContainText('Paused');
+  await snap(page, 'S13-paused-w390-light');
+  results.tapCountPauseRepeat = { taps, before: 4 };
+  expect(taps).toBe(3);
+  expect(JSON.stringify(await listIds('periods', CUR, 'transactions'))).toBe(tx);
+  guard.assertOnlyLoopback();
+});
