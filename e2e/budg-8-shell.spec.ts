@@ -165,12 +165,15 @@ test('S2 reach: Settings in 2 taps on phone and 1 on desktop; active area on nes
 
   await open(page, '/dashboard', 1440);
   for (const label of ['Home', 'Plan', 'Shopping', 'Accounts', 'Reports', 'Regular costs', 'Catalog', 'Settings']) {
-    await page.getByTestId('sidebar').getByRole('link', { name: label }).click();
+    await page.getByTestId('sidebar').getByRole('link', { name: label, exact: true }).click();
     taps[`desktop ${label}`] = 1;
   }
   await expect(page).toHaveURL(/\/settings$/);
   await open(page, '/shopping-items', 1440);
   await expect(page.getByTestId('sidebar').getByRole('link', { name: 'Catalog' })).toHaveAttribute('aria-current', 'page');
+  await open(page, '/budgets?view=year', 1440);
+  await expect(page.getByTestId('sidebar').getByRole('link', { name: 'Year plan', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByTestId('sidebar').getByRole('link', { name: 'Plan', exact: true })).not.toHaveAttribute('aria-current', 'page');
   results.navTaps = taps;
   guard.assertOnlyLoopback();
 });
@@ -181,12 +184,12 @@ test('S2/S3 keyboard: sidebar focus order, n opens Add expense, Escape returns f
   await page.locator('body').click({ position: { x: 1, y: 1 } });
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   const order: string[] = [];
-  for (let i = 0; i < 9; i++) {
+  for (let i = 0; i < 10; i++) {
     await page.keyboard.press('Tab');
     order.push(await page.evaluate(() => document.activeElement?.getAttribute('aria-label') || (document.activeElement?.textContent || '').trim()));
   }
   results.sidebarTabOrder = order;
-  expect(order).toEqual(['Add expense', 'Home', 'Plan', 'Shopping', 'Accounts', 'Reports', 'Regular costs', 'Catalog', 'Settings']);
+  expect(order).toEqual(['Add expense', 'Home', 'Plan', 'Shopping', 'Accounts', 'Year plan', 'Reports', 'Regular costs', 'Catalog', 'Settings']); // BUDG-6 added Year plan to More
   await page.keyboard.press('Enter'); // Settings link via keyboard
   await page.locator('body').click({ position: { x: 600, y: 10 } });
   await page.keyboard.press('n');

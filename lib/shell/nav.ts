@@ -85,20 +85,35 @@ export function visibleItems(audience: Audience = 'household', items: NavItem[] 
   return items.filter((it) => !it.audience || it.audience.includes(audience));
 }
 
-/** The entry for a route: longest matching prefix wins. */
-export function activeItem(pathname: string, items: NavItem[] = NAV_ITEMS): NavItem | undefined {
+export type RouteParams = Record<string, string | string[] | undefined>;
+
+/** An href with a query (`/budgets?view=year`) matches its exact path when every query value is in params. */
+function queryMatch(pathname: string, href: string, params: RouteParams): number {
+  const [path, query] = href.split('?');
+  if (!query || pathname !== path) return -1;
+  const want = new URLSearchParams(query);
+  for (const [k, v] of want) {
+    const have = params[k];
+    if ((Array.isArray(have) ? have[0] : have) !== v) return -1;
+  }
+  return href.length;
+}
+
+/** The entry for a route: longest matching prefix wins; an href with a matching query beats its bare path. */
+export function activeItem(pathname: string, items: NavItem[] = NAV_ITEMS, params: RouteParams = {}): NavItem | undefined {
   let best: { item: NavItem; len: number } | undefined;
   for (const item of items) {
     for (const prefix of [item.href, ...(item.match ?? [])]) {
-      if (under(pathname, prefix) && (!best || prefix.length > best.len)) best = { item, len: prefix.length };
+      const len = prefix.includes('?') ? queryMatch(pathname, prefix, params) : under(pathname, prefix) ? prefix.length : -1;
+      if (len >= 0 && (!best || len > best.len)) best = { item, len };
     }
   }
   return best?.item;
 }
 
 /** The primary area to highlight in the bottom bar / rail / sidebar. */
-export function activeAreaId(pathname: string, items: NavItem[] = NAV_ITEMS): string | undefined {
-  const item = activeItem(pathname, items);
+export function activeAreaId(pathname: string, items: NavItem[] = NAV_ITEMS, params: RouteParams = {}): string | undefined {
+  const item = activeItem(pathname, items, params);
   if (!item) return undefined;
   return item.group === 'primary' ? item.id : item.area ?? item.id;
 }

@@ -13,9 +13,7 @@ test('Attach receipt from a Transactions row links the existing expense', async 
   const linksBefore = await listIds('receiptLinks');
 
   await page.goto(`/transactions?month=${pid}`);
-  if ((page.viewportSize()?.width ?? 0) < 768) {
-    await page.getByText('Dinner', { exact: true }).first().click(); // compact list: open the row's detail
-  }
+  await page.getByText('Dinner', { exact: true }).first().click(); // BUDG-8 S9: the list opens the row's detail sheet at every width
   await page.getByLabel('Attach receipt').first().click();
   const name = await page.getByLabel('Receipt item name').first().inputValue();
   expect(name.length).toBeGreaterThan(0); // pre-filled from the row

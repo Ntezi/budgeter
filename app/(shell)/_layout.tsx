@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Image, Pressable, View, useWindowDimensions } from 'react-native';
-import { Slot, usePathname, useRouter } from 'expo-router';
+import { Slot, useGlobalSearchParams, usePathname, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AddSheetProvider, useAddSheet } from '@/components/add/AddSheetContext';
 import { useSheet } from '@/components/patterns/AppSheet';
@@ -87,8 +87,9 @@ function HouseholdShell({ ready }: { ready: boolean }) {
   const items = useMemo(() => visibleItems('household'), []);
   const primary = useMemo(() => items.filter((it) => it.group === 'primary'), [items]);
   const moreItems = useMemo(() => items.filter((it) => it.group === 'more'), [items]);
-  const areaId = activeAreaId(pathname, items);
-  const itemId = activeItem(pathname, items)?.id;
+  const params = useGlobalSearchParams();
+  const areaId = activeAreaId(pathname, items, params);
+  const itemId = activeItem(pathname, items, params)?.id;
   const chip = showsMonthChip(pathname);
 
   const go = useCallback((href: string) => router.push(href as any), [router]);

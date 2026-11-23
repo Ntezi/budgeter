@@ -10,6 +10,9 @@ import { AppSegmented } from '@/components/ui/AppSegmented';
 import { DropdownField } from '@/components/ui/DropdownField';
 import { useExpenseForm } from '@/components/add/useExpenseForm';
 import { ShoppingItemSegment } from '@/components/add/ShoppingItemSegment';
+import { MoveMoneyFields, MoveMoneyFooter, useMoveMoney } from '@/components/accounts/MoveMoney';
+import { useAccountsData, useAccountsPeriod } from '@/components/accounts/useAccountsData';
+import { useAuthUser } from '@/providers/AuthProvider';
 import { cn } from '@/lib/cn';
 import { fmtMoney } from '@/lib/format';
 import { monthTitle } from '@/lib/rules/months';
@@ -31,6 +34,12 @@ export function AddSheet({ open, uid, onClose, onSaved, onGo }: Props) {
   const [allLines, setAllLines] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
   const f = useExpenseForm(open, uid, onSaved);
+  // BUDG-8 S8: Move money is finished here (same form and writes as the Accounts screen).
+  const user = useAuthUser();
+  const moveActive = open && kind === 'move';
+  const movePid = useAccountsPeriod();
+  const moveData = useAccountsData(moveActive ? uid : null, movePid);
+  const mv = useMoveMoney({ active: moveActive, uid, pid: movePid, data: moveData, updatedBy: user?.uid || uid || '' });
 
   useEffect(() => {
     if (!open) return;
@@ -66,6 +75,8 @@ export function AddSheet({ open, uid, onClose, onSaved, onGo }: Props) {
         />
         <AppButton label="Cancel" variant="ghost" size="touch" onPress={onClose} />
       </>
+    ) : kind === 'move' ? (
+      <MoveMoneyFooter m={mv} onDone={onClose} onCancel={onClose} />
     ) : null;
 
   return (
@@ -81,10 +92,7 @@ export function AddSheet({ open, uid, onClose, onSaved, onGo }: Props) {
         ]}
       />
       {kind === 'move' ? (
-        <View className="gap-3">
-          <Text className="text-base text-foreground dark:text-zinc-50">Move money between your accounts from Accounts.</Text>
-          <AppButton label="Go to Accounts" size="touch" onPress={() => onGo('/accounts')} />
-        </View>
+        <MoveMoneyFields m={mv} />
       ) : null}
       {kind === 'shopping' && open ? <ShoppingItemSegment open={open} uid={uid} onDone={() => undefined} onGo={onGo} /> : null}
       {kind === 'expense' ? (

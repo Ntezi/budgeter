@@ -73,21 +73,25 @@ function AppGate() {
     [authReady, themeReady, workspaceReady, checkedOnboarding]
   );
 
-  if (loading) {
-    return (
-      <View className="flex-1 items-center justify-center bg-background dark:bg-zinc-950">
-        <ActivityIndicator size="large" color="#030213" />
-      </View>
-    );
-  }
-
+  // BUDG-1 AC-5 reload fix: the navigator is always mounted, so on web it starts at the URL the browser
+  // loaded. Rendering a spinner *instead of* the Stack while auth/workspace load made expo-router reset the
+  // URL to "/" for that time; a reload or a navigation away in that window kept "/" in history and the deep
+  // link was lost (trace: deliverables/BUDG-8/lane-X/AC5). The gate (lib/rules/appGate.ts) still decides
+  // where to go once everything is ready; until then an opaque cover hides the screen underneath.
   return (
-    <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="index" />
-      <Stack.Screen name="onboarding" />
-      <Stack.Screen name="auth" />
-      <Stack.Screen name="(shell)" />
-    </Stack>
+    <View className="flex-1">
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="index" />
+        <Stack.Screen name="onboarding" />
+        <Stack.Screen name="auth" />
+        <Stack.Screen name="(shell)" />
+      </Stack>
+      {loading ? (
+        <View testID="app-loading" accessibilityLabel="Loading" className="absolute inset-0 items-center justify-center bg-background dark:bg-zinc-950">
+          <ActivityIndicator size="large" color="#030213" />
+        </View>
+      ) : null}
+    </View>
   );
 }
 

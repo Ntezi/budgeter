@@ -87,7 +87,7 @@ test('AC-5 viewed month never changes the posting month', async ({ page }, info)
   const prevTx = (await listIds('periods', PREV, 'transactions')).length;
   const curTx = (await listIds('periods', CUR, 'transactions')).length;
 
-  await page.getByText('Add Expense', { exact: true }).first().click();
+  await page.getByTestId('add-button').first().click(); // BUDG-8 S9: the shell + replaces the page's Add Expense button
   await expect(page.getByText(`Posts to ${monthTitle(CUR)}`, { exact: false })).toBeVisible();
   await page.getByRole('button', { name: 'Groceries', exact: true }).click(); // BUDG-8: line chip replaces the dropdown
   await page.getByPlaceholder('0.00').fill('12.50');
@@ -105,7 +105,7 @@ test('AC-5 viewed month never changes the posting month', async ({ page }, info)
   await expect(page).toHaveURL(new RegExp(`month=${PREV}`));
 
   // A date in the locked month is blocked; a date in a missing month offers an explicit create.
-  await page.getByText('Add Expense', { exact: true }).first().click();
+  await page.getByTestId('add-button').first().click(); // BUDG-8 S9: the shell + replaces the page's Add Expense button
   await page.getByPlaceholder('YYYY-MM-DD').fill(`${PREV}-15`);
   await expect(page.getByText(`${monthTitle(PREV)} is closed and view-only. Choose a date in an open month.`)).toBeVisible();
   await page.getByPlaceholder('YYYY-MM-DD').fill('2030-02-10');

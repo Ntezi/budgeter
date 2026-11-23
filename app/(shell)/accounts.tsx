@@ -1,937 +1,393 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, Switch, Text, View } from 'react-native';
+// BUDG-8 S8 Accounts (briefs/redesign/05): Balances list, account detail, Move money, add/edit sheets.
+// Data and writes unchanged: subscriptions in useAccountsData (moved from this file), transfer writes in
+// moveMoney (moved from saveTransfers), account and manual-balance writes below with the same payloads.
+import React, { useMemo, useState } from 'react';
+import { Pressable, Switch, Text, View, ScrollView, useWindowDimensions } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { AppCard } from '@/components/ui/AppCard';
-import { AppInput } from '@/components/ui/AppInput';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { AccountDetail } from '@/components/accounts/AccountDetail';
+import { AccountsSegment } from '@/components/accounts/AccountsSegment';
+import { MoveMoneyFields, MoveMoneyFooter, useMoveMoney, type MovePrefill } from '@/components/accounts/MoveMoney';
+import { useAccountsData, useAccountsPeriod } from '@/components/accounts/useAccountsData';
+import { useAddSheet } from '@/components/add/AddSheetContext';
+import { AppSheet, useSheet } from '@/components/patterns/AppSheet';
+import { FormField } from '@/components/patterns/FormLayout';
+import { ListGroup, ListRow } from '@/components/patterns/ListRow';
+import { PageHeader } from '@/components/patterns/PageHeader';
+import { EmptyState, ErrorState, LoadingState } from '@/components/patterns/States';
 import { AppButton } from '@/components/ui/AppButton';
-import { AppBadge } from '@/components/ui/AppBadge';
+import { AppInput } from '@/components/ui/AppInput';
 import { AppSegmented } from '@/components/ui/AppSegmented';
-import { AppModal } from '@/components/ui/AppModal';
-import { useAuthUser } from '@/providers/AuthProvider';
-import { useWorkspace, useWorkspaceUid } from '@/providers/WorkspaceProvider';
-import { fmtMoney, parseMoney } from '@/lib/format';
-import { periodIdFromDate, type PeriodDoc, watchPeriods } from '@/lib/repo/periods';
-import { walletTypeOptions, type WalletType } from '@/lib/domain';
-import {
-  addAccount,
-  deleteAccount,
-  type Account,
-  updateAccount,
-  watchAccounts,
-} from '@/lib/repo/accounts';
-import { type Allocation, watchAllocations } from '@/lib/repo/allocations';
-import { addTransferTransaction, type Tx, watchTransactions } from '@/lib/repo/transactions';
-import { watchIncomeItems } from '@/lib/repo/income';
-import { type PlanItem, watchPlanTotals } from '@/lib/repo/plans';
-import {
-  clearAccountPeriodCurrentManual,
-  setAccountPeriodCurrentManual,
-  watchAccountPeriodOverridesForPeriod,
-} from '@/lib/repo/accountPeriodOverrides';
 import { cn } from '@/lib/cn';
-import { useAccountViewModels } from '@/lib/view-models/useAccountViewModels';
+import { walletTypeOptions, type WalletType } from '@/lib/domain';
+import { fmtMoney, parseMoney } from '@/lib/format';
+import { addAccount, updateAccount } from '@/lib/repo/accounts';
+import { clearAccountPeriodCurrentManual, setAccountPeriodCurrentManual } from '@/lib/repo/accountPeriodOverrides';
+import { monthTitle } from '@/lib/rules/months';
+import { accountHint } from '@/lib/view-models/accountFigures';
+import type { AccountViewModel } from '@/lib/view-models/useAccountViewModels';
+import { useAuthUser } from '@/providers/AuthProvider';
+import { useWorkspaceUid } from '@/providers/WorkspaceProvider';
 
-type AccountDraft = {
+type AccountForm = {
+  id: string; // '' = new
   name: string;
   type: WalletType;
-  openingBalance: number;
-  dailyReminderEnabled: boolean;
-};
-
-type EditingAccount = {
-  id: string;
-  name: string;
-  type: WalletType;
-  openingBalance: number;
+  openingBalance: string;
   archived: boolean;
   dailyReminderEnabled: boolean;
 };
 
-type TransferDraftRow = {
-  accountId: string;
-  selected: boolean;
-  amount: string;
-};
+const TYPE_LABEL: Record<WalletType, string> = { BANK: 'Bank', MOMO: 'Mobile money', CASH: 'Cash', OTHER: 'Other' };
+const tabular = { fontVariant: ['tabular-nums' as const] };
+
+function railColor(type?: WalletType) {
+  if (type === 'BANK') return 'bg-blue-500';
+  if (type === 'MOMO') return 'bg-emerald-500';
+  if (type === 'CASH') return 'bg-amber-500';
+  return 'bg-zinc-500';
+}
+
+function AccountRow({ vm, balance, selected, onPress }: { vm: AccountViewModel; balance: number; selected?: boolean; onPress: () => void }) {
+  const hint = accountHint(vm, fmtMoney, balance);
+  return (
+    <View className={selected ? 'bg-muted/60 dark:bg-zinc-800/60' : undefined}>
+      <ListRow
+        testID={`account-row-${vm.accountId}`}
+        title={vm.accountName}
+        subLines={0}
+        sub={`${TYPE_LABEL[(vm.accountType ?? 'OTHER') as WalletType] ?? 'Other'} · ${hint.text}`}
+        amount={fmtMoney(balance)}
+        amountClassName={balance < 0 ? 'text-destructive dark:text-red-300' : undefined}
+        onPress={onPress}
+        left={<View className={cn('h-10 w-1 rounded-full', railColor(vm.accountType))} />}
+      />
+    </View>
+  );
+}
 
 export default function AccountsScreen() {
   const user = useAuthUser();
   const uid = useWorkspaceUid();
-  const { activePeriodId } = useWorkspace();
-  const [selectedPid, setSelectedPid] = useState(activePeriodId || periodIdFromDate());
+  const pid = useAccountsPeriod();
+  const data = useAccountsData(uid, pid);
+  const router = useRouter();
+  const params = useLocalSearchParams<{ id?: string }>();
+  const { width } = useWindowDimensions();
+  const desktop = width >= 1024;
+  const { openAdd } = useAddSheet();
+  const updatedBy = user?.uid || uid || '';
+  const month = monthTitle(pid);
 
-  useEffect(() => {
-    setSelectedPid(activePeriodId || periodIdFromDate());
-  }, [activePeriodId]);
+  const [desktopId, setDesktopId] = useState('');
+  const [archivedOpen, setArchivedOpen] = useState(false);
 
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [incomeTotal, setIncomeTotal] = useState(0);
-  const [planItems, setPlanItems] = useState<PlanItem[]>([]);
-  const [allocations, setAllocations] = useState<Allocation[]>([]);
-  const [transactions, setTransactions] = useState<Tx[]>([]);
-  const [currentManualByAccountId, setCurrentManualByAccountId] = useState<Record<string, number>>({});
-  const [allPeriods, setAllPeriods] = useState<(PeriodDoc & { id: string })[]>([]);
-  const [allTransactionsByPeriod, setAllTransactionsByPeriod] = useState<Record<string, Tx[]>>({});
+  const moveSheet = useSheet();
+  const [movePrefill, setMovePrefill] = useState<MovePrefill>({});
+  const move = useMoveMoney({ active: moveSheet.open, uid, pid, data, prefill: movePrefill, updatedBy });
 
-  const [createOpen, setCreateOpen] = useState(false);
-  const [createError, setCreateError] = useState('');
-  const [draft, setDraft] = useState<AccountDraft>({
-    name: '',
-    type: 'BANK',
-    openingBalance: 0,
-    dailyReminderEnabled: false,
-  });
+  const accountSheet = useSheet();
+  const [form, setForm] = useState<AccountForm | null>(null);
+  const [formError, setFormError] = useState('');
+  const [archiveAsk, setArchiveAsk] = useState(false);
 
-  const [editing, setEditing] = useState<EditingAccount | null>(null);
-  const [editError, setEditError] = useState('');
+  const manualSheet = useSheet();
+  const [manualId, setManualId] = useState('');
+  const [manualDraft, setManualDraft] = useState('');
+  const [manualError, setManualError] = useState('');
+  const [manualPending, setManualPending] = useState(false);
 
-  const [detailsAccountId, setDetailsAccountId] = useState('');
-  const [adjustOpen, setAdjustOpen] = useState(false);
-  const [adjustAccountId, setAdjustAccountId] = useState('');
-  const [adjustCurrentDraft, setAdjustCurrentDraft] = useState('');
-  const [adjustCurrentError, setAdjustCurrentError] = useState('');
-  const [adjustingCurrent, setAdjustingCurrent] = useState(false);
-  const [transferOpen, setTransferOpen] = useState(false);
-  const [transferSourceAccountId, setTransferSourceAccountId] = useState('');
-  const [transferRows, setTransferRows] = useState<TransferDraftRow[]>([]);
-  const [transferError, setTransferError] = useState('');
-  const [transferring, setTransferring] = useState(false);
+  const active = useMemo(() => data.accountRows.filter((r) => r.accountId && !r.archived), [data.accountRows]);
+  const archived = useMemo(() => data.accountRows.filter((r) => r.accountId && r.archived), [data.accountRows]);
+  // Same figures as Home's Accounts row (fetchAccountsReport): total over every account, overdrawn count.
+  const total = data.report?.totals.current ?? 0;
+  const overdrawn = data.report?.totals.overdraftCount ?? 0;
+  const toMove = active.filter((r) => r.budget.unfunded > 0);
 
-  useEffect(() => {
-    if (!uid) return;
-    return watchAccounts(uid, setAccounts, { includeArchived: true });
-  }, [uid]);
+  const phoneId = typeof params.id === 'string' ? params.id : '';
+  const selectedId = desktop ? desktopId || active[0]?.accountId || '' : phoneId;
+  const selected = selectedId ? data.byAccountId.get(selectedId) ?? null : null;
 
-  useEffect(() => {
-    if (!uid || !selectedPid) return;
-    return watchAllocations(uid, selectedPid, (rows) => setAllocations(rows));
-  }, [uid, selectedPid]);
+  function openMove(e: unknown, toId?: string, fromId?: string) {
+    setMovePrefill({ toId, fromId });
+    moveSheet.show(e);
+  }
 
-  useEffect(() => {
-    if (!uid || !selectedPid) return;
-    return watchTransactions(uid, selectedPid, setTransactions);
-  }, [uid, selectedPid]);
+  function select(id: string) {
+    if (desktop) setDesktopId(id);
+    else router.push(`/accounts?id=${encodeURIComponent(id)}` as any);
+  }
 
-  useEffect(() => {
-    if (!uid || !selectedPid) {
-      setCurrentManualByAccountId({});
-      return;
-    }
-    return watchAccountPeriodOverridesForPeriod(uid, selectedPid, setCurrentManualByAccountId);
-  }, [uid, selectedPid]);
-
-  useEffect(() => {
-    if (!uid || !selectedPid) return;
-    return watchPlanTotals(uid, selectedPid, (_totals, items) => {
-      setPlanItems(items);
-    });
-  }, [uid, selectedPid]);
-
-  useEffect(() => {
-    if (!uid || !selectedPid) return;
-    return watchIncomeItems(uid, selectedPid, (_items, activeTotal) => {
-      setIncomeTotal(activeTotal);
-    });
-  }, [uid, selectedPid]);
-
-  useEffect(() => {
-    if (!uid) {
-      setAllPeriods([]);
-      return;
-    }
-    return watchPeriods(uid, setAllPeriods);
-  }, [uid]);
-
-  const allPeriodIdsKey = useMemo(
-    () => allPeriods.map((row) => row.id).sort((a, b) => a.localeCompare(b)).join('|'),
-    [allPeriods]
-  );
-
-  useEffect(() => {
-    if (!uid || !allPeriods.length) {
-      setAllTransactionsByPeriod({});
-      return;
-    }
-
-    const periodIds = allPeriods.map((row) => row.id);
-    setAllTransactionsByPeriod((prev) => {
-      const next: Record<string, Tx[]> = {};
-      periodIds.forEach((pid) => {
-        next[pid] = prev[pid] ?? [];
-      });
-      return next;
-    });
-
-    const unsubs = periodIds.map((pid) =>
-      watchTransactions(uid, pid, (rows) => {
-        setAllTransactionsByPeriod((prev) => ({
-          ...prev,
-          [pid]: rows,
-        }));
-      })
+  function openAccountForm(e: unknown, id?: string) {
+    const account = id ? data.accountById.get(id) : undefined;
+    setForm(
+      account && id
+        ? {
+            id,
+            name: account.name,
+            type: (account.type ?? 'OTHER') as WalletType,
+            openingBalance: String(Number(account.openingBalance || 0)),
+            archived: account.archived === true,
+            dailyReminderEnabled: account.dailyReminderEnabled === true,
+          }
+        : { id: '', name: '', type: 'BANK', openingBalance: '', archived: false, dailyReminderEnabled: false }
     );
-
-    return () => {
-      unsubs.forEach((unsub) => unsub());
-    };
-  }, [allPeriodIdsKey, allPeriods, uid]);
-
-  const allTransactions = useMemo(() => Object.values(allTransactionsByPeriod).flat(), [allTransactionsByPeriod]);
-
-  const accountById = useMemo(() => {
-    const map = new Map<string, Account>();
-    accounts.forEach((row) => {
-      if (!row.id) return;
-      map.set(row.id, row);
-    });
-    return map;
-  }, [accounts]);
-
-  const { rows: accountRows, byAccountId } = useAccountViewModels({
-    accounts,
-    periodId: selectedPid,
-    planItems,
-    allocations,
-    periodTransactions: transactions,
-    allTransactions,
-    incomeTotal,
-    currentManualByAccountId,
-  });
-
-  const details = detailsAccountId ? byAccountId.get(detailsAccountId) ?? null : null;
-  const editingVm = editing ? byAccountId.get(editing.id) ?? null : null;
-  const adjustVm = adjustAccountId ? byAccountId.get(adjustAccountId) ?? null : null;
-  const transferSourceVm = transferSourceAccountId ? byAccountId.get(transferSourceAccountId) ?? null : null;
-  const activeTransferDestinationRows = useMemo(
-    () =>
-      accountRows.filter(
-        (row) => row.accountId && row.accountId !== transferSourceAccountId && !row.archived
-      ),
-    [accountRows, transferSourceAccountId]
-  );
-  const transferSelectedTotal = useMemo(
-    () =>
-      transferRows.reduce((sum, row) => {
-        if (!row.selected) return sum;
-        return sum + Math.max(0, parseMoney(row.amount));
-      }, 0),
-    [transferRows]
-  );
-
-  function resetDraft() {
-    setDraft({
-      name: '',
-      type: 'BANK',
-      openingBalance: 0,
-      dailyReminderEnabled: false,
-    });
-    setCreateError('');
+    setFormError('');
+    setArchiveAsk(false);
+    accountSheet.show(e);
   }
 
-  async function createAccount() {
-    if (!uid) return;
-    if (!draft.name.trim()) {
-      setCreateError('Account name is required.');
+  async function saveAccount(archivedNext?: boolean) {
+    if (!uid || !form) return;
+    if (!form.name.trim()) {
+      setFormError('Account name is required.');
       return;
     }
-    await addAccount(uid, {
-      name: draft.name.trim(),
-      type: draft.type,
-      openingBalance: draft.openingBalance || 0,
-      dailyReminderEnabled: draft.dailyReminderEnabled,
-      archived: false,
-      currencyCode: 'GHS',
-    });
-    resetDraft();
-    setCreateOpen(false);
-  }
-
-  async function removeAccount(accountId: string) {
-    if (!uid || !accountId) return;
-    await deleteAccount(uid, accountId);
-    if (detailsAccountId === accountId) setDetailsAccountId('');
-  }
-
-  async function toggleReminder(accountId: string, enabled: boolean) {
-    if (!uid || !accountId) return;
-    await updateAccount(uid, accountId, { dailyReminderEnabled: enabled });
-  }
-
-  function openEditing(accountId: string) {
-    const account = accountById.get(accountId);
-    if (!account) return;
-    setEditing({
-      id: accountId,
-      name: account.name,
-      type: (account.type ?? 'OTHER') as WalletType,
-      openingBalance: Number(account.openingBalance || 0),
-      archived: account.archived === true,
-      dailyReminderEnabled: account.dailyReminderEnabled === true,
-    });
-    setEditError('');
-  }
-
-  async function saveEditingAccount() {
-    if (!uid || !editing) return;
-    if (!editing.name.trim()) {
-      setEditError('Account name is required.');
-      return;
+    const openingBalance = parseMoney(form.openingBalance) || 0;
+    if (!form.id) {
+      // Same payload as the old createAccount().
+      await addAccount(uid, {
+        name: form.name.trim(),
+        type: form.type,
+        openingBalance,
+        dailyReminderEnabled: form.dailyReminderEnabled,
+        archived: false,
+        currencyCode: 'GHS',
+      });
+    } else {
+      // Same payload as the old saveEditingAccount().
+      await updateAccount(uid, form.id, {
+        name: form.name.trim(),
+        type: form.type,
+        openingBalance,
+        dailyReminderEnabled: form.dailyReminderEnabled,
+        archived: archivedNext ?? form.archived,
+      });
     }
-    await updateAccount(uid, editing.id, {
-      name: editing.name.trim(),
-      type: editing.type,
-      openingBalance: editing.openingBalance || 0,
-      dailyReminderEnabled: editing.dailyReminderEnabled,
-      archived: editing.archived,
-    });
-    setEditing(null);
-    setEditError('');
+    accountSheet.hide();
   }
 
-  function openAdjustCurrent(accountId: string) {
-    const vm = byAccountId.get(accountId);
+  function openManual(e: unknown, id: string) {
+    const vm = data.byAccountId.get(id);
     if (!vm) return;
-    setAdjustAccountId(accountId);
-    setAdjustCurrentDraft(String(vm.cash.currentManual ?? vm.cash.currentAuto));
-    setAdjustCurrentError('');
-    setAdjustOpen(true);
+    setManualId(id);
+    setManualDraft(String(vm.cash.currentManual ?? vm.cash.currentAuto));
+    setManualError('');
+    manualSheet.show(e);
   }
 
-  async function saveAdjustedCurrent() {
-    if (!uid || !selectedPid || !adjustAccountId || adjustingCurrent) return;
-    const raw = adjustCurrentDraft.trim();
-    if (!raw) {
-      setAdjustCurrentError('Current amount is required.');
-      return;
-    }
+  async function saveManual() {
+    if (!uid || !pid || !manualId || manualPending) return;
+    const raw = manualDraft.trim();
+    if (!raw) return setManualError('Current amount is required.');
     const amount = parseMoney(raw);
-    if (!Number.isFinite(amount)) {
-      setAdjustCurrentError('Enter a valid amount.');
-      return;
-    }
-    setAdjustingCurrent(true);
+    if (!Number.isFinite(amount)) return setManualError('Enter a valid amount.');
+    setManualPending(true);
     try {
-      await setAccountPeriodCurrentManual(uid, {
-        accountId: adjustAccountId,
-        periodId: selectedPid,
-        currentManual: amount,
-        updatedBy: user?.uid || uid,
-      });
-      setAdjustOpen(false);
-      setAdjustCurrentError('');
+      await setAccountPeriodCurrentManual(uid, { accountId: manualId, periodId: pid, currentManual: amount, updatedBy });
+      manualSheet.hide();
     } catch (e: unknown) {
-      setAdjustCurrentError(e instanceof Error ? e.message : 'Could not save current amount.');
+      setManualError(e instanceof Error ? e.message : 'Could not save current amount.');
     } finally {
-      setAdjustingCurrent(false);
+      setManualPending(false);
     }
   }
 
-  async function resetAdjustedCurrent(accountId: string) {
-    if (!uid || !selectedPid || !accountId) return;
+  async function resetManual() {
+    if (!uid || !pid || !manualId) return;
     try {
-      await clearAccountPeriodCurrentManual(uid, accountId, selectedPid);
-      if (adjustAccountId === accountId) {
-        setAdjustOpen(false);
-        setAdjustCurrentError('');
-      }
+      await clearAccountPeriodCurrentManual(uid, manualId, pid);
+      manualSheet.hide();
     } catch (e: unknown) {
-      Alert.alert('Reset failed', e instanceof Error ? e.message : 'Could not reset current amount.');
+      setManualError(e instanceof Error ? e.message : 'Could not reset current amount.');
     }
   }
 
-  function transferableAmount(vm: { cash: { current: number; unallocated: number } } | null) {
-    if (!vm) return 0;
-    if (vm.cash.unallocated > 0) return vm.cash.unallocated;
-    return Math.max(0, vm.cash.current);
-  }
+  const detail = selected ? (
+    <AccountDetail
+      vm={selected}
+      balance={data.balanceOf(selected.accountId)}
+      pid={pid}
+      closed={data.closed}
+      transactions={data.transactions}
+      onBack={desktop ? undefined : () => (router.canGoBack() ? router.back() : router.replace('/accounts' as any))}
+      onMove={(toId) => openMove(undefined, toId && toId === selected.accountId && selected.budget.unfunded > 0 ? toId : undefined, toId && selected.budget.unfunded > 0 ? undefined : selected.accountId)}
+      onAddExpense={openAdd}
+      onEdit={() => openAccountForm(undefined, selected.accountId)}
+      onManual={() => openManual(undefined, selected.accountId)}
+      onSeeAll={() => router.push(`/transactions?month=${pid}&account=${encodeURIComponent(selected.accountId)}` as any)}
+    />
+  ) : null;
 
-  function openTransfer(accountId: string) {
-    const sourceVm = byAccountId.get(accountId);
-    if (!sourceVm || transferableAmount(sourceVm) <= 0) return;
-    setTransferSourceAccountId(accountId);
-    setTransferRows(
-      accountRows
-        .filter((row) => row.accountId && row.accountId !== accountId && !row.archived)
-        .map((row) => ({
-          accountId: row.accountId,
-          selected: false,
-          amount: '',
-        }))
-    );
-    setTransferError('');
-    setTransferOpen(true);
-  }
+  const balances = data.reportError ? (
+    <ErrorState message="Balances did not load." onRetry={data.retryReport} testID="accounts-error" />
+  ) : !data.accountsLoaded || !data.report ? (
+    <LoadingState rows={4} testID="accounts-loading" />
+  ) : !active.length ? (
+    <View className="gap-3">
+      <EmptyState icon="bank-outline" message="Add where your money lives: bank, mobile money, cash." actionLabel="Add account" onAction={() => openAccountForm(undefined)} testID="accounts-empty" />
+      {archived.length ? <AppButton label="Show archived" variant="ghost" size="touch" onPress={() => setArchivedOpen(true)} /> : null}
+    </View>
+  ) : (
+    <View className="gap-5">
+      <View className="gap-1" testID="accounts-total">
+        <Text className="text-sm text-muted-foreground dark:text-zinc-400">You have</Text>
+        <Text className={cn('text-3xl font-bold', total < 0 ? 'text-destructive dark:text-red-300' : 'text-foreground dark:text-zinc-50')} style={tabular}>
+          {fmtMoney(total)}
+        </Text>
+        <Text className="text-sm text-muted-foreground dark:text-zinc-400">
+          across {active.length} {active.length === 1 ? 'account' : 'accounts'}
+          {overdrawn ? <Text className="text-destructive dark:text-red-300">{` · ${overdrawn} overdrawn`}</Text> : null}
+          {data.closed ? ` · ${month.split(' ')[0]} is closed` : ''}
+        </Text>
+      </View>
 
-  function updateTransferRow(accountId: string, patch: Partial<TransferDraftRow>) {
-    setTransferRows((prev) =>
-      prev.map((row) => (row.accountId === accountId ? { ...row, ...patch } : row))
-    );
-  }
+      {toMove.length && !data.closed ? (
+        <ListGroup title={`Money to move (${toMove.length})`} testID="accounts-to-move">
+          {toMove.map((r) => (
+            <ListRow
+              key={r.accountId}
+              title={`${r.accountName} needs ${fmtMoney(r.budget.unfunded)} more`}
+              titleLines={0}
+              onPress={() => openMove(undefined, r.accountId)}
+              testID={`to-move-${r.accountId}`}
+            />
+          ))}
+        </ListGroup>
+      ) : null}
 
-  async function saveTransfers() {
-    if (!uid || !selectedPid || !transferSourceVm || transferring) return;
+      <ListGroup testID="accounts-list">
+        {active.map((r) => (
+          <AccountRow key={r.accountId} vm={r} balance={data.balanceOf(r.accountId)} selected={desktop && r.accountId === selectedId} onPress={() => select(r.accountId)} />
+        ))}
+      </ListGroup>
+    </View>
+  );
 
-    const selectedRows = transferRows
-      .filter((row) => row.selected)
-      .map((row) => ({ ...row, parsedAmount: Math.max(0, parseMoney(row.amount)) }))
-      .filter((row) => row.parsedAmount > 0);
+  const footerBlock = data.accountsLoaded ? (
+    <View className="gap-3">
+      {archived.length ? (
+        <>
+          <Pressable accessibilityRole="button" aria-expanded={archivedOpen} onPress={() => setArchivedOpen((v) => !v)} className="min-h-11 flex-row items-center gap-2 rounded-lg px-1">
+            <Text className="min-w-0 flex-1 text-sm font-medium text-muted-foreground dark:text-zinc-400">Archived ({archived.length})</Text>
+            <MaterialCommunityIcons name={archivedOpen ? 'chevron-up' : 'chevron-down'} size={20} color="#717182" />
+          </Pressable>
+          {archivedOpen ? (
+            <ListGroup testID="accounts-archived">
+              {archived.map((r) => (
+                <AccountRow key={r.accountId} vm={r} balance={data.balanceOf(r.accountId)} selected={desktop && r.accountId === selectedId} onPress={() => select(r.accountId)} />
+              ))}
+            </ListGroup>
+          ) : null}
+        </>
+      ) : null}
+      {active.length ? <AppButton label="Add account" variant="outline" size="touch" className="w-full" onPress={(e?: unknown) => openAccountForm(e)} /> : null}
+    </View>
+  ) : null;
 
-    if (!selectedRows.length) {
-      setTransferError('Select at least one destination account and enter an amount.');
-      return;
-    }
-
-    const maxTransferable = transferableAmount(transferSourceVm);
-    const total = selectedRows.reduce((sum, row) => sum + row.parsedAmount, 0);
-    if (total > maxTransferable) {
-      setTransferError(`Transfer total cannot exceed ${fmtMoney(maxTransferable)}.`);
-      return;
-    }
-
-    setTransferring(true);
-    try {
-      await Promise.all(
-        selectedRows.map((row) =>
-          addTransferTransaction(uid, selectedPid, {
-            fromAccountId: transferSourceVm.accountId,
-            toAccountId: row.accountId,
-            amount: row.parsedAmount,
-            note: `Account transfer from ${transferSourceVm.accountName}`,
-          })
-        )
-      );
-
-      await setAccountPeriodCurrentManual(uid, {
-        accountId: transferSourceVm.accountId,
-        periodId: selectedPid,
-        currentManual: transferSourceVm.cash.current - total,
-        updatedBy: user?.uid || uid,
-      });
-
-      await Promise.all(
-        selectedRows.map((row) => {
-          const destinationVm = byAccountId.get(row.accountId);
-          if (!destinationVm) return Promise.resolve();
-          return setAccountPeriodCurrentManual(uid, {
-            accountId: row.accountId,
-            periodId: selectedPid,
-            currentManual: destinationVm.cash.current + row.parsedAmount,
-            updatedBy: user?.uid || uid,
-          });
-        })
-      );
-
-      setTransferOpen(false);
-      setTransferError('');
-      setTransferSourceAccountId('');
-      setTransferRows([]);
-    } catch (e: unknown) {
-      setTransferError(e instanceof Error ? e.message : 'Could not save transfer.');
-    } finally {
-      setTransferring(false);
-    }
-  }
-
-  function railColor(type?: WalletType) {
-    if (type === 'BANK') return 'bg-blue-500';
-    if (type === 'MOMO') return 'bg-emerald-500';
-    if (type === 'CASH') return 'bg-amber-500';
-    return 'bg-zinc-500';
-  }
-
+  const phoneDetail = !desktop && phoneId;
   return (
     <ScrollView className="flex-1" contentContainerClassName="gap-4 pb-8">
-      <View className="flex-col gap-2 md:flex-row md:items-center md:justify-between">
-        <View className="gap-1">
-          <Text className="text-3xl font-bold text-foreground dark:text-zinc-50">Accounts</Text>
-          <Text className="text-sm text-muted-foreground">
-            Summary cards show key balances. Tap a card for full Cash and Budget details.
-          </Text>
-        </View>
-        <AppButton onPress={() => setCreateOpen(true)}>
-          <View className="flex-row items-center gap-2">
-            <MaterialCommunityIcons name="plus" size={18} color="#FFFFFF" />
-            <Text className="text-sm font-medium text-white">Add Account</Text>
+      <PageHeader title="Accounts" right={<AccountsSegment active="balances" month={pid} />} />
+      {phoneDetail ? (
+        selected ? detail : data.accountsLoaded ? <EmptyState icon="bank-off-outline" message="This account was not found." actionLabel="All accounts" onAction={() => router.replace('/accounts' as any)} /> : <LoadingState rows={4} />
+      ) : desktop ? (
+        <View className="flex-row items-start gap-8">
+          <View className="min-w-0 flex-1 gap-4">
+            {balances}
+            {footerBlock}
           </View>
-        </AppButton>
-      </View>
-
-      <View className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {accountRows.map((row) => (
-          <Pressable key={row.accountId || row.accountName} onPress={() => row.accountId && setDetailsAccountId(row.accountId)}>
-            <AppCard className="overflow-hidden p-0">
-              <View className="flex-row">
-                <View className={cn('w-1', railColor(row.accountType))} />
-                <View className="flex-1 gap-2 px-4 py-4">
-                  <View className="flex-row items-start justify-between gap-2">
-                    <View className="flex-1">
-                      <Text className="text-base font-semibold text-foreground dark:text-zinc-50">{row.accountName}</Text>
-                      <View className="mt-0.5 flex-row items-center gap-2">
-                        <Text className="text-xs uppercase tracking-wider text-muted-foreground">{row.accountType ?? 'OTHER'}</Text>
-                        {row.archived ? <AppBadge label="Archived" variant="secondary" /> : null}
-                      </View>
-                    </View>
-                    <MaterialCommunityIcons name="chevron-right" size={18} color="#717182" />
-                  </View>
-
-                  <View className="gap-0.5">
-                    <Text className={cn('text-3xl font-bold', row.cash.current < 0 ? 'text-red-700 dark:text-red-300' : 'text-foreground dark:text-zinc-50')}>
-                      {fmtMoney(row.cash.current)}
-                    </Text>
-                    <Text className="text-xs text-muted-foreground">Current (Actual)</Text>
-                  </View>
-
-                  {row.cash.topUpNeeded > 0 ? (
-                    <View className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 dark:border-amber-900 dark:bg-amber-950/30">
-                      <Text className="text-xs font-medium text-amber-700 dark:text-amber-300">
-                        Remaining to be in this account: {fmtMoney(row.cash.topUpNeeded)}
-                      </Text>
-                    </View>
-                  ) : null}
-
-                  <View className="flex-row items-center justify-between gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1.5 dark:border-emerald-900 dark:bg-emerald-950/20">
-                    <View className="flex-1">
-                      <Text className="text-xs text-emerald-800 dark:text-emerald-200">Unallocated cash</Text>
-                      <Text className="text-[11px] text-emerald-700/80 dark:text-emerald-300/80">Current (Actual) - Remaining</Text>
-                    </View>
-                    <Text className={cn('text-xs font-semibold', row.cash.unallocated < 0 ? 'text-red-700 dark:text-red-300' : 'text-emerald-800 dark:text-emerald-200')}>
-                      {fmtMoney(row.cash.unallocated)}
-                    </Text>
-                  </View>
-
-                  <View className="gap-1 rounded-md border border-border bg-muted/20 px-2 py-1.5 dark:border-zinc-800 dark:bg-zinc-800/30">
-                    <View className="flex-row items-center justify-between gap-2">
-                      <Text className="text-xs text-muted-foreground">Allocated</Text>
-                      <Text className="text-xs font-medium text-foreground dark:text-zinc-50">{fmtMoney(row.budget.allocated)}</Text>
-                    </View>
-                    <View className="flex-row items-center justify-between gap-2">
-                      <Text className="text-xs text-muted-foreground">Funded</Text>
-                      <Text className="text-xs font-medium text-foreground dark:text-zinc-50">{fmtMoney(row.budget.funded)}</Text>
-                    </View>
-                    <View className="flex-row items-center justify-between gap-2">
-                      <Text className="text-xs text-muted-foreground">Unfunded</Text>
-                      <Text className={cn('text-xs font-medium', row.budget.unfunded > 0 ? 'text-amber-700 dark:text-amber-300' : 'text-foreground dark:text-zinc-50')}>
-                        {fmtMoney(row.budget.unfunded)}
-                      </Text>
-                    </View>
-                    <View className="flex-row items-center justify-between gap-2">
-                      <Text className="text-xs text-muted-foreground">Spent (from this account)</Text>
-                      <Text className="text-xs font-medium text-foreground dark:text-zinc-50">{fmtMoney(row.budget.spentFrom)}</Text>
-                    </View>
-                  </View>
-
-                  {transferableAmount(row) > 0 ? (
-                    <AppButton
-                      size="sm"
-                      variant="outline"
-                      onPress={(event) => {
-                        event.stopPropagation();
-                        openTransfer(row.accountId);
-                      }}
-                    >
-                      <View className="flex-row items-center gap-2">
-                        <MaterialCommunityIcons name="bank-transfer" size={16} color="#18181B" />
-                        <Text className="text-xs font-medium text-foreground dark:text-zinc-50">Transfer</Text>
-                      </View>
-                    </AppButton>
-                  ) : null}
-                </View>
-              </View>
-            </AppCard>
-          </Pressable>
-        ))}
-
-        {!accountRows.length ? (
-          <AppCard>
-            <Text className="text-sm text-muted-foreground">No accounts yet. Add one to enable account tracking.</Text>
-          </AppCard>
-        ) : null}
-      </View>
-
-      <AppModal
-        open={Boolean(details)}
-        onClose={() => setDetailsAccountId('')}
-        title={`Account Details · ${details?.accountName || ''}`}
-      >
-        {details ? (
-          <View className="gap-3">
-            <View className="flex-row items-center justify-between">
-              <View className="flex-row items-center gap-2">
-                <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">{details.accountName}</Text>
-                <AppBadge label={details.accountType || 'OTHER'} variant="outline" />
-                {details.archived ? <AppBadge label="Archived" variant="secondary" /> : null}
-              </View>
-              <View className="flex-row items-center gap-2">
-                <Text className="text-xs text-muted-foreground">Reminder</Text>
-                <Switch
-                  value={details.reminderEnabled}
-                  onValueChange={(value) => void toggleReminder(details.accountId, value)}
-                />
-              </View>
-            </View>
-
-            <View className="gap-1 rounded-md border border-border bg-muted/20 px-3 py-3 dark:border-zinc-800 dark:bg-zinc-800/30">
-              <Text className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Cash</Text>
-              <View className="flex-row items-center justify-between"><Text className="text-xs text-muted-foreground">Current (Actual)</Text><Text className={cn('text-xs font-medium', details.cash.current < 0 ? 'text-red-700 dark:text-red-300' : 'text-foreground dark:text-zinc-50')}>{fmtMoney(details.cash.current)}</Text></View>
-              <View className="flex-row items-center justify-between"><Text className="text-xs text-muted-foreground">Expected (Funded - Spent from this account)</Text><Text className={cn('text-xs font-medium', details.cash.currentAuto < 0 ? 'text-red-700 dark:text-red-300' : 'text-foreground dark:text-zinc-50')}>{fmtMoney(details.cash.currentAuto)}</Text></View>
-              <View className="flex-row items-center justify-between"><Text className="text-xs text-muted-foreground">Unallocated cash</Text><Text className={cn('text-xs font-medium', details.cash.unallocated < 0 ? 'text-red-700 dark:text-red-300' : 'text-emerald-700 dark:text-emerald-300')}>{fmtMoney(details.cash.unallocated)}</Text></View>
-              {details.cash.currentManual !== null ? (
-                <View className="flex-row items-center justify-between"><Text className="text-xs text-muted-foreground">Manual Current Override</Text><Text className="text-xs font-medium text-foreground dark:text-zinc-50">{fmtMoney(details.cash.currentManual)}</Text></View>
-              ) : null}
-              {details.cash.topUpNeeded > 0 ? (
-                <View className="flex-row items-center justify-between"><Text className="text-xs text-muted-foreground">Remaining to be in this account</Text><Text className="text-xs font-medium text-amber-700 dark:text-amber-300">{fmtMoney(details.cash.topUpNeeded)}</Text></View>
-              ) : null}
-              <View className="mt-2 flex-row flex-wrap gap-2">
-                {transferableAmount(details) > 0 ? (
-                  <AppButton size="sm" variant="outline" label="Transfer" onPress={() => openTransfer(details.accountId)} />
-                ) : null}
-                <AppButton size="sm" variant="outline" label="Adjust Current" onPress={() => openAdjustCurrent(details.accountId)} />
-                {details.cash.currentManual !== null ? (
-                  <AppButton
-                    size="sm"
-                    variant="outline"
-                    label="Reset to Auto"
-                    onPress={() => void resetAdjustedCurrent(details.accountId)}
-                  />
-                ) : null}
-              </View>
-            </View>
-
-            <View className="gap-1 rounded-md border border-border bg-muted/20 px-3 py-3 dark:border-zinc-800 dark:bg-zinc-800/30">
-              <Text className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Budget</Text>
-              <View className="flex-row items-center justify-between"><Text className="text-xs text-muted-foreground">Allocated</Text><Text className="text-xs font-medium text-foreground dark:text-zinc-50">{fmtMoney(details.budget.allocated)}</Text></View>
-              <View className="flex-row items-center justify-between"><Text className="text-xs text-muted-foreground">Funded</Text><Text className="text-xs font-medium text-foreground dark:text-zinc-50">{fmtMoney(details.budget.funded)}</Text></View>
-              <View className="flex-row items-center justify-between"><Text className="text-xs text-muted-foreground">Spent (from this account)</Text><Text className="text-xs font-medium text-foreground dark:text-zinc-50">{fmtMoney(details.budget.spentFrom)}</Text></View>
-              <View className="flex-row items-center justify-between"><Text className="text-xs text-muted-foreground">Remaining (Funded - Spent from this account)</Text><Text className={cn('text-xs font-medium', details.budget.remaining < 0 ? 'text-red-700 dark:text-red-300' : 'text-emerald-700 dark:text-emerald-300')}>{fmtMoney(details.budget.remaining)}</Text></View>
-              <View className="flex-row items-center justify-between"><Text className="text-xs text-muted-foreground">Unfunded</Text><Text className={cn('text-xs font-medium', details.budget.unfunded > 0 ? 'text-amber-700 dark:text-amber-300' : 'text-foreground dark:text-zinc-50')}>{fmtMoney(details.budget.unfunded)}</Text></View>
-              {details.assignedItems.length ? (
-                <View className="mt-2 gap-1 rounded-md border border-border/60 bg-card px-2 py-2 dark:border-zinc-700 dark:bg-zinc-900/70">
-                  <Text className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Assigned Budget Items</Text>
-                  {details.assignedItems.map((item) => (
-                    <View key={item.id} className="flex-row items-center justify-between gap-2">
-                      <View className="flex-1">
-                        <Text className="text-xs text-foreground dark:text-zinc-50">{item.name}</Text>
-                        <Text className="text-[11px] text-muted-foreground">
-                          Allocated {fmtMoney(item.allocated)} · Funded {fmtMoney(item.funded)} · Spent {fmtMoney(item.spent)}
-                        </Text>
-                      </View>
-                      <Text className={cn('text-xs font-medium', item.remaining < 0 ? 'text-red-700 dark:text-red-300' : 'text-emerald-700 dark:text-emerald-300')}>
-                        {fmtMoney(item.remaining)}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-              ) : null}
-            </View>
-
-            <View className="flex-row justify-between gap-2">
-              <View className="flex-row gap-2">
-                <AppButton variant="outline" label="Edit" onPress={() => openEditing(details.accountId)} />
-                <AppButton
-                  variant="outline"
-                  label="Delete"
-                  onPress={() => void removeAccount(details.accountId)}
-                  className="border-destructive"
-                />
-              </View>
-              <AppButton variant="outline" label="Close" onPress={() => setDetailsAccountId('')} />
-            </View>
-          </View>
-        ) : null}
-      </AppModal>
-
-      <AppModal
-        open={adjustOpen}
-        onClose={() => {
-          if (adjustingCurrent) return;
-          setAdjustOpen(false);
-          setAdjustCurrentError('');
-        }}
-        title={`Adjust Current · ${adjustVm?.accountName || ''}`}
-      >
-        {adjustVm ? (
-          <View className="gap-3">
-            <View className="gap-1 rounded-md border border-border bg-muted/20 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/30">
-              <View className="flex-row items-center justify-between">
-                <Text className="text-xs text-muted-foreground">Expected (Auto)</Text>
-                <Text className="text-xs font-medium text-foreground dark:text-zinc-50">{fmtMoney(adjustVm.cash.currentAuto)}</Text>
-              </View>
-              <View className="flex-row items-center justify-between">
-                <Text className="text-xs text-muted-foreground">Current (Actual)</Text>
-                <Text className={cn('text-xs font-medium', adjustVm.cash.current < 0 ? 'text-red-700 dark:text-red-300' : 'text-foreground dark:text-zinc-50')}>
-                  {fmtMoney(adjustVm.cash.current)}
-                </Text>
-              </View>
-            </View>
-
-            <View className="gap-1">
-              <Text className="text-xs uppercase tracking-wide text-muted-foreground">Current (Actual) for {selectedPid}</Text>
-              <AppInput
-                value={adjustCurrentDraft}
-                onChangeText={setAdjustCurrentDraft}
-                keyboardType="decimal-pad"
-                placeholder="0.00"
-              />
-            </View>
-
-            {adjustCurrentError ? <Text className="text-xs text-destructive">{adjustCurrentError}</Text> : null}
-
-            <View className="flex-row justify-between gap-2">
-              <AppButton
-                variant="outline"
-                label="Reset to Auto"
-                onPress={() => void resetAdjustedCurrent(adjustVm.accountId)}
-              />
-              <View className="flex-row gap-2">
-                <AppButton
-                  variant="outline"
-                  label="Cancel"
-                  onPress={() => setAdjustOpen(false)}
-                  disabled={adjustingCurrent}
-                />
-                <AppButton
-                  label={adjustingCurrent ? 'Saving...' : 'Save'}
-                  onPress={() => void saveAdjustedCurrent()}
-                  disabled={adjustingCurrent}
-                />
-              </View>
-            </View>
-          </View>
-        ) : null}
-      </AppModal>
-
-      <AppModal
-        open={transferOpen}
-        onClose={() => {
-          if (transferring) return;
-          setTransferOpen(false);
-          setTransferError('');
-        }}
-        title={`Transfer · ${transferSourceVm?.accountName || ''}`}
-        contentClassName="max-h-[88vh]"
-      >
-        {transferSourceVm ? (
-          <View className="gap-3">
-            <View className="gap-1 rounded-md border border-border bg-muted/20 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/30">
-              <View className="flex-row items-center justify-between gap-3">
-                <Text className="text-xs text-muted-foreground">Current (Actual)</Text>
-                <Text className="text-xs font-medium text-foreground dark:text-zinc-50">{fmtMoney(transferSourceVm.cash.current)}</Text>
-              </View>
-              <View className="flex-row items-center justify-between gap-3">
-                <Text className="text-xs text-muted-foreground">Remaining</Text>
-                <Text className="text-xs font-medium text-foreground dark:text-zinc-50">{fmtMoney(transferSourceVm.budget.remaining)}</Text>
-              </View>
-              <View className="flex-row items-center justify-between gap-3">
-                <Text className="text-xs text-muted-foreground">Unallocated cash</Text>
-                <Text className={cn('text-xs font-medium', transferSourceVm.cash.unallocated < 0 ? 'text-red-700 dark:text-red-300' : 'text-emerald-700 dark:text-emerald-300')}>
-                  {fmtMoney(transferSourceVm.cash.unallocated)}
-                </Text>
-              </View>
-              <View className="flex-row items-center justify-between gap-3">
-                <Text className="text-xs text-muted-foreground">Transferable</Text>
-                <Text className="text-xs font-semibold text-foreground dark:text-zinc-50">{fmtMoney(transferableAmount(transferSourceVm))}</Text>
-              </View>
-            </View>
-
-            <ScrollView className="max-h-[48vh]" contentContainerClassName="gap-2">
-              {transferRows.map((row) => {
-                const destination = byAccountId.get(row.accountId);
-                if (!destination) return null;
-                return (
-                  <View
-                    key={row.accountId}
-                    className={cn(
-                      'gap-2 rounded-md border px-3 py-2',
-                      row.selected
-                        ? 'border-primary bg-primary/5 dark:border-primary dark:bg-primary/10'
-                        : 'border-border bg-card dark:border-zinc-800 dark:bg-zinc-900/60'
-                    )}
-                  >
-                    <View className="flex-row items-center justify-between gap-3">
-                      <Pressable
-                        className="flex-1"
-                        onPress={() => updateTransferRow(row.accountId, { selected: !row.selected })}
-                      >
-                        <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{destination.accountName}</Text>
-                        <Text className="text-[11px] text-muted-foreground">
-                          Current {fmtMoney(destination.cash.current)} · Unallocated {fmtMoney(destination.cash.unallocated)}
-                        </Text>
-                        <Text className="text-[11px] font-medium text-amber-700 dark:text-amber-300">
-                          Remaining to be in this account: {fmtMoney(destination.cash.topUpNeeded)}
-                        </Text>
-                      </Pressable>
-                      <Switch
-                        value={row.selected}
-                        onValueChange={(selected) => updateTransferRow(row.accountId, { selected })}
-                      />
-                    </View>
-                    {row.selected ? (
-                      <View className="gap-1">
-                        <Text className="text-[11px] uppercase tracking-wide text-muted-foreground">Amount to transfer</Text>
-                        <AppInput
-                          value={row.amount}
-                          onChangeText={(amount) => updateTransferRow(row.accountId, { amount })}
-                          keyboardType="decimal-pad"
-                          placeholder="0.00"
-                        />
-                      </View>
-                    ) : null}
-                  </View>
-                );
-              })}
-
-              {!activeTransferDestinationRows.length ? (
-                <Text className="text-sm text-muted-foreground">No active destination accounts available.</Text>
-              ) : null}
-            </ScrollView>
-
-            <View className="flex-row items-center justify-between rounded-md border border-border bg-muted/20 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/30">
-              <Text className="text-xs text-muted-foreground">Selected transfer total</Text>
-              <Text className={cn('text-sm font-semibold', transferSelectedTotal > transferableAmount(transferSourceVm) ? 'text-red-700 dark:text-red-300' : 'text-foreground dark:text-zinc-50')}>
-                {fmtMoney(transferSelectedTotal)}
-              </Text>
-            </View>
-
-            {transferError ? <Text className="text-xs text-destructive">{transferError}</Text> : null}
-
-            <View className="flex-row justify-end gap-2">
-              <AppButton
-                variant="outline"
-                label="Cancel"
-                onPress={() => setTransferOpen(false)}
-                disabled={transferring}
-              />
-              <AppButton
-                label={transferring ? 'Transferring...' : 'Transfer'}
-                onPress={() => void saveTransfers()}
-                disabled={transferring || !activeTransferDestinationRows.length}
-              />
-            </View>
-          </View>
-        ) : null}
-      </AppModal>
-
-      <AppModal
-        open={createOpen}
-        onClose={() => {
-          setCreateOpen(false);
-          resetDraft();
-        }}
-        title="Add Account"
-      >
-        <View className="gap-3">
-          <View className="gap-1">
-            <Text className="text-xs uppercase tracking-wide text-muted-foreground">Name</Text>
-            <AppInput value={draft.name} onChangeText={(value) => setDraft((prev) => ({ ...prev, name: value }))} placeholder="Wallet name" />
-          </View>
-
-          <View className="gap-1">
-            <Text className="text-xs uppercase tracking-wide text-muted-foreground">Type</Text>
-            <AppSegmented
-              value={draft.type}
-              compact
-              onChange={(value) => setDraft((prev) => ({ ...prev, type: value as WalletType }))}
-              options={walletTypeOptions.map((value) => ({ label: value, value }))}
-            />
-          </View>
-
-          <View className="gap-1">
-            <Text className="text-xs uppercase tracking-wide text-muted-foreground">Opening Balance</Text>
-            <AppInput
-              value={String(draft.openingBalance || '')}
-              onChangeText={(value) => setDraft((prev) => ({ ...prev, openingBalance: parseMoney(value) }))}
-              placeholder="0.00"
-              keyboardType="decimal-pad"
-            />
-          </View>
-
-          <View className="flex-row items-center justify-between rounded-lg border border-border bg-muted/30 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/40">
-            <Text className="text-sm text-muted-foreground">Daily balance reminder</Text>
-            <Switch value={draft.dailyReminderEnabled} onValueChange={(value) => setDraft((prev) => ({ ...prev, dailyReminderEnabled: value }))} />
-          </View>
-
-          {createError ? <Text className="text-xs text-destructive">{createError}</Text> : null}
-
-          <View className="flex-row justify-end gap-2">
-            <AppButton variant="outline" onPress={() => setCreateOpen(false)} label="Cancel" />
-            <AppButton onPress={createAccount} label="Create" />
+          <View className="min-w-0 flex-1 rounded-xl border border-border bg-card p-6 dark:border-zinc-800 dark:bg-zinc-900" testID="accounts-side">
+            {detail ?? <Text className="text-sm text-muted-foreground dark:text-zinc-400">Choose an account to see its month.</Text>}
           </View>
         </View>
-      </AppModal>
+      ) : (
+        <>
+          {balances}
+          {footerBlock}
+        </>
+      )}
 
-      <AppModal
-        open={Boolean(editing)}
-        onClose={() => {
-          setEditing(null);
-          setEditError('');
-        }}
-        title="Edit Account"
+      <AppSheet
+        open={moveSheet.open}
+        onClose={() => moveSheet.hide()}
+        title="Move money"
+        testID="move-sheet"
+        footer={moveSheet.open ? <MoveMoneyFooter m={move} onDone={() => moveSheet.hide()} onCancel={() => moveSheet.hide()} /> : null}
       >
-        {editing ? (
-          <View className="gap-3">
-            <View className="gap-1">
-              <Text className="text-xs uppercase tracking-wide text-muted-foreground">Name</Text>
-              <AppInput
-                value={editing.name}
-                onChangeText={(value) => setEditing((prev) => (prev ? { ...prev, name: value } : prev))}
-                placeholder="Wallet name"
-              />
-            </View>
+        {moveSheet.open ? <MoveMoneyFields m={move} /> : null}
+      </AppSheet>
 
-            <View className="gap-1">
-              <Text className="text-xs uppercase tracking-wide text-muted-foreground">Type</Text>
-              <AppSegmented
-                value={editing.type}
-                compact
-                onChange={(value) => setEditing((prev) => (prev ? { ...prev, type: value as WalletType } : prev))}
-                options={walletTypeOptions.map((value) => ({ label: value, value }))}
-              />
+      <AppSheet
+        open={accountSheet.open}
+        onClose={() => accountSheet.hide()}
+        title={form?.id ? 'Edit account' : 'Add account'}
+        testID="account-sheet"
+        footer={
+          accountSheet.open && form ? (
+            <>
+              {formError ? <Text role="alert" className="text-sm text-red-600 dark:text-red-300">{formError}</Text> : null}
+              <AppButton label="Save" accessibilityLabel={form.id ? 'Save account' : 'Add account'} size="touch-lg" className="w-full" textClassName="text-base" onPress={() => void saveAccount()} />
+              <AppButton label="Cancel" variant="ghost" size="touch" onPress={() => accountSheet.hide()} />
+            </>
+          ) : null
+        }
+      >
+        {accountSheet.open && form ? (
+          <View className="gap-4">
+            <FormField label="Name">
+              <AppInput autoFocus value={form.name} onChangeText={(name) => setForm({ ...form, name })} placeholder="Household account" accessibilityLabel="Account name" style={{ height: 44 }} />
+            </FormField>
+            <FormField label="Type">
+              <AppSegmented<WalletType> touch value={form.type} onChange={(type) => setForm({ ...form, type })} options={walletTypeOptions.map((t) => ({ value: t, label: TYPE_LABEL[t] }))} />
+            </FormField>
+            <FormField label="Opening balance (optional)">
+              <AppInput value={form.openingBalance} onChangeText={(openingBalance) => setForm({ ...form, openingBalance })} placeholder="0.00" keyboardType="decimal-pad" inputMode="decimal" accessibilityLabel="Opening balance" style={{ height: 44 }} />
+            </FormField>
+            <View className="min-h-11 flex-row items-center justify-between gap-3">
+              <Text className="min-w-0 flex-1 text-sm font-medium text-foreground dark:text-zinc-50">Daily reminder</Text>
+              <Switch value={form.dailyReminderEnabled} onValueChange={(dailyReminderEnabled) => setForm({ ...form, dailyReminderEnabled })} accessibilityLabel="Daily reminder" />
             </View>
-
-            <View className="gap-1">
-              <Text className="text-xs uppercase tracking-wide text-muted-foreground">Opening Balance</Text>
-              <AppInput
-                value={String(editing.openingBalance || '')}
-                onChangeText={(value) =>
-                  setEditing((prev) => (prev ? { ...prev, openingBalance: parseMoney(value) } : prev))
-                }
-                keyboardType="decimal-pad"
-                placeholder="0.00"
-              />
-            </View>
-
-            <View className="flex-row flex-wrap gap-2">
-              <AppBadge label={`Current ${fmtMoney(editingVm?.cash.current || 0)}`} variant="outline" />
-              <AppBadge label={`Allocated ${fmtMoney(editingVm?.budget.allocated || 0)}`} variant="outline" />
-              <AppBadge label={`Funded ${fmtMoney(editingVm?.budget.funded || 0)}`} variant="outline" />
-              <AppBadge label={`Spent From ${fmtMoney(editingVm?.budget.spentFrom || 0)}`} variant="outline" />
-              <AppBadge label={`Top-up ${fmtMoney(editingVm?.cash.topUpNeeded || 0)}`} variant="outline" />
-            </View>
-
-            <View className="flex-row items-center justify-between rounded-lg border border-border bg-muted/30 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/40">
-              <Text className="text-sm text-muted-foreground">Daily reminder</Text>
-              <Switch
-                value={editing.dailyReminderEnabled}
-                onValueChange={(value) => setEditing((prev) => (prev ? { ...prev, dailyReminderEnabled: value } : prev))}
-              />
-            </View>
-
-            <View className="flex-row items-center justify-between rounded-lg border border-border bg-muted/30 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/40">
-              <Text className="text-sm text-muted-foreground">Archived</Text>
-              <Switch
-                value={editing.archived}
-                onValueChange={(value) => setEditing((prev) => (prev ? { ...prev, archived: value } : prev))}
-              />
-            </View>
-
-            {editError ? <Text className="text-xs text-destructive">{editError}</Text> : null}
-
-            <View className="flex-row justify-end gap-2">
-              <AppButton variant="outline" onPress={() => setEditing(null)} label="Cancel" />
-              <AppButton onPress={saveEditingAccount} label="Save" />
-            </View>
+            {form.id ? (
+              archiveAsk ? (
+                <View className="gap-2 rounded-xl border border-border p-3 dark:border-zinc-800" testID="archive-confirm">
+                  <Text className="text-sm text-foreground dark:text-zinc-50">{`Archive ${form.name}? Its history stays.`}</Text>
+                  <View className="flex-row gap-3">
+                    <AppButton label="Keep" variant="outline" size="touch" className="flex-1" onPress={() => setArchiveAsk(false)} />
+                    <AppButton label="Archive" variant="destructive" size="touch" className="flex-1" onPress={() => void saveAccount(true)} />
+                  </View>
+                </View>
+              ) : form.archived ? (
+                <AppButton label="Restore account" variant="outline" size="touch" onPress={() => void saveAccount(false)} />
+              ) : (
+                <AppButton label="Archive account" variant="ghost" size="touch" onPress={() => setArchiveAsk(true)} />
+              )
+            ) : null}
           </View>
         ) : null}
-      </AppModal>
+      </AppSheet>
+
+      <AppSheet
+        open={manualSheet.open}
+        onClose={() => manualSheet.hide()}
+        title="Manual balance"
+        testID="manual-sheet"
+        footer={
+          manualSheet.open ? (
+            <>
+              {manualError ? <Text role="alert" className="text-sm text-red-600 dark:text-red-300">{manualError}</Text> : null}
+              <AppButton label={manualPending ? 'Saving…' : 'Save balance'} size="touch-lg" className="w-full" textClassName="text-base" onPress={() => void saveManual()} />
+              {data.byAccountId.get(manualId)?.cash.currentManual != null ? <AppButton label="Use the calculated balance" variant="ghost" size="touch" onPress={() => void resetManual()} /> : null}
+            </>
+          ) : null
+        }
+      >
+        {manualSheet.open ? (
+          <FormField label={`Balance for ${month}`}>
+            <AppInput autoFocus value={manualDraft} onChangeText={setManualDraft} keyboardType="decimal-pad" inputMode="decimal" accessibilityLabel="Manual balance" testID="manual-input" style={{ height: 44 }} />
+          </FormField>
+        ) : null}
+      </AppSheet>
     </ScrollView>
   );
 }

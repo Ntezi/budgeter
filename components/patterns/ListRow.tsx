@@ -12,24 +12,36 @@ type Props = {
   onPress?: () => void;
   accessibilityLabel?: string;
   testID?: string;
+  /** Lines the title may use before it truncates; 0 = wrap freely (for sentences such as Needs-you rows). */
+  titleLines?: number;
+  /** Lines the muted sub line may use; 0 = wrap freely (when it carries an amount). */
+  subLines?: number;
+  titleTestID?: string;
 };
 
 /** Name left, amount right, one muted line under it; whole row is the target (min 56 px). */
-export function ListRow({ title, sub, amount, amountClassName, left, onPress, accessibilityLabel, testID }: Props) {
+export function ListRow({ title, sub, amount, amountClassName, left, onPress, accessibilityLabel, testID, titleLines = 1, titleTestID, subLines = 1 }: Props) {
+  // A wrapping title (sentence) takes the full width; its amount drops below it so neither is cut.
+  const wrap = titleLines <= 0;
   const body = (
     <>
       {left}
       <View className="min-w-0 flex-1">
-        <Text className="text-base font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>
+        <Text testID={titleTestID} className="text-base font-medium text-foreground dark:text-zinc-50" numberOfLines={titleLines > 0 ? titleLines : undefined}>
           {title}
         </Text>
         {sub ? (
-          <Text className="text-sm text-muted-foreground dark:text-zinc-400" numberOfLines={1}>
+          <Text className="text-sm text-muted-foreground dark:text-zinc-400" numberOfLines={subLines > 0 ? subLines : undefined}>
             {sub}
           </Text>
         ) : null}
+        {amount && wrap ? (
+          <Text className={cn('text-base font-semibold text-foreground dark:text-zinc-50', amountClassName)} style={{ fontVariant: ['tabular-nums'] }}>
+            {amount}
+          </Text>
+        ) : null}
       </View>
-      {amount ? (
+      {amount && !wrap ? (
         <Text className={cn('shrink-0 text-base font-semibold text-foreground dark:text-zinc-50', amountClassName)} style={{ fontVariant: ['tabular-nums'] }}>
           {amount}
         </Text>
