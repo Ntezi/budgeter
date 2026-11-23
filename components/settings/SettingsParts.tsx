@@ -121,7 +121,7 @@ export function ConfirmSheet({ open, onClose, title, message, actionLabel, busy,
       footer={
         <View className="flex-row flex-wrap gap-2">
           <AppButton label="Cancel" variant="outline" size="touch-lg" className="min-w-28 flex-1" onPress={onClose} />
-          <AppButton label={busy ? 'Working…' : actionLabel} variant={destructive ? 'destructive' : 'primary'} size="touch-lg" className="min-w-28 flex-1" disabled={busy} onPress={onConfirm} />
+          <AppButton label={busy ? 'Working…' : actionLabel} variant={destructive ? 'destructive' : 'primary'} size="touch-lg" className={destructive ? 'min-w-28 flex-1' : 'min-w-28 flex-1 dark:bg-zinc-50'} textClassName={destructive ? undefined : 'dark:text-zinc-900'} disabled={busy} onPress={onConfirm} />
         </View>
       }
     >

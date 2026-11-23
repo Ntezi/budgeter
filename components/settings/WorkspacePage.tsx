@@ -99,7 +99,8 @@ export function WorkspacePage(p: {
           <AppButton
             label={c.busy ? 'Creating…' : 'Create'}
             size="touch-lg"
-            className="w-full"
+            className="w-full dark:bg-zinc-50"
+            textClassName="dark:text-zinc-900"
             disabled={c.busy}
             onPress={async () => {
               if (await c.onCreate()) createSheet.hide();

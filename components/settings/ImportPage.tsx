@@ -99,7 +99,7 @@ export function ImportPage({ uid, initialKind, onBack }: { uid: string | null; i
           <FormField label="Or paste the rows">
             <AppInput accessibilityLabel="CSV rows" value={csvText} onChangeText={edit} multiline numberOfLines={6} className="items-start py-2" style={{ height: 144 }} autoCapitalize="none" />
           </FormField>
-          <AppButton label="Preview" variant={preview ? 'outline' : 'primary'} size="touch" className="self-start" onPress={runPreview} />
+          <AppButton textClassName="dark:text-zinc-900" label="Preview" variant={preview ? 'outline' : 'primary'} size="touch" className="self-start dark:bg-zinc-50" onPress={runPreview} />
           <Notice kind="error" text={error} />
           <Notice kind="ok" text={done} />
           {preview ? (
@@ -121,10 +121,10 @@ export function ImportPage({ uid, initialKind, onBack }: { uid: string | null; i
                 ))}
               </SettingsSection>
               <Text className="text-sm text-muted-foreground dark:text-zinc-400">Each row becomes a new repeat. Existing repeats are not changed.</Text>
-              <AppButton
+              <AppButton textClassName="dark:text-zinc-900"
                 label={busy ? 'Importing…' : `Import ${preview.length} row${preview.length === 1 ? '' : 's'}`}
                 size="touch-lg"
-                className="w-full sm:w-auto sm:self-start"
+                className="w-full sm:w-auto sm:self-start dark:bg-zinc-50"
                 disabled={busy || !uid}
                 onPress={runImport}
               />

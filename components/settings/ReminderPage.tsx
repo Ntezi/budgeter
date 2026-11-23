@@ -32,7 +32,7 @@ export function ReminderPage(p: {
         <Notice kind="error" text={p.error} />
         <Notice kind="ok" text={p.saved} />
       </View>
-      <AppButton label="Save reminder" size="touch-lg" className="w-full sm:w-auto sm:self-start" onPress={p.onSave} />
+      <AppButton textClassName="dark:text-zinc-900" label="Save reminder" size="touch-lg" className="w-full sm:w-auto sm:self-start dark:bg-zinc-50" onPress={p.onSave} />
     </SettingsPage>
   );
 }
