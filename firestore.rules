@@ -38,6 +38,80 @@ service cloud.firestore {
       allow delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
     }
 
+    // BUDG-4 / ADR-3: a chef (separate signed-in account) edits exactly one shared list.
+    // sharedLists/{shareId} holds no money field; its items hold only chef-visible fields.
+    // Prices, totals, plan and transaction links stay in users/{owner}/** (chef is never a member).
+    // No collection-group rule on items on purpose (SEC-11).
+    function isRealUser() { return isSignedIn() && notAnonymous(); }
+    function isHouseholdOf(ownerUid) { return isRealUser() && canAccessWorkspace(ownerUid); }
+    function isActiveChef(share) {
+      return isRealUser() && share.chefUid == request.auth.uid && share.status == 'ACTIVE';
+    }
+    function shareKeys() {
+      return ['ownerUid', 'listId', 'listName', 'chefUid', 'chefLabel', 'status', 'createdBy', 'createdAt', 'revokedAt'];
+    }
+    function itemKeys() {
+      return ['name', 'quantity', 'unit', 'category', 'note', 'status', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt'];
+    }
+    function itemEditableKeys() {
+      return ['name', 'quantity', 'unit', 'category', 'note', 'status', 'updatedBy', 'updatedAt'];
+    }
+    function optString(d, key, max) { return !(key in d) || (d[key] is string && d[key].size() <= max); }
+    function validSharedItem(d) {
+      return d.name is string && d.name.size() >= 1 && d.name.size() <= 120 &&
+        (!('quantity' in d) || (d.quantity is number && d.quantity >= 0 && d.quantity <= 9999)) &&
+        (!('unit' in d) || d.unit in ['', 'pc', 'g', 'kg', 'ml', 'l', 'pack']) &&
+        optString(d, 'category', 60) && optString(d, 'note', 500) &&
+        d.status in ['TO_BUY', 'GOT_IT'] &&
+        d.updatedBy == request.auth.uid && d.updatedAt == request.time;
+    }
+
+    match /sharedLists/{shareId} {
+      allow read: if isHouseholdOf(resource.data.ownerUid) || isActiveChef(resource.data);
+      allow create: if isHouseholdOf(request.resource.data.ownerUid) &&
+        request.resource.data.keys().hasOnly(shareKeys()) &&
+        request.resource.data.keys().hasAll(['ownerUid', 'listId', 'listName', 'chefUid', 'chefLabel', 'status', 'createdBy', 'createdAt']) &&
+        request.resource.data.status == 'ACTIVE' &&
+        request.resource.data.createdBy == request.auth.uid &&
+        request.resource.data.createdAt == request.time &&
+        request.resource.data.listId is string && request.resource.data.listId.size() > 0 &&
+        request.resource.data.listName is string && request.resource.data.listName.size() <= 120 &&
+        request.resource.data.chefLabel is string && request.resource.data.chefLabel.size() <= 60 &&
+        request.resource.data.chefUid is string && request.resource.data.chefUid.size() > 0 &&
+        request.resource.data.chefUid != request.resource.data.ownerUid &&
+        request.resource.data.chefUid != request.auth.uid &&
+        !exists(/databases/$(database)/documents/workspaceMembers/$(membershipDocId(request.resource.data.ownerUid, request.resource.data.chefUid))) &&
+        exists(/databases/$(database)/documents/users/$(request.resource.data.ownerUid)/shoppingLists/$(request.resource.data.listId));
+      // Only revoke (ACTIVE -> REVOKED) or a label change; ownerUid, listId, chefUid, createdBy immutable.
+      allow update: if isHouseholdOf(resource.data.ownerUid) &&
+        request.resource.data.keys().hasOnly(shareKeys()) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'revokedAt', 'chefLabel']) &&
+        (request.resource.data.status == resource.data.status ||
+          (resource.data.status == 'ACTIVE' && request.resource.data.status == 'REVOKED' &&
+           request.resource.data.revokedAt == request.time)) &&
+        request.resource.data.chefLabel is string && request.resource.data.chefLabel.size() <= 60;
+      allow delete: if false;
+
+      match /items/{itemId} {
+        function share() { return get(/databases/$(database)/documents/sharedLists/$(shareId)).data; }
+        function canWrite() {
+          return (isHouseholdOf(share().ownerUid) && share().status == 'ACTIVE') || isActiveChef(share());
+        }
+        allow read: if isHouseholdOf(share().ownerUid) || isActiveChef(share());
+        allow create: if canWrite() &&
+          request.resource.data.keys().hasOnly(itemKeys()) &&
+          request.resource.data.createdBy == request.auth.uid &&
+          request.resource.data.createdAt == request.time &&
+          validSharedItem(request.resource.data);
+        allow update: if canWrite() &&
+          request.resource.data.keys().hasOnly(itemKeys()) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(itemEditableKeys()) &&
+          validSharedItem(request.resource.data);
+        allow delete: if isHouseholdOf(share().ownerUid) ||
+          (isActiveChef(share()) && resource.data.createdBy == request.auth.uid);
+      }
+    }
+
     function isOwner() { return isSignedIn() && request.auth.uid == resource.data.ownerId; }
     function creatingForSelf() {
       return isSignedIn() && request.auth.uid == request.resource.data.ownerId;
