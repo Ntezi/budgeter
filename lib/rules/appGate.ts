@@ -24,21 +24,54 @@ const isRoot = (p: string) => p === '/' || p === '';
 
 /**
  * BUDG-8 01: an intent carried as a URL on /auth or /onboarding (?next=/budgets?new=1), e.g.
- * onboarding "Plan <Month>". In-app paths only: no //host, no scheme, not /auth or /onboarding.
+ * onboarding "Plan <Month>". In-app paths only (BUDG-6): the value, decoded until stable, must be a plain
+ * path with an optional simple query: no //host or /\host, no scheme anywhere (no ':' at all), no
+ * backslash, whitespace or control character, no '..', not /auth or /onboarding. Anything else is
+ * ignored, so the gate falls back to the default route.
  */
+const SAFE_NEXT = /^\/(?!\/)[A-Za-z0-9\-_./]*(\?[A-Za-z0-9\-_.=&%]*)?$/;
+
+export function safeNext(next: string | null | undefined): string | null {
+  if (!next) return null;
+  let decoded = next;
+  for (let i = 0; i < 5; i += 1) {
+    let step: string;
+    try {
+      step = decodeURIComponent(decoded);
+    } catch {
+      return null;
+    }
+    if (step === decoded) break;
+    decoded = step;
+  }
+  if (decoded !== decodeURIComponent(decoded)) return null; // still encoded after 5 rounds
+  for (const v of [next, decoded]) {
+    if (!SAFE_NEXT.test(v) || v.includes(':') || v.includes('..')) return null;
+    if (/^\/(auth|onboarding)(\/|\?|$)/.test(v)) return null;
+  }
+  return next;
+}
+
 export function nextFromLocation(location: string): string | null {
   const q = location.indexOf('?');
   const path = q < 0 ? location : location.slice(0, q);
   if (q < 0 || !(path.startsWith('/auth') || path.startsWith('/onboarding'))) return null;
-  let next: string | null = null;
   try {
-    next = new URLSearchParams(location.slice(q + 1)).get('next');
+    return safeNext(new URLSearchParams(location.slice(q + 1)).get('next'));
   } catch {
     return null;
   }
-  if (!next || !next.startsWith('/') || next.startsWith('//') || next.startsWith('/\\')) return null;
-  if (next.startsWith('/auth') || next.startsWith('/onboarding')) return null;
-  return next;
+}
+
+/**
+ * BUDG-6 S16: the location the gate decides on. Right after a router.replace the gate can run before
+ * expo-router has written the new URL, so window.location still shows the previous screen (onboarding
+ * "Plan <Month>" lost its ?next= that way). The browser URL is used only when it is on the same path;
+ * otherwise the router's own ?next= param is.
+ */
+export function gateLocation(pathname: string, browser: string | null, next: string | null | undefined): string {
+  if (browser != null && browser.split('?')[0] === pathname) return browser;
+  return next ? `${pathname}?${new URLSearchParams({ next }).toString()}` : pathname;
 }
 
 export function decideGate(s: GateInput): GateDecision {

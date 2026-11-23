@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { decideGate, nextFromLocation, type GateInput } from '../../lib/rules/appGate';
+import { decideGate, gateLocation, nextFromLocation, safeNext, type GateInput } from '../../lib/rules/appGate';
 
 const base: GateInput = { onboardingComplete: true, signedIn: true, pathname: '/', location: '/', pending: null, firstShellRoute: '/shopping' };
 const LINK = '/transactions?month=2026-11';
@@ -56,4 +56,57 @@ test('nextFromLocation accepts in-app paths only', () => {
   assert.equal(nextFromLocation('/auth?next=%2Fonboarding'), null);
   assert.equal(nextFromLocation('/auth'), null);
   assert.equal(nextFromLocation('/transactions?next=%2Fbudgets'), null, 'only read on /auth and /onboarding');
+});
+
+test('BUDG-6: hostile ?next= values are rejected and the gate falls back to the default route', () => {
+  const hostile = [
+    '//evil.example',
+    '//evil.example/budgets',
+    'https://evil.example',
+    'HTTPS://evil.example',
+    '/\\evil.example',
+    '\\evil.example',
+    'javascript:alert(1)',
+    'JavaScript:alert(1)',
+    ' javascript:alert(1)',
+    'data:text/html,hi',
+    '%2F%2Fevil.example',
+    '%252F%252Fevil.example',
+    '/%2F/evil.example',
+    '/%2Fevil.example',
+    '/%5Cevil.example',
+    'javascript%3Aalert(1)',
+    '/https://evil.example',
+    '/budgets?next=https://evil.example',
+    '/redirect?u=javascript:alert(1)',
+    '/budgets/../../evil',
+    '/budgets\tx',
+    '/budgets\nx',
+    '/ budgets',
+    '/auth',
+    '/onboarding?next=%2Fbudgets',
+    '/%E0%A4%A',
+  ];
+  for (const v of hostile) {
+    assert.equal(safeNext(v), null, `safeNext(${JSON.stringify(v)})`);
+    const location = `/auth?${new URLSearchParams({ next: v }).toString()}`;
+    assert.equal(nextFromLocation(location), null, location);
+    const d = decideGate({ onboardingComplete: true, signedIn: true, pathname: '/auth', location, pending: null, firstShellRoute: '/dashboard' });
+    assert.deepEqual(d, { replace: '/dashboard', pending: null }, location);
+  }
+  // Raw (unencoded) hostile values in the query string are rejected too.
+  for (const raw of ['/auth?next=//evil.example', '/auth?next=https://evil.example', '/auth?next=/\\evil.example', '/auth?next=javascript:alert(1)']) {
+    assert.equal(nextFromLocation(raw), null, raw);
+  }
+  // In-app paths still pass.
+  for (const ok of ['/budgets?new=1', '/budgets', '/budgets/2026-11', '/transactions?month=2026-11', '/settings?page=household']) assert.equal(safeNext(ok), ok);
+});
+
+test('BUDG-6 S16: the gate reads ?next= from the router while the browser URL still shows the last screen', () => {
+  assert.equal(gateLocation('/auth', '/onboarding', '/budgets?new=1'), '/auth?next=%2Fbudgets%3Fnew%3D1');
+  assert.equal(nextFromLocation(gateLocation('/auth', '/onboarding', '/budgets?new=1')), '/budgets?new=1');
+  assert.equal(gateLocation('/auth', '/auth?next=%2Fbudgets', undefined), '/auth?next=%2Fbudgets');
+  assert.equal(gateLocation('/dashboard', '/', undefined), '/dashboard');
+  assert.equal(gateLocation('/dashboard', null, undefined), '/dashboard');
+  assert.equal(nextFromLocation(gateLocation('/auth', '/onboarding', '//evil.example')), null);
 });

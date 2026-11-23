@@ -1,13 +1,13 @@
 import '../global.css';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Stack, usePathname, useRouter } from 'expo-router';
+import { Stack, useGlobalSearchParams, usePathname, useRouter } from 'expo-router';
 import { ActivityIndicator, Platform, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '@/providers/AuthProvider';
 import { ThemeProvider, useThemeMode } from '@/providers/ThemeProvider';
 import { WorkspaceProvider, useWorkspace } from '@/providers/WorkspaceProvider';
 import { getOnboardingComplete } from '@/lib/onboarding';
-import { decideGate, nextFromLocation } from '@/lib/rules/appGate';
+import { decideGate, gateLocation, nextFromLocation } from '@/lib/rules/appGate';
 import { firstRouteFor } from '@/lib/shell/nav';
 
 // The navigator mounts only after auth/workspace load, so on web a refresh or deep link
@@ -22,9 +22,9 @@ function initialDeepLink() {
   return `${pathname}${search}`;
 }
 
-function currentLocation(pathname: string) {
-  if (Platform.OS === 'web' && typeof window !== 'undefined') return `${window.location.pathname}${window.location.search}`;
-  return pathname;
+function currentLocation(pathname: string, next: string | undefined) {
+  const browser = Platform.OS === 'web' && typeof window !== 'undefined' ? `${window.location.pathname}${window.location.search}` : null;
+  return gateLocation(pathname, browser, next);
 }
 
 function AppGate() {
@@ -33,6 +33,8 @@ function AppGate() {
   const { ready: workspaceReady } = useWorkspace();
   const pathname = usePathname();
   const router = useRouter();
+  const nextParam = useGlobalSearchParams<{ next?: string }>().next;
+  const next = typeof nextParam === 'string' ? nextParam : undefined;
   // Spec 00: Home is the first screen at every width; the shell sends a chef on to the shared list.
   const firstShellRoute = firstRouteFor('household');
 
@@ -61,13 +63,13 @@ function AppGate() {
       onboardingComplete,
       signedIn: !!user,
       pathname,
-      location: currentLocation(pathname),
+      location: currentLocation(pathname, next),
       pending: pendingReturnPath,
       firstShellRoute,
     });
     pendingReturnPath = decision.pending;
     if (decision.replace) router.replace(decision.replace as any);
-  }, [authReady, checkedOnboarding, firstShellRoute, onboardingComplete, pathname, router, themeReady, user, workspaceReady]);
+  }, [authReady, checkedOnboarding, firstShellRoute, next, onboardingComplete, pathname, router, themeReady, user, workspaceReady]);
 
   const loading = useMemo(
     () => !(authReady && themeReady && workspaceReady && checkedOnboarding),
