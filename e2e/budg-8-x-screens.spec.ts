@@ -80,6 +80,11 @@ test('S4 Home: summary first, chips, Needs you, Recent, Accounts at 5 widths lig
   await matrix(page, 'S4', 'home', `/dashboard?month=${CUR}`, async (p) => {
     await expect(p.getByTestId('home-summary')).toBeVisible();
     await expect(p.getByText(`Left to spend in ${monthTitle(CUR).split(' ')[0]}`)).toBeVisible();
+    // Needs-you labels are sentences: never cut (no ellipsis, no clamp) at any width.
+    const cut = await p.getByTestId('home-needs-you-label').evaluateAll((els) =>
+      els.filter((el) => el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1).map((el) => (el.textContent || '').slice(0, 40))
+    );
+    expect.soft(cut, `Needs-you labels truncated at ${p.viewportSize()?.width}`).toEqual([]);
   });
 
   // Main thing first: the summary is the first card in main, above Recent.

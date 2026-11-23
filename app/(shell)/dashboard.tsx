@@ -197,6 +197,8 @@ export default function DashboardScreen() {
           <ListRow
             key={it.id}
             title={it.title}
+            titleLines={0}
+            titleTestID="home-needs-you-label"
             amount={it.amount}
             onPress={() => router.push(it.href as any)}
             left={

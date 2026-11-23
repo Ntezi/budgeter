@@ -12,15 +12,18 @@ type Props = {
   onPress?: () => void;
   accessibilityLabel?: string;
   testID?: string;
+  /** Lines the title may use before it truncates; 0 = wrap freely (for sentences such as Needs-you rows). */
+  titleLines?: number;
+  titleTestID?: string;
 };
 
 /** Name left, amount right, one muted line under it; whole row is the target (min 56 px). */
-export function ListRow({ title, sub, amount, amountClassName, left, onPress, accessibilityLabel, testID }: Props) {
+export function ListRow({ title, sub, amount, amountClassName, left, onPress, accessibilityLabel, testID, titleLines = 1, titleTestID }: Props) {
   const body = (
     <>
       {left}
       <View className="min-w-0 flex-1">
-        <Text className="text-base font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>
+        <Text testID={titleTestID} className="text-base font-medium text-foreground dark:text-zinc-50" numberOfLines={titleLines > 0 ? titleLines : undefined}>
           {title}
         </Text>
         {sub ? (
