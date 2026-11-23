@@ -19,6 +19,8 @@ type Props = {
 
 /** Name left, amount right, one muted line under it; whole row is the target (min 56 px). */
 export function ListRow({ title, sub, amount, amountClassName, left, onPress, accessibilityLabel, testID, titleLines = 1, titleTestID }: Props) {
+  // A wrapping title (sentence) takes the full width; its amount drops below it so neither is cut.
+  const wrap = titleLines <= 0;
   const body = (
     <>
       {left}
@@ -31,8 +33,13 @@ export function ListRow({ title, sub, amount, amountClassName, left, onPress, ac
             {sub}
           </Text>
         ) : null}
+        {amount && wrap ? (
+          <Text className={cn('text-base font-semibold text-foreground dark:text-zinc-50', amountClassName)} style={{ fontVariant: ['tabular-nums'] }}>
+            {amount}
+          </Text>
+        ) : null}
       </View>
-      {amount ? (
+      {amount && !wrap ? (
         <Text className={cn('shrink-0 text-base font-semibold text-foreground dark:text-zinc-50', amountClassName)} style={{ fontVariant: ['tabular-nums'] }}>
           {amount}
         </Text>
