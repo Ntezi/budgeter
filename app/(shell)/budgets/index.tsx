@@ -3,12 +3,11 @@ import { ScrollView, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { AppButton } from '@/components/ui/AppButton';
-import { AppModal } from '@/components/ui/AppModal';
-import { DropdownField } from '@/components/ui/DropdownField';
 import { AppSegmented } from '@/components/ui/AppSegmented';
 import { YearPlanView } from '@/components/plan/YearPlanView';
 import { useWorkspace, useWorkspaceUid } from '@/providers/WorkspaceProvider';
 import { MonthPlanView } from '@/components/plan/MonthPlanView';
+import { NewMonthSheet } from '@/components/plan/NewMonthSheet';
 import { viewedMonthId } from '@/lib/shell/monthChip';
 import { type PeriodDoc, watchPeriods } from '@/lib/repo/periods';
 import { createPeriodIfAbsent } from '@/lib/repo/periodCreate';
@@ -96,38 +95,18 @@ export default function BudgetsScreen() {
       {/* BUDG-8 S5: Month shows the viewed month's plan inline; viewing never creates it. */}
       {view === 'MONTH' ? <MonthPlanView pid={viewedMonth} /> : null}
 
-      <AppModal open={pickerOpen} onClose={() => setPickerOpen(false)} title="New Budget">
-        <View className="gap-3">
-          <Text className="text-xs text-muted-foreground">Month</Text>
-          <DropdownField
-            value={chosenId}
-            options={choices.map((row) => ({ value: row.id, label: choiceLabel(row) }))}
-            onChange={setChosenId}
-            placeholder="Select month"
-            menuStrategy="inline"
-            menuClassName="max-h-44"
-          />
-          {chosen ? (
-            <Text className="text-sm font-semibold text-foreground dark:text-zinc-50" accessibilityLiveRegion="polite">
-              {choiceActionLabel(chosen)}
-            </Text>
-          ) : null}
-          {chosen?.kind === 'NEW' ? (
-            <Text className="text-xs text-muted-foreground">Add from templates is available inside the draft.</Text>
-          ) : null}
-          {createError ? <Text className="text-xs text-red-600 dark:text-red-300">{createError}</Text> : null}
-          <View className="flex-row flex-wrap justify-end gap-2">
-            <AppButton label="Cancel" variant="outline" size="sm" onPress={() => setPickerOpen(false)} />
-            <AppButton
-              label={pending ? 'Working…' : chosen?.kind === 'NEW' ? `Create ${chosen.title}` : chosen ? `Open ${chosen.title}` : 'Choose a month'}
-              size="sm"
-              onPress={confirmChoice}
-              disabled={pending || !chosen}
-              textClassName="text-white"
-            />
-          </View>
-        </View>
-      </AppModal>
+      <NewMonthSheet
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        choices={choices.map((row) => ({ id: row.id, label: choiceLabel(row), kind: row.kind }))}
+        chosenId={chosenId}
+        onChoose={setChosenId}
+        actionLine={chosen ? choiceActionLabel(chosen) : ''}
+        buttonLabel={pending ? 'Working…' : chosen?.kind === 'NEW' ? `Create ${chosen.title}` : chosen ? `Open ${chosen.title}` : 'Choose a month'}
+        onConfirm={confirmChoice}
+        disabled={pending || !chosen}
+        error={createError}
+      />
     </ScrollView>
   );
 }

@@ -134,3 +134,29 @@ test('S5 tap count: change a line amount from Home = Plan, row, Save (3 taps + t
   expect(taps).toBe(3);
   guard.assertOnlyLoopback();
 });
+
+test('S6 lifecycle: New month sheet, Close month asks first, Keep open changes nothing', async ({ page }, info) => {
+  const guard = await signIn(page, info);
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate((t) => window.localStorage.setItem('budgeter:theme', t), theme);
+    for (const width of [320, 390, 1440]) {
+      await open(page, '/budgets', width, 'month-plan');
+      await page.getByLabel('New budget').click();
+      await expect(page.getByTestId('new-month-sheet')).toBeVisible();
+      await expect(page.getByRole('radio').first()).toBeVisible();
+      await snap(page, `S6-new-month-sheet-w${width}-${theme}`);
+      if (width < 768) expect(await smallTargets(page.getByTestId('new-month-sheet')), `new month targets at ${width}`).toEqual([]);
+      await page.keyboard.press('Escape');
+      await expect(page.getByTestId('new-month-sheet')).toHaveCount(0);
+    }
+  }
+  await open(page, `/budgets/${CUR}`, 390, 'month-plan');
+  const before = JSON.stringify(await listIds('periods'));
+  await page.getByTestId('finish-month').getByRole('button', { name: 'Close month' }).click();
+  await expect(page.getByText(/becomes read-only\.$/)).toBeVisible();
+  await snap(page, 'S6-close-month-confirm-w390-light');
+  await page.getByRole('button', { name: 'Keep open' }).click();
+  await expect(page.getByText('You can still change this month.')).toBeVisible();
+  expect(JSON.stringify(await listIds('periods'))).toBe(before);
+  guard.assertOnlyLoopback();
+});
