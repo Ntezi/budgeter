@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { addMonthsToId, monthIdFromDate } from '../lib/rules/months';
-import { EVIDENCE, listIds, noPageScroll, reseed, signIn } from './helpers';
+import { EVIDENCE, expectSheetClosesFromAnywhere, listIds, noPageScroll, reseed, signIn } from './helpers';
 
 const CUR = monthIdFromDate(new Date());
 const PREV = addMonthsToId(CUR, -1);
@@ -148,6 +148,9 @@ test('S6 lifecycle: New month sheet, Close month asks first, Keep open changes n
       if (width < 768) expect(await smallTargets(page.getByTestId('new-month-sheet')), `new month targets at ${width}`).toEqual([]);
       await page.keyboard.press('Escape');
       await expect(page.getByTestId('new-month-sheet')).toHaveCount(0);
+      // Q-1: the press above came after a screenshot, when RN Modal had finished opening; the real
+      // rule is Escape at once, from any focus, Back, and focus back on New month.
+      await expectSheetClosesFromAnywhere(page, 'new-month-sheet', page.getByLabel('New month', { exact: true }));
     }
   }
   await open(page, `/budgets/${CUR}`, 390, 'month-plan');

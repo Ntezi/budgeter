@@ -24,6 +24,7 @@ import { type PlanItem, watchPlanTotals } from '@/lib/repo/plans';
 import { delTransaction, setTransaction, type Tx, watchTransactions } from '@/lib/repo/transactions';
 import { useWorkspace, useWorkspaceUid } from '@/providers/WorkspaceProvider';
 import { ReceiptModal } from '@/components/shopping/ReceiptModal';
+import { useSheetEffects } from '@/components/shopping/useSheetEffects';
 import { useAuthUser } from '@/providers/AuthProvider';
 import { watchAccounts, type Account } from '@/lib/repo/accounts';
 import { watchShoppingCatalog, type ShoppingCatalogItem } from '@/lib/repo/shopping';
@@ -499,6 +500,10 @@ export default function TransactionsScreen() {
     if (!beginEdit(id)) return;
     setMobileDetailId(id);
   }
+
+  // Q-1 rule: every sheet closes on Escape and Back from anywhere, focus back on its opener.
+  useSheetEffects(Boolean(mobileDetailId), () => closeMobileDetail());
+  useSheetEffects(Boolean(receiptFor), () => setReceiptFor(null));
 
   function closeMobileDetail() {
     setConfirmDelete(false);

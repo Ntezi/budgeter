@@ -2,9 +2,9 @@
 // Emulator app only (helpers.signIn aborts any non-loopback host). Serial: shares one seeded household.
 import fs from 'node:fs';
 import path from 'node:path';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { addMonthsToId, monthIdFromDate } from '../lib/rules/months';
-import { EVIDENCE, FIRESTORE, OWNER, listIds, reseed, shot, signIn } from './helpers';
+import { EVIDENCE, FIRESTORE, OWNER, expectSheetClosesFromAnywhere, listIds, reseed, shot, signIn } from './helpers';
 
 const CUR = monthIdFromDate(new Date());
 const LONG_SPACED = 'Q long label with spaces that keeps going and going until it is well over sixty characters';
@@ -144,40 +144,31 @@ test('Q long labels (60+ chars): plan line, account, shopping item, member email
 test('Q Escape and Back close every sheet type and keep the route', async ({ page }, info) => {
   const guard = await signIn(page, info);
   const phone = (page.viewportSize()?.width ?? 0) < 980;
-  const cases: { id: string; url: string; open: () => Promise<void> }[] = [
-    { id: 'add-sheet', url: '/dashboard', open: () => page.getByTestId('add-button').first().click() },
-    { id: 'new-month-sheet', url: '/budgets', open: () => page.getByLabel('New month', { exact: true }).click() },
-    { id: 'line-sheet', url: `/budgets/${CUR}`, open: () => page.getByTestId('plan-groups').getByText('Rent', { exact: true }).first().click() },
-    { id: 'month-sheet', url: '/transactions', open: () => page.getByTestId('month-chip').click() },
-    { id: 'export-sheet', url: '/reports', open: () => page.getByRole('button', { name: 'Export', exact: true }).first().click() },
-    { id: 'account-sheet', url: '/accounts', open: () => page.getByRole('button', { name: 'Add account' }).last().click() },
-    { id: 'invite-sheet', url: '/settings?page=people', open: () => page.getByRole('button', { name: 'Invite someone' }).click() },
-    { id: 'sign-out-sheet', url: '/settings', open: () => page.getByRole('button', { name: 'Sign out' }).click() },
-    { id: 'more-sheet', url: '/dashboard', open: () => page.getByTestId('more-button').click() },
+  // Fix round: each case names its trigger; expectSheetClosesFromAnywhere presses Escape at once, again
+  // with focus on the body, then Back, and checks focus returns to the trigger (Q-1 rule).
+  const cases: { id: string; url: string; trigger: () => Locator; phoneOnly?: boolean }[] = [
+    { id: 'add-sheet', url: '/dashboard', trigger: () => page.getByTestId('add-button').first() },
+    { id: 'new-month-sheet', url: '/budgets', trigger: () => page.getByLabel('New month', { exact: true }) },
+    { id: 'line-sheet', url: `/budgets/${CUR}`, trigger: () => page.getByTestId('plan-groups').getByRole('button', { name: /^Rent\b/ }).first() },
+    { id: 'month-sheet', url: '/transactions', trigger: () => page.getByTestId('month-chip') },
+    { id: 'export-sheet', url: '/reports', trigger: () => page.getByRole('button', { name: 'Export', exact: true }).first() },
+    { id: 'account-sheet', url: '/accounts', trigger: () => page.getByRole('button', { name: 'Add account' }).last() },
+    { id: 'invite-sheet', url: '/settings?page=people', trigger: () => page.getByRole('button', { name: 'Invite someone' }) },
+    { id: 'sign-out-sheet', url: '/settings', trigger: () => page.getByRole('button', { name: 'Sign out' }) },
+    { id: 'more-sheet', url: '/dashboard', trigger: () => page.getByTestId('more-button'), phoneOnly: true },
+    { id: 'close-month-confirm', url: `/budgets/${CUR}`, trigger: () => page.getByTestId('finish-month').getByRole('button', { name: 'Close month' }) },
   ];
   const result: Record<string, string> = {};
   for (const c of cases) {
-    if (c.id === 'more-sheet' && !phone) { result[c.id] = 'skipped: no More button on desktop'; continue; }
+    if (c.phoneOnly && !phone) { result[c.id] = 'skipped: no More button on desktop'; continue; }
     try {
       await page.goto(c.url);
-      await page.waitForTimeout(1800);
-      const sheet = page.getByTestId(c.id);
-      const route = () => new URL(page.url()).pathname;
-      const r0 = route();
-      await c.open();
-      await expect(sheet).toBeVisible({ timeout: 8000 });
-      await page.keyboard.press('Escape');
-      await expect(sheet, `${c.id} Escape closes`).toBeHidden({ timeout: 8000 });
-      expect(route(), `${c.id} Escape keeps route`).toBe(r0);
-      await page.waitForTimeout(700);
-      await c.open();
-      await expect(sheet).toBeVisible({ timeout: 8000 });
-      await page.goBack();
-      await expect(sheet, `${c.id} Back closes`).toBeHidden({ timeout: 8000 });
-      expect(route(), `${c.id} Back keeps route`).toBe(r0);
+      await expect(c.trigger()).toBeVisible({ timeout: 30_000 });
+      await page.waitForTimeout(800);
+      await expectSheetClosesFromAnywhere(page, c.id, c.trigger());
       result[c.id] = 'pass';
     } catch (e) {
-      result[c.id] = `FAIL ${(e as Error).message.replace(/\x1b\[[0-9;]*m/g, '').split('\n').filter((l) => /Escape|Back|route/.test(l)).join(' ').slice(0, 200)}`;
+      result[c.id] = `FAIL ${(e as Error).message.replace(/\x1b\[[0-9;]*m/g, '').split('\n').filter((l) => /Escape|Back|route|focus/.test(l)).join(' ').slice(0, 200)}`;
       await shot(page, info, `Q-sheet-fail-${c.id}`);
     }
   }

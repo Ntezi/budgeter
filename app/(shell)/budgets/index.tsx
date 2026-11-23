@@ -9,6 +9,7 @@ import { YearPlanView } from '@/components/plan/YearPlanView';
 import { useWorkspace, useWorkspaceUid } from '@/providers/WorkspaceProvider';
 import { MonthPlanView } from '@/components/plan/MonthPlanView';
 import { NewMonthSheet } from '@/components/plan/NewMonthSheet';
+import { useSheet } from '@/components/patterns/AppSheet';
 import { viewedMonthId } from '@/lib/shell/monthChip';
 import { type PeriodDoc, watchPeriods } from '@/lib/repo/periods';
 import { createPeriodIfAbsent } from '@/lib/repo/periodCreate';
@@ -36,7 +37,9 @@ export default function BudgetsScreen() {
 
   // New month (was New Budget, BUDG-1 AC-2/AC-3): current local month by default, next month,
   // missing recent months; existing months open instead of being created again.
-  const [pickerOpen, setPickerOpen] = useState(false);
+  // Q-1: useSheet gives Escape and Back from anywhere and focus back on New month (RN Modal alone
+  // ignores Escape until its open animation ends and never returns focus).
+  const picker = useSheet();
   const [chosenId, setChosenId] = useState('');
   const [pending, setPending] = useState(false);
   const [createError, setCreateError] = useState('');
@@ -48,10 +51,10 @@ export default function BudgetsScreen() {
   }, [periods]);
   const chosen: MonthChoice | undefined = choices.find((row) => row.id === chosenId);
 
-  function openPicker() {
+  function openPicker(e?: unknown) {
     setChosenId(defaultChoiceId(newBudgetChoices(new Date(), periods)));
     setCreateError('');
-    setPickerOpen(true);
+    picker.show(e);
   }
 
   // BUDG-8 01: onboarding step 3 links to /budgets?new=1, which opens the New month sheet once the
@@ -76,8 +79,8 @@ export default function BudgetsScreen() {
     setCreateError('');
     try {
       if (chosen.kind === 'NEW') await createPeriodIfAbsent(uid, chosen.id, { title: chosen.title });
-      setPickerOpen(false);
-      router.push(`/budgets/${chosen.id}`);
+      const id = chosen.id;
+      picker.hide(() => router.push(`/budgets/${id}`));
     } catch (e) {
       setCreateError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -92,7 +95,7 @@ export default function BudgetsScreen() {
         title={view === 'YEAR' ? 'Year plan' : 'Plan'}
         right={
           view === 'MONTH' ? (
-            <AppButton onPress={openPicker} accessibilityLabel="New month" testID="new-month-link" size="touch" variant="ghost">
+            <AppButton onPress={(e) => openPicker(e)} accessibilityLabel="New month" testID="new-month-link" size="touch" variant="ghost">
               <View className="flex-row items-center gap-1">
                 <MaterialCommunityIcons name="plus" size={18} color="#717182" />
                 <Text className="text-sm font-medium text-foreground underline dark:text-zinc-50">New month</Text>
@@ -120,8 +123,8 @@ export default function BudgetsScreen() {
       {view === 'MONTH' ? <MonthPlanView pid={viewedMonth} /> : null}
 
       <NewMonthSheet
-        open={pickerOpen}
-        onClose={() => setPickerOpen(false)}
+        open={picker.open}
+        onClose={() => picker.hide()}
         choices={choices.map((row) => ({ id: row.id, label: choiceLabel(row), kind: row.kind }))}
         chosenId={chosenId}
         onChoose={setChosenId}
