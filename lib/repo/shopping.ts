@@ -15,6 +15,11 @@ import {
 import { db } from '../firebase';
 import type { Group } from './periods';
 import { docMatchesActiveScope, withWorkspaceWrite } from './scope';
+import { toSharedItemFields, toSharedPatch } from './sharedListsCore';
+
+/** BUDG-4 design: a household write to a shared list goes to the private item and its chef twin in one writeBatch. */
+export type SharedMirror = { shareId: string; actorUid: string };
+const sharedItemRef = (m: SharedMirror, itemId: string) => doc(db, 'sharedLists', m.shareId, 'items', itemId);
 import type { CloseShoppingOptions, ShoppingImportBatch, ShoppingItemMatchResult } from '@/lib/shopping/import/shoppingImportTypes';
 
 export type ShoppingList = {
@@ -321,16 +326,16 @@ function catalogBudgetPatch(catalog?: ShoppingCatalogItem): Partial<ShoppingList
 export async function addShoppingListItem(
   uid: string,
   listId: string,
-  input: Omit<ShoppingListItem, 'id' | 'createdAt' | 'updatedAt'>
+  input: Omit<ShoppingListItem, 'id' | 'createdAt' | 'updatedAt'>,
+  mirror?: SharedMirror
 ) {
   const name = String(input.name || '').trim();
   if (!name) throw new Error('Item name is required.');
   await assertShoppingListItemNameAvailable(uid, listId, name);
   const price = Math.max(0, Number(input.price || 0));
   const tag = normalizeItemTag(input.tag);
-  return addDoc(
-    shoppingItemsCol(uid, listId),
-    withWorkspaceWrite(
+  const ref = doc(shoppingItemsCol(uid, listId));
+  const data = withWorkspaceWrite(
       compactFields({
         ...input,
         ownerUid: uid,
@@ -345,11 +350,29 @@ export async function addShoppingListItem(
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       }) as any
-    )
   );
+  const batch = writeBatch(db);
+  batch.set(ref, data);
+  if (mirror) {
+    batch.set(sharedItemRef(mirror, ref.id), {
+      ...toSharedItemFields({ ...input, name }),
+      createdBy: mirror.actorUid,
+      updatedBy: mirror.actorUid,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  }
+  await batch.commit();
+  return ref;
 }
 
-export async function updateShoppingListItem(uid: string, listId: string, id: string, patch: Partial<ShoppingListItem>) {
+function addSharedPatch(batch: ReturnType<typeof writeBatch>, mirror: SharedMirror | undefined, id: string, patch: Partial<ShoppingListItem>) {
+  if (!mirror) return;
+  const shared = toSharedPatch(patch);
+  if (Object.keys(shared).length) batch.update(sharedItemRef(mirror, id), { ...shared, updatedBy: mirror.actorUid, updatedAt: serverTimestamp() });
+}
+
+export async function updateShoppingListItem(uid: string, listId: string, id: string, patch: Partial<ShoppingListItem>, mirror?: SharedMirror) {
   const name =
     patch.name === undefined
       ? undefined
@@ -366,7 +389,8 @@ export async function updateShoppingListItem(uid: string, listId: string, id: st
     patch.price === undefined ? undefined : Math.max(0, Number(patch.price || 0));
   const category =
     patch.category === undefined ? undefined : normalizeCategory(patch.category);
-  return updateDoc(
+  const batch = writeBatch(db);
+  batch.update(
     doc(shoppingItemsCol(uid, listId), id),
     withWorkspaceWrite(
       compactFields({
@@ -381,10 +405,16 @@ export async function updateShoppingListItem(uid: string, listId: string, id: st
       }) as any
     )
   );
+  addSharedPatch(batch, mirror, id, { ...patch, ...(name !== undefined ? { name } : {}), ...(category !== undefined ? { category } : {}) });
+  return batch.commit();
 }
 
-export async function deleteShoppingListItem(uid: string, listId: string, id: string) {
-  return deleteDoc(doc(shoppingItemsCol(uid, listId), id));
+export async function deleteShoppingListItem(uid: string, listId: string, id: string, mirror?: SharedMirror) {
+  if (!mirror) return deleteDoc(doc(shoppingItemsCol(uid, listId), id));
+  const batch = writeBatch(db);
+  batch.delete(doc(shoppingItemsCol(uid, listId), id));
+  batch.delete(sharedItemRef(mirror, id));
+  return batch.commit();
 }
 
 function parsedItemTotal(match: ShoppingItemMatchResult) {
@@ -860,10 +890,13 @@ export async function addShoppingCatalogAlias(uid: string, id: string, alias: st
 }
 
 /** BUDG-4: write fields of a list item whether or not its private twin exists yet (chef-added items). */
-export async function setShoppingListItemFields(uid: string, listId: string, id: string, patch: Partial<ShoppingListItem>) {
-  return setDoc(
+export async function setShoppingListItemFields(uid: string, listId: string, id: string, patch: Partial<ShoppingListItem>, mirror?: SharedMirror) {
+  const batch = writeBatch(db);
+  batch.set(
     doc(shoppingItemsCol(uid, listId), id),
     withWorkspaceWrite(compactFields({ ...patch, ownerUid: uid, updatedAt: serverTimestamp() }) as any),
     { merge: true }
   );
+  addSharedPatch(batch, mirror, id, patch);
+  return batch.commit();
 }

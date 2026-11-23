@@ -47,6 +47,20 @@ export function toSharedItemFields(item: {
   return out as any;
 }
 
+/** Chef-visible part of a household patch to a private item (status from `bought`); empty when nothing is shared. */
+export function toSharedPatch(patch: {
+  name?: string; quantity?: number; unit?: string; category?: string; note?: string; bought?: boolean;
+}): Partial<Pick<SharedItem, 'name' | 'quantity' | 'unit' | 'category' | 'note' | 'status'>> {
+  const out: Record<string, unknown> = {};
+  if (patch.name !== undefined) out.name = String(patch.name || '').trim().slice(0, 120);
+  if (patch.quantity !== undefined) out.quantity = Math.min(9999, Math.max(0, Number(patch.quantity) || 0));
+  if (patch.unit !== undefined) out.unit = patch.unit || '';
+  if (patch.category !== undefined) out.category = String(patch.category || '').slice(0, 60);
+  if (patch.note !== undefined) out.note = String(patch.note || '').slice(0, 500);
+  if (patch.bought !== undefined) out.status = patch.bought ? 'GOT_IT' : 'TO_BUY';
+  return out as any;
+}
+
 /** Validates a chef account id typed by the household (SEC-12: UID entry, no codes). */
 export function validateChefUid(chefUid: string, ownerUid: string, actorUid: string, memberUids: string[]) {
   const id = String(chefUid || '').trim();

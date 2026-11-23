@@ -49,11 +49,9 @@ import { monthTitle } from '@/lib/rules/months';
 import { SHOPPING_UNITS, planCatalogWrite, searchCatalog, suggestCatalogMatches, type AddChoice } from '@/lib/rules/catalogMatch';
 import { recordShoppingExpense } from '@/lib/repo/shoppingExpense';
 import {
-  addSharedItem,
   deleteSharedItem,
   revokeShare,
   shareListWithChef,
-  updateSharedItem,
   validateChefUid,
   watchSharedItems,
   watchSharedWithMe,
@@ -582,7 +580,7 @@ export default function ShoppingScreen() {
     if (!name) return;
     const plan = resolvePlanForItemName(name, catalog);
     try {
-      const ref = await addShoppingListItem(uid, selectedListId, {
+      await addShoppingListItem(uid, selectedListId, {
         name,
         quantity: 1,
         price: catalog.lastPrice || 0,
@@ -594,8 +592,7 @@ export default function ShoppingScreen() {
         assignedGroup: plan?.group,
         bought: false,
         completed: false,
-      });
-      if (shareId && ref) await addSharedItem(shareId, myUid, { name, quantity: 1, category: catalog.category || '', status: 'TO_BUY' }, ref.id);
+      }, mirror);
       setItemError('');
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
@@ -660,7 +657,7 @@ export default function ShoppingScreen() {
         category: addDraft.category.trim() || catalog?.category || '',
         note: addDraft.note.trim() || undefined,
       };
-      const ref = await addShoppingListItem(uid, selectedListId, {
+      await addShoppingListItem(uid, selectedListId, {
         ...fields,
         price: catalog?.lastPrice || 0,
         tags: catalog?.tags || [],
@@ -670,8 +667,7 @@ export default function ShoppingScreen() {
         assignedGroup: plan?.group,
         bought: false,
         completed: false,
-      });
-      if (shareId && ref) await addSharedItem(shareId, myUid, { ...fields, status: 'TO_BUY' }, ref.id);
+      }, mirror);
       setAddOpen(false);
       setItemDraftName('');
       setItemError('');
@@ -709,22 +705,23 @@ export default function ShoppingScreen() {
     }
   }
 
+  const mirror = shareId && myUid ? { shareId, actorUid: myUid } : undefined;
+
   async function toggleBought(item: ShoppingListItem) {
     if (!uid || !selectedListId || !item.id) return;
     // Check-off writes only bought/status: never a transaction (AC-7, SEC-22).
     const bought = !item.bought;
     if (item.fromChef) {
-      await setShoppingListItemFields(uid, selectedListId, item.id, compactItem({ ...item, bought }));
+      await setShoppingListItemFields(uid, selectedListId, item.id, compactItem({ ...item, bought }), mirror);
     } else {
-      await updateShoppingListItem(uid, selectedListId, item.id, { bought });
+      await updateShoppingListItem(uid, selectedListId, item.id, { bought }, mirror);
     }
-    if (shareId) await updateSharedItem(shareId, myUid, item.id, { status: bought ? 'GOT_IT' : 'TO_BUY' });
   }
 
   async function removeItem(item: ShoppingListItem) {
     if (!uid || !selectedListId || !item.id) return;
-    if (!item.fromChef) await deleteShoppingListItem(uid, selectedListId, item.id);
-    if (shareId) await deleteSharedItem(shareId, item.id);
+    if (!item.fromChef) await deleteShoppingListItem(uid, selectedListId, item.id, mirror);
+    else if (shareId) await deleteSharedItem(shareId, item.id);
   }
 
   async function removeList(list: ShoppingList) {
@@ -797,11 +794,10 @@ export default function ShoppingScreen() {
       };
       const target = items.find((row) => row.id === editDraft.id);
       if (target?.fromChef) {
-        await setShoppingListItemFields(uid, selectedListId, editDraft.id, compactItem({ ...target, ...patch }));
+        await setShoppingListItemFields(uid, selectedListId, editDraft.id, compactItem({ ...target, ...patch }), mirror);
       } else {
-        await updateShoppingListItem(uid, selectedListId, editDraft.id, patch);
+        await updateShoppingListItem(uid, selectedListId, editDraft.id, patch, mirror);
       }
-      if (shareId) await updateSharedItem(shareId, myUid, editDraft.id, { name, quantity });
 
       setEditItemOpen(false);
       setEditItemError('');
@@ -1021,8 +1017,8 @@ export default function ShoppingScreen() {
           });
         }
 
-        if (!item.fromChef) await deleteShoppingListItem(uid, selectedListId, item.id);
-        if (shareId) await deleteSharedItem(shareId, item.id);
+        if (!item.fromChef) await deleteShoppingListItem(uid, selectedListId, item.id, mirror);
+        else if (shareId) await deleteSharedItem(shareId, item.id);
       }
 
       setCompleting(false);
