@@ -66,9 +66,11 @@ type Props = {
   catalog: ShoppingCatalogItem[];
   prefill: LineDraft[];
   sourceListId?: string;
+  /** Transactions row "Attach receipt" (design-BUDG-5 entry point 2): opens on "Link existing" for this expense. */
+  linkTo?: { txId: string; date: string; amount: number; name?: string };
 };
 
-export function ReceiptModal({ open, onClose, onSaved, ownerUid, actorUid, accounts, catalog, prefill, sourceListId }: Props) {
+export function ReceiptModal({ open, onClose, onSaved, ownerUid, actorUid, accounts, catalog, prefill, sourceListId, linkTo }: Props) {
   const [receiptId, setReceiptId] = useState('');
   const [step, setStep] = useState<1 | 2>(1);
   const [storeName, setStoreName] = useState('');
@@ -92,6 +94,13 @@ export function ReceiptModal({ open, onClose, onSaved, ownerUid, actorUid, accou
     setLines(prefill.length ? prefill : [{ lineId: shortId(), name: '', qty: '1', unit: 'pc', total: '', catalogItemId: '', promo: false, isReturn: false }]);
     setMode('NEW');
     setTxId('');
+    if (linkTo) {
+      if (isDateISO(linkTo.date)) setPurchaseDate(linkTo.date);
+      const total = Number.isFinite(Number(linkTo.amount)) ? minorToText(toMinor(Math.abs(Number(linkTo.amount)))) : '';
+      setLines([{ lineId: shortId(), name: linkTo.name || '', qty: '1', unit: 'pc', total, catalogItemId: '', promo: false, isReturn: false }]);
+      setMode('EXISTING');
+      setTxId(linkTo.txId);
+    }
     setError('');
     listPriceObservationsIn(db, ownerUid).then(setHistory).catch(() => setHistory([]));
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps

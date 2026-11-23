@@ -20,6 +20,10 @@ import { periodIdFromDate, type Group, type PeriodDoc, type PeriodStatus, watchP
 import { type PlanItem, watchPlanTotals } from '@/lib/repo/plans';
 import { addTransaction, delTransaction, setTransaction, type Tx, watchTransactions } from '@/lib/repo/transactions';
 import { useWorkspace, useWorkspaceUid } from '@/providers/WorkspaceProvider';
+import { ReceiptModal } from '@/components/shopping/ReceiptModal';
+import { useAuthUser } from '@/providers/AuthProvider';
+import { watchAccounts, type Account } from '@/lib/repo/accounts';
+import { watchShoppingCatalog, type ShoppingCatalogItem } from '@/lib/repo/shopping';
 import { type Allocation, watchAllocations } from '@/lib/repo/allocations';
 import { transactionSignedBudgetAmount } from '@/lib/accounting';
 
@@ -83,6 +87,21 @@ export default function TransactionsScreen() {
   const [txEdits, setTxEdits] = useState<Record<string, TxEditState>>({});
   const [editingId, setEditingId] = useState<string | null>(null);
   const [mobileDetailId, setMobileDetailId] = useState<string | null>(null);
+  const authUser = useAuthUser();
+  // BUDG-5 entry point 2: "Attach receipt" on a row opens the receipt flow on "Link existing".
+  const [receiptFor, setReceiptFor] = useState<Tx | null>(null);
+  const [receiptNotice, setReceiptNotice] = useState('');
+  const [receiptAccounts, setReceiptAccounts] = useState<Account[]>([]);
+  const [receiptCatalog, setReceiptCatalog] = useState<ShoppingCatalogItem[]>([]);
+  useEffect(() => {
+    if (!uid || !receiptFor) return;
+    const offA = watchAccounts(uid, setReceiptAccounts);
+    const offC = watchShoppingCatalog(uid, setReceiptCatalog);
+    return () => {
+      offA?.();
+      offC?.();
+    };
+  }, [uid, receiptFor]);
 
   const [filter, setFilter] = useState<Filter>('ALL');
   const [scopeFilter, setScopeFilter] = useState<TxScopeFilter>(params.scope === 'SHOPPING' ? 'SHOPPING' : 'ALL');
@@ -842,6 +861,7 @@ export default function TransactionsScreen() {
                       ) : (
                         <>
                           <IconActionButton icon="pencil-outline" label="Edit transaction" onPress={() => beginEdit(row.id!)} />
+                          <IconActionButton icon="receipt" label="Attach receipt" onPress={() => setReceiptFor(row)} />
                           <IconActionButton icon="trash-can-outline" label="Delete transaction" variant="danger" onPress={() => removeRow(row.id)} />
                         </>
                       )
@@ -944,6 +964,7 @@ export default function TransactionsScreen() {
         onClose={() => setExpenseFormOpen(false)}
         onSaved={(pid) => setSavedNotice(`Expense saved to ${monthTitle(pid)}.`)}
       />
+      {receiptNotice ? <Text className="text-sm text-muted-foreground">{receiptNotice}</Text> : null}
       <AppModal open={Boolean(mobileDetailId)} onClose={closeMobileDetail} title="Transaction Details">
         {mobileDetailRow && mobileDetailEdit ? (
           <View className="gap-3">
@@ -1005,6 +1026,16 @@ export default function TransactionsScreen() {
             <View className="flex-row justify-end gap-2">
               {!readOnly ? (
                 <IconActionButton
+                  icon="receipt"
+                  label="Attach receipt"
+                  onPress={() => {
+                    setReceiptFor(mobileDetailRow);
+                    closeMobileDetail();
+                  }}
+                />
+              ) : null}
+              {!readOnly ? (
+                <IconActionButton
                   icon="trash-can-outline"
                   label="Delete transaction"
                   variant="danger"
@@ -1028,6 +1059,20 @@ export default function TransactionsScreen() {
           <Text className="text-sm text-muted-foreground">No transaction selected.</Text>
         )}
       </AppModal>
+      <ReceiptModal
+        open={Boolean(receiptFor)}
+        onClose={() => setReceiptFor(null)}
+        onSaved={(message) => {
+          setReceiptNotice(message);
+          setReceiptFor(null);
+        }}
+        ownerUid={uid || ''}
+        actorUid={authUser?.uid || ''}
+        accounts={receiptAccounts}
+        catalog={receiptCatalog}
+        prefill={[]}
+        linkTo={receiptFor?.id ? { txId: receiptFor.id, date: String(receiptFor.date || ''), amount: Number(receiptFor.amount || 0), name: receiptFor.name } : undefined}
+      />
     </ScrollView>
   );
 }
