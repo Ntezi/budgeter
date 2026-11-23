@@ -29,8 +29,17 @@ export function AddSheetProvider({ children }: { children: ReactNode }) {
 
   const openAdd = useCallback((e?: unknown) => sheet.show(e), [sheet]);
 
+  // Open once per arrival of ?action=new-expense. Closing goes history.back() first and clears the
+  // param after, so for one render the sheet is closed while the param still says new-expense:
+  // without this flag that render reopened the sheet (BUDG-8 lane X round 4, diag-sheet log).
+  const paramHandled = useRef(false);
   useEffect(() => {
-    if (params.action !== 'new-expense' || sheet.open) return;
+    if (params.action !== 'new-expense') {
+      paramHandled.current = false;
+      return;
+    }
+    if (paramHandled.current || sheet.open) return;
+    paramHandled.current = true;
     fromParam.current = true;
     sheet.show();
   }, [params.action, sheet]);
