@@ -23,7 +23,8 @@ import {
   updateRecurring,
   watchRecurring,
 } from '@/lib/repo/recurring';
-import { createPeriod, nextMonthMeta, periodIdFromDate, periodTitleFromId } from '@/lib/repo/periods';
+import { createPeriodIfAbsent } from '@/lib/repo/periodCreate';
+import { nextMonthMeta, periodIdFromDate, periodTitleFromId } from '@/lib/repo/periods';
 import { applyAllocationDefaultsForPeriod } from '@/lib/repo/allocations';
 import { fmtMoney, parseMoney } from '@/lib/format';
 import { PLAN_GROUP_OPTIONS } from '@/lib/groups';
@@ -217,7 +218,7 @@ export default function RecurringScreen() {
     setIsGeneratingCurrent(true);
     try {
       const pid = periodIdFromDate();
-      await createPeriod(uid, pid, periodTitleFromId(pid));
+      await createPeriodIfAbsent(uid, pid, { title: periodTitleFromId(pid) });
 
       const state = await inspectBudgetSeedState(uid, pid);
       let overwriteRecurring = false;
@@ -274,7 +275,7 @@ export default function RecurringScreen() {
     setIsCreatingNextBudget(true);
     try {
       const next = nextMonthMeta();
-      await createPeriod(uid, next.id, next.title);
+      await createPeriodIfAbsent(uid, next.id, { title: next.title });
       const seeded = await seedBudgetFromRecurring(uid, next.id, rows);
       const defaults = await applyAllocationDefaultsForPeriod(uid, next.id);
       Alert.alert(

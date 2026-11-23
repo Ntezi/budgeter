@@ -21,12 +21,12 @@ import {
   watchPeriods,
   type PeriodDoc,
   setPeriodStatus,
-  createPeriod,
   nextMonthIdFromPeriodId,
   periodIdFromDate,
   periodTitleFromId,
 } from '@/lib/repo/periods';
 import { seedBudgetForNewPeriod } from '@/lib/repo/recurring';
+import { createPeriodIfAbsent } from '@/lib/repo/periodCreate';
 import { applyAllocationDefaultsForPeriod } from '@/lib/repo/allocations';
 import type { WorkspaceMode } from '@/lib/repo/scope';
 import type { WorkspaceGroupDef } from '@/lib/repo/workspaces';
@@ -197,11 +197,11 @@ export default function SettingsScreen() {
 
       const initialPeriodId =
         newWorkspaceMode === 'MONTHLY_3_BUCKET' ? periodIdFromDate() : `evt_${Date.now().toString(36)}`;
-      await createPeriod(
+      await createPeriodIfAbsent(
         user.uid,
         initialPeriodId,
-        newWorkspaceMode === 'MONTHLY_3_BUCKET' ? periodTitleFromId(initialPeriodId) : `${name} Budget`,
         {
+          title: newWorkspaceMode === 'MONTHLY_3_BUCKET' ? periodTitleFromId(initialPeriodId) : `${name} Budget`,
           type: newWorkspaceMode === 'MONTHLY_3_BUCKET' ? 'MONTHLY' : newWorkspaceMode === 'EVENT' ? 'EVENT' : 'CUSTOM',
           startDate: requiresDateRange ? startDate : undefined,
           endDate: requiresDateRange ? endDate : undefined,
@@ -302,11 +302,13 @@ export default function SettingsScreen() {
       await setPeriodStatus(workspaceUid, activePeriodId, 'DECIDED');
       const nextPid = nextMonthIdFromPeriodId(activePeriodId);
       if (!nextPid) throw new Error('Could not determine next period ID.');
-      await createPeriod(workspaceUid, nextPid, periodTitleFromId(nextPid));
-      try {
-        await seedBudgetForNewPeriod(workspaceUid, nextPid);
-        await applyAllocationDefaultsForPeriod(workspaceUid, nextPid);
-      } catch {}
+      const created = await createPeriodIfAbsent(workspaceUid, nextPid, { title: periodTitleFromId(nextPid) });
+      if (created.created) {
+        try {
+          await seedBudgetForNewPeriod(workspaceUid, nextPid);
+          await applyAllocationDefaultsForPeriod(workspaceUid, nextPid);
+        } catch {}
+      }
       await setActivePeriodId(nextPid);
       Alert.alert('Success', `Period ${activePeriodId} closed. ${nextPid} is now active.`);
     } catch (e: any) {

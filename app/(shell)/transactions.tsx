@@ -1,4 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { ExpenseFormModal } from '@/components/ExpenseFormModal';
+import { localDateISO, postingPeriodId } from '@/lib/rules/postingMonth';
+import { isMonthId, monthTitle } from '@/lib/rules/months';
 import { Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { AppBadge } from '@/components/ui/AppBadge';
 import { AppCard } from '@/components/ui/AppCard';
@@ -56,9 +60,19 @@ export default function TransactionsScreen() {
   const { width } = useWindowDimensions();
   const isCompact = width < 768;
   const defaultPid = activePeriodId || periodIdFromDate();
+  // Viewed month lives in the URL (?month=) so Back/refresh restore it; it never sets where an expense posts.
+  const router = useRouter();
+  const params = useLocalSearchParams<{ month?: string; scope?: string; action?: string }>();
+  const monthParam = typeof params.month === 'string' && isMonthId(params.month) ? params.month : '';
+  const [expenseFormOpen, setExpenseFormOpen] = useState(false);
+  const [savedNotice, setSavedNotice] = useState('');
 
   const [periods, setPeriods] = useState<(PeriodDoc & { id: string })[]>([]);
-  const [selectedPid, setSelectedPid] = useState(defaultPid);
+  const [selectedPid, setSelectedPidState] = useState(monthParam || defaultPid);
+  function setSelectedPid(next: string) {
+    setSelectedPidState(next);
+    router.setParams({ month: next });
+  }
   const [periodStatus, setPeriodStatus] = useState<PeriodStatus>('DRAFT');
 
   const [transactions, setTransactions] = useState<Tx[]>([]);
@@ -71,7 +85,7 @@ export default function TransactionsScreen() {
   const [mobileDetailId, setMobileDetailId] = useState<string | null>(null);
 
   const [filter, setFilter] = useState<Filter>('ALL');
-  const [scopeFilter, setScopeFilter] = useState<TxScopeFilter>('ALL');
+  const [scopeFilter, setScopeFilter] = useState<TxScopeFilter>(params.scope === 'SHOPPING' ? 'SHOPPING' : 'ALL');
   const [searchText, setSearchText] = useState('');
   const [formError, setFormError] = useState('');
 
@@ -83,7 +97,22 @@ export default function TransactionsScreen() {
   });
 
   const readOnly = periodStatus === 'DECIDED';
-  const todayDate = new Date().toISOString().slice(0, 10);
+  const todayDate = localDateISO();
+  const todayPostingPid = postingPeriodId(todayDate);
+
+  useEffect(() => {
+    if (monthParam) setSelectedPidState(monthParam);
+  }, [monthParam]);
+
+  useEffect(() => {
+    if (params.scope === 'SHOPPING') setScopeFilter('SHOPPING');
+  }, [params.scope]);
+
+  useEffect(() => {
+    if (params.action !== 'new-expense') return;
+    setExpenseFormOpen(true);
+    router.setParams({ action: '' });
+  }, [params.action, router]);
 
   useEffect(() => {
     if (!uid) return;
@@ -91,15 +120,15 @@ export default function TransactionsScreen() {
       setPeriods(rows);
       if (!rows.some((row) => row.id === selectedPid)) {
         const fallback = rows.find((row) => row.id === defaultPid)?.id || rows[0]?.id;
-        if (fallback) setSelectedPid(fallback);
+        if (fallback) setSelectedPidState(fallback);
       }
     });
   }, [defaultPid, uid, selectedPid]);
 
   useEffect(() => {
-    if (!activePeriodId) return;
-    setSelectedPid(activePeriodId);
-  }, [activePeriodId]);
+    if (!activePeriodId || monthParam) return;
+    setSelectedPidState(activePeriodId);
+  }, [activePeriodId, monthParam]);
 
   useEffect(() => {
     if (!uid || !selectedPid) return;
@@ -360,6 +389,12 @@ export default function TransactionsScreen() {
       return;
     }
 
+    // The quick row is dated today, so it may only post into today's month.
+    if (selectedPid !== todayPostingPid) {
+      setFormError(`Quick add posts to ${monthTitle(todayPostingPid)} (today). Use Add Expense to choose the date for ${monthTitle(selectedPid)}.`);
+      return;
+    }
+
     const budget = resolveBudget(String(draft.name || ''), String(draft.categoryId || ''));
     if (!budget) {
       setFormError('Select a budget item suggestion before adding this transaction.');
@@ -375,7 +410,7 @@ export default function TransactionsScreen() {
       return;
     }
 
-    await addTransaction(uid, selectedPid, {
+    await addTransaction(uid, todayPostingPid, {
       name: budget.name,
       categoryId: budget.id,
       planItemId: budget.id,
@@ -505,10 +540,13 @@ export default function TransactionsScreen() {
             menuClassName="max-h-44"
           />
         </View>
-        <View className="flex-row items-center gap-2">
+        <View className="flex-row flex-wrap items-center gap-2">
           <AppBadge label={periodStatus} variant={readOnly ? 'secondary' : 'success'} />
+          <AppButton label="Add Expense" size="sm" onPress={() => setExpenseFormOpen(true)} textClassName="text-white" />
         </View>
       </View>
+      <Text className="text-xs text-muted-foreground">Viewing {monthTitle(selectedPid)}. New expenses post to the month of their date.</Text>
+      {savedNotice ? <Text className="text-xs text-muted-foreground">{savedNotice}</Text> : null}
       {readOnly ? <Text className="text-xs text-muted-foreground">Closed budgets are view-only.</Text> : null}
 
       <View className="grid grid-cols-1 gap-3 md:grid-cols-4">
@@ -900,6 +938,12 @@ export default function TransactionsScreen() {
         )}
       </AppCard>
 
+      <ExpenseFormModal
+        open={expenseFormOpen}
+        uid={uid}
+        onClose={() => setExpenseFormOpen(false)}
+        onSaved={(pid) => setSavedNotice(`Expense saved to ${monthTitle(pid)}.`)}
+      />
       <AppModal open={Boolean(mobileDetailId)} onClose={closeMobileDetail} title="Transaction Details">
         {mobileDetailRow && mobileDetailEdit ? (
           <View className="gap-3">

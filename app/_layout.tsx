@@ -1,12 +1,28 @@
 import '../global.css';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Stack, usePathname, useRouter } from 'expo-router';
-import { ActivityIndicator, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Platform, View, useWindowDimensions } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '@/providers/AuthProvider';
 import { ThemeProvider, useThemeMode } from '@/providers/ThemeProvider';
 import { WorkspaceProvider, useWorkspace } from '@/providers/WorkspaceProvider';
 import { getOnboardingComplete } from '@/lib/onboarding';
+
+// The navigator mounts only after auth/workspace load, so on web a refresh or deep link
+// (e.g. /transactions?month=YYYY-MM) would otherwise fall back to "/". Remember it once.
+let pendingReturnPath: string | null = initialDeepLink();
+
+function initialDeepLink() {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return null;
+  const { pathname, search } = window.location;
+  if (pathname === '/' || pathname.startsWith('/auth') || pathname.startsWith('/onboarding')) return null;
+  return `${pathname}${search}`;
+}
+
+function currentLocation(pathname: string) {
+  if (Platform.OS === 'web' && typeof window !== 'undefined') return `${window.location.pathname}${window.location.search}`;
+  return pathname;
+}
 
 function AppGate() {
   const { ready: authReady, user } = useAuth();
@@ -47,12 +63,16 @@ function AppGate() {
     }
 
     if (onboardingComplete && !user && !isAuth) {
+      // Keep the deep link (e.g. /transactions?month=YYYY-MM) so refresh restores the view after sign-in.
+      if (!isOnboarding && pathname !== '/') pendingReturnPath = currentLocation(pathname);
       router.replace('/auth');
       return;
     }
 
     if (onboardingComplete && user && (isOnboarding || isAuth || pathname === '/')) {
-      router.replace(firstShellRoute);
+      const target = pendingReturnPath || firstShellRoute;
+      pendingReturnPath = null;
+      router.replace(target as any);
     }
   }, [authReady, checkedOnboarding, firstShellRoute, onboardingComplete, pathname, router, themeReady, user, workspaceReady]);
 

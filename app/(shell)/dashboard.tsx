@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { AppCard } from '@/components/ui/AppCard';
 import { AppButton } from '@/components/ui/AppButton';
@@ -10,7 +10,6 @@ import { AppProgressBar } from '@/components/ui/AppProgressBar';
 import { fmtMoney } from '@/lib/format';
 import { useWorkspace, useWorkspaceUid } from '@/providers/WorkspaceProvider';
 import {
-  createPeriod,
   nextMonthMeta,
   periodIdFromDate,
   periodTitleFromId,
@@ -20,8 +19,9 @@ import {
 } from '@/lib/repo/periods';
 import { watchIncomeItems } from '@/lib/repo/income';
 import { watchPlanTotals } from '@/lib/repo/plans';
-import { applyAllocationDefaultsForPeriod, watchAllocations } from '@/lib/repo/allocations';
-import { seedBudgetForNewPeriod } from '@/lib/repo/recurring';
+import { watchAllocations } from '@/lib/repo/allocations';
+import { createPeriodIfAbsent } from '@/lib/repo/periodCreate';
+import { isMonthId } from '@/lib/rules/months';
 import { watchTransactions, type Tx } from '@/lib/repo/transactions';
 import { planGroupLabel } from '@/lib/groups';
 import { cn } from '@/lib/cn';
@@ -36,7 +36,9 @@ export default function DashboardScreen() {
   const uid = useWorkspaceUid();
   const { activePeriodId } = useWorkspace();
   const fallbackPid = periodIdFromDate();
-  const pid = activePeriodId || fallbackPid;
+  const params = useLocalSearchParams<{ month?: string }>();
+  const viewedMonth = typeof params.month === 'string' && isMonthId(params.month) ? params.month : '';
+  const pid = viewedMonth || activePeriodId || fallbackPid;
 
   const [periods, setPeriods] = useState<(PeriodDoc & { id: string })[]>([]);
   const [targetPct, setTargetPct] = useState({ needs: 0.5, wants: 0.3, sd: 0.2 });
@@ -188,20 +190,14 @@ export default function DashboardScreen() {
 
   async function handleCreateCurrentBudget() {
     if (!uid) return;
-    await createPeriod(uid, pid, periodTitleFromId(pid));
-    await seedBudgetForNewPeriod(uid, pid);
-    await applyAllocationDefaultsForPeriod(uid, pid);
+    // A new month starts blank; templates are an explicit action inside the draft.
+    await createPeriodIfAbsent(uid, pid);
   }
 
   async function createNextBudget() {
     if (!uid) return;
     const next = nextMonthMeta();
-    const exists = periods.some((row) => row.id === next.id);
-    await createPeriod(uid, next.id, next.title);
-    if (!exists) {
-      await seedBudgetForNewPeriod(uid, next.id);
-      await applyAllocationDefaultsForPeriod(uid, next.id);
-    }
+    await createPeriodIfAbsent(uid, next.id, { title: next.title });
     router.push(`/budgets/${next.id}`);
   }
 
@@ -259,6 +255,12 @@ export default function DashboardScreen() {
               <Text className="text-sm text-muted-foreground">Overview for {currentPeriodTitle}</Text>
             </View>
             <View className="flex-row flex-wrap gap-2">
+              <AppButton onPress={() => router.push('/transactions?action=new-expense')} accessibilityLabel="Add expense">
+                <View className="flex-row items-center gap-2">
+                  <MaterialCommunityIcons name="plus" size={16} color="#FFFFFF" />
+                  <Text className="text-sm font-medium text-white">Add Expense</Text>
+                </View>
+              </AppButton>
               <AppButton onPress={openCurrentBudget} variant="outline">
                 <View className="flex-row items-center gap-2">
                   <MaterialCommunityIcons name="wallet-outline" size={16} color="#717182" />
@@ -313,14 +315,20 @@ export default function DashboardScreen() {
                 {accountsOverdraftCount > 0 ? `${accountsOverdraftCount} overdrawn account(s)` : 'No overdraft'}
               </Text>
             </AppCard>
+            <Pressable
+              accessibilityRole="link"
+              accessibilityLabel={`Shopping spend ${fmtMoney(actualTotals.shopping)}, open shopping transactions for ${currentPeriodTitle}`}
+              onPress={() => router.push(`/transactions?month=${pid}&scope=SHOPPING`)}
+            >
             <AppCard className="gap-1">
               <View className="flex-row items-center justify-between">
                 <Text className="text-xs uppercase tracking-wide text-muted-foreground">Shopping</Text>
                 <MaterialCommunityIcons name="cart-outline" size={16} color="#717182" />
               </View>
               <Text className="text-2xl font-bold text-foreground dark:text-zinc-50">{fmtMoney(actualTotals.shopping)}</Text>
-              <Text className="text-xs text-muted-foreground">From shopping lists</Text>
+              <Text className="text-xs text-muted-foreground">From shopping lists · View transactions</Text>
             </AppCard>
+            </Pressable>
             <AppCard className="gap-1">
               <View className="flex-row items-center justify-between">
                 <Text className="text-xs uppercase tracking-wide text-muted-foreground">Uncategorized</Text>

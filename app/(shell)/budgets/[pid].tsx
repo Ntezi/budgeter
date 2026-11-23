@@ -13,8 +13,6 @@ import { AppModal } from '@/components/ui/AppModal';
 import { useWorkspaceUid } from '@/providers/WorkspaceProvider';
 import {
   deletePeriod,
-  createPeriod,
-  getOrCreatePeriod,
   periodTitleFromId,
   setPeriodStatus,
   setPeriodTitle,
@@ -35,6 +33,8 @@ import {
   watchAllocations,
 } from '@/lib/repo/allocations';
 import { seedBudgetForNewPeriod } from '@/lib/repo/recurring';
+import { createPeriodIfAbsent, watchPeriodState, type PeriodState } from '@/lib/repo/periodCreate';
+import { monthTitle } from '@/lib/rules/months';
 import { fmtMoney, parseMoney, parsePct100 } from '@/lib/format';
 import { planGroupLabel, PLAN_GROUP_OPTIONS, planGroupToTag } from '@/lib/groups';
 import { cn } from '@/lib/cn';
@@ -92,6 +92,8 @@ export default function BudgetDetailScreen() {
 
   const [title, setTitle] = useState('');
   const [status, setStatus] = useState<PeriodStatus>('DRAFT');
+  const [periodState, setPeriodState] = useState<PeriodState | null>(null);
+  const [templatePending, setTemplatePending] = useState(false);
   const [pNeeds, setPNeeds] = useState('50');
   const [pWants, setPWants] = useState('30');
   const [pSd, setPSd] = useState('20');
@@ -126,10 +128,14 @@ export default function BudgetDetailScreen() {
 
   const readOnly = status === 'DECIDED';
 
+  // Viewing a month never creates it (BUDG-1 AC-3): watch existence only.
   useEffect(() => {
     if (!uid || !pid) return;
+    return watchPeriodState(uid, pid, setPeriodState);
+  }, [uid, pid]);
 
-    getOrCreatePeriod(uid, pid);
+  useEffect(() => {
+    if (!uid || !pid) return;
 
     const unPeriod = watchPeriod(uid, pid, (period: PeriodDoc) => {
       setTitle(period.title ?? pid);
@@ -546,15 +552,39 @@ export default function BudgetDetailScreen() {
     if (!readOnly) await setPeriodStatus(uid, pid, 'DECIDED');
 
     const nextPid = nextPeriodId(pid);
-    await createPeriod(uid, nextPid, periodTitleFromId(nextPid));
-    try {
-      await seedBudgetForNewPeriod(uid, nextPid);
-      await applyAllocationDefaultsForPeriod(uid, nextPid);
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : String(e);
-      if (!String(message).includes('DECIDED')) throw e;
+    const created = await createPeriodIfAbsent(uid, nextPid, { title: periodTitleFromId(nextPid) });
+    // Close & Start Next keeps its template seeding, but never reseeds an existing month.
+    if (created.created) {
+      try {
+        await seedBudgetForNewPeriod(uid, nextPid);
+        await applyAllocationDefaultsForPeriod(uid, nextPid);
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : String(e);
+        if (!String(message).includes('DECIDED')) throw e;
+      }
     }
     router.push(`/budgets/${nextPid}`);
+  }
+
+  async function addFromTemplates() {
+    if (!uid || !pid || readOnly || templatePending) return;
+    setTemplatePending(true);
+    try {
+      await seedBudgetForNewPeriod(uid, pid);
+      await applyAllocationDefaultsForPeriod(uid, pid);
+    } finally {
+      setTemplatePending(false);
+    }
+  }
+
+  async function createThisMonth() {
+    if (!uid || !pid || templatePending) return;
+    setTemplatePending(true);
+    try {
+      await createPeriodIfAbsent(uid, pid);
+    } finally {
+      setTemplatePending(false);
+    }
   }
 
   async function removeBudget() {
@@ -916,12 +946,27 @@ export default function BudgetDetailScreen() {
     setMobileDetail(null);
   }
 
+  if (periodState && !periodState.exists) {
+    return (
+      <ScrollView className="flex-1" contentContainerClassName="gap-4 pb-8">
+        <AppCard className="items-center gap-3 py-12">
+          <Text className="text-xl font-bold text-foreground dark:text-zinc-50">{monthTitle(String(pid))}</Text>
+          <Text className="text-sm text-muted-foreground text-center">There is no budget for this month yet. Creating it starts a blank draft.</Text>
+          <View className="flex-row flex-wrap justify-center gap-2">
+            <AppButton label={`Create ${monthTitle(String(pid))} draft`} onPress={createThisMonth} disabled={templatePending} textClassName="text-white" />
+            <AppButton label="Back to Budgets" variant="outline" onPress={() => router.push('/budgets')} />
+          </View>
+        </AppCard>
+      </ScrollView>
+    );
+  }
+
   return (
     <ScrollView className="flex-1" contentContainerClassName="gap-4 pb-8">
       <View className="gap-2 border-b border-border pb-4 dark:border-zinc-800">
-        <View className="flex-row items-start justify-between gap-3">
+        <View className="flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <View className="flex-1 gap-1">
-            <View className="flex-row items-center gap-2">
+            <View className="flex-row flex-wrap items-center gap-2">
               <Text className="text-2xl font-bold text-foreground dark:text-zinc-50">{title || pid}</Text>
               <View className="flex-row items-center gap-1">
                 <MaterialCommunityIcons
@@ -939,7 +984,10 @@ export default function BudgetDetailScreen() {
             </Text>
           </View>
 
-          <View className="flex-row items-center gap-2">
+          <View className="flex-row flex-wrap items-center gap-2">
+            {!readOnly ? (
+              <AppButton label={templatePending ? 'Adding…' : 'Add from templates'} onPress={addFromTemplates} variant="outline" size="sm" disabled={templatePending} />
+            ) : null}
             <AppButton
               label={readOnly ? 'Closed' : 'Close Budget'}
               onPress={closeBudget}
