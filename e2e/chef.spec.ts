@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
-import { EVIDENCE, listIds, reseed, shot, signIn } from './helpers';
+import { EVIDENCE, FIRESTORE, listIds, reseed, shot, signIn } from './helpers';
 
 const CHEF = { email: 'chef@example.test', password: 'seed-chef-pass' };
 const LIST = 'list-party';
@@ -106,6 +106,40 @@ test('BUDG-4 shopping: catalog, duplicates, chef sharing and revoke', async ({ b
   await chefPage.goto('/dashboard');
   await expect(chefPage).toHaveURL(/\/shopping$/);
   await expect(chefPage.getByText('Shared with you')).toBeVisible();
+  // BUDG-6: reload on household routes, Back and a pasted deep link all end on the shared list, and once
+  // the chef shell is shown nothing else renders in it off /shopping and no navigation ever appears.
+  await chefPage.context().addInitScript(() => {
+    const w = window as any;
+    w.__chefViolations = [];
+    new MutationObserver(() => {
+      if (document.querySelector('[role="navigation"]')) w.__chefViolations.push(`nav on ${location.pathname}`);
+      const shell = document.querySelector('[data-testid="chef-shell"]') as HTMLElement | null;
+      if (shell && location.pathname !== '/shopping' && shell.innerText.trim()) w.__chefViolations.push(`content on ${location.pathname}`);
+    }).observe(document, { childList: true, subtree: true, characterData: true });
+  });
+  for (const route of ['/budgets', '/accounts', '/settings?page=household']) {
+    await chefPage.goto(route);
+    await expect(chefPage).toHaveURL(/\/shopping$/);
+    await expect(chefPage.getByText('Shared with you')).toBeVisible();
+    await chefPage.reload();
+    await expect(chefPage).toHaveURL(/\/shopping$/);
+    await expect(chefPage.getByText('Shared with you')).toBeVisible();
+    expect(await chefPage.evaluate(() => (window as any).__chefViolations), route).toEqual([]);
+  }
+  await chefPage.goBack();
+  await expect(chefPage).toHaveURL(/\/shopping$/);
+  await expect(chefPage.getByText('Shared with you')).toBeVisible();
+  expect(await chefPage.evaluate(() => (window as any).__chefViolations), 'after Back').toEqual([]);
+  const pasted = await chefPage.context().newPage();
+  await pasted.goto(`/budgets/${pid}?view=month`);
+  await expect(pasted).toHaveURL(/\/shopping$/);
+  await expect(pasted.getByText('Shared with you')).toBeVisible();
+  await expect(pasted.getByRole('navigation')).toHaveCount(0);
+  expect(await pasted.evaluate(() => (window as any).__chefViolations), 'pasted deep link').toEqual([]);
+  await pasted.close();
+  // Nothing was written in the chef's own workspace by opening household routes (C-10).
+  const chefMonths = await fetch(`${FIRESTORE}/users/seed-chef/periods`, { headers: { Authorization: 'Bearer owner' } }).then((r) => r.json());
+  expect(chefMonths.documents ?? []).toEqual([]);
   await chefPage.getByText('Weekend party', { exact: true }).click();
   await expect(chefPage.getByText('Juice')).toBeVisible();
   const chefText = await chefPage.locator('body').innerText();

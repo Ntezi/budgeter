@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { activeAreaId, activeItem, audienceFor, chefMayOpen, firstRouteFor, layoutFor, NAV_ITEMS, showsMonthChip, tapsTo, visibleItems } from '../../lib/shell/nav';
+import { activeAreaId, activeItem, audienceFor, chefMayOpen, firstRouteFor, shellViewFor, layoutFor, NAV_ITEMS, showsMonthChip, tapsTo, visibleItems } from '../../lib/shell/nav';
 
 test('S2 layout: bottom bar < 768, rail 768-1023, sidebar >= 1024', () => {
   assert.equal(layoutFor(320), 'phone');
@@ -78,4 +78,17 @@ test('BUDG-8 X: Year plan is active on /budgets?view=year, Plan on bare /budgets
   assert.equal(activeItem('/budgets', NAV_ITEMS, {})?.id, 'plan');
   assert.equal(activeItem('/budgets', NAV_ITEMS, { view: 'month' })?.id, 'plan');
   assert.equal(activeItem('/budgets/2026-11', NAV_ITEMS, { view: 'year' })?.id, 'plan');
+});
+
+test('BUDG-6: a chef is sent to the shared list from every other route and nothing else renders', () => {
+  const household = ['/dashboard', '/budgets', '/budgets/2026-11', '/budgets/year', '/transactions', '/accounts', '/expenses', '/recurring', '/reports', '/settings', '/shopping-items', '/', '/shopping/x', '/shoppingx'];
+  for (const p of household) assert.equal(shellViewFor('chef', p), 'chef-redirect', p);
+  assert.equal(shellViewFor('chef', '/shopping'), 'chef');
+  for (const it of NAV_ITEMS) {
+    const path = it.href.split('?')[0];
+    if (path !== '/shopping') assert.equal(shellViewFor('chef', path), 'chef-redirect', it.href);
+  }
+  // Household users are never redirected; while the audience is unknown the shell shows no navigation.
+  for (const p of [...household, '/shopping']) assert.equal(shellViewFor('household', p), 'household');
+  assert.equal(shellViewFor(null, '/dashboard'), 'loading');
 });

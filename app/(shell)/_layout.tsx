@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Image, Pressable, View, useWindowDimensions } from 'react-native';
-import { Slot, useGlobalSearchParams, usePathname, useRouter } from 'expo-router';
+import { CommonActions } from '@react-navigation/native';
+import { Slot, useGlobalSearchParams, useNavigationContainerRef, usePathname, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AddSheetProvider, useAddSheet } from '@/components/add/AddSheetContext';
 import { useSheet } from '@/components/patterns/AppSheet';
@@ -10,7 +11,7 @@ import { MoreSheet } from '@/components/shell/MoreSheet';
 import { NavIcon } from '@/components/shell/NavIcon';
 import { SideRail } from '@/components/shell/SideRail';
 import { Sidebar } from '@/components/shell/Sidebar';
-import { activeAreaId, activeItem, audienceFor, chefMayOpen, CHEF_ROUTE, layoutFor, showsMonthChip, visibleItems, type Audience } from '@/lib/shell/nav';
+import { activeAreaId, activeItem, audienceFor, layoutFor, shellViewFor, showsMonthChip, visibleItems, type Audience } from '@/lib/shell/nav';
 import { useAuthUser } from '@/providers/AuthProvider';
 import { useWorkspace } from '@/providers/WorkspaceProvider';
 import { watchPeriods } from '@/lib/repo/periods';
@@ -57,19 +58,27 @@ function Shell() {
   return <HouseholdShell ready={audience === 'household'} />;
 }
 
-/** BUDG-4 chef: the shared list only, never household navigation. */
+/**
+ * BUDG-4 chef: the shared list only, never household navigation or screens (lib/shell/nav shellViewFor).
+ * Off the shared list nothing is rendered, so the (shell) Slot navigator is unmounted; a router.replace
+ * would target that unmounted navigator (expo-router getNavigateAction picks the deepest matching one)
+ * and be dropped, which left a reloaded chef on /dashboard. The root navigator is always mounted
+ * (app/_layout.tsx), so the shell resets it to the shared list instead; this also leaves no household
+ * entry behind it in the stack.
+ */
 function ChefShell() {
   const pathname = usePathname();
-  const router = useRouter();
-  const ok = chefMayOpen(pathname);
+  const nav = useNavigationContainerRef();
+  const view = shellViewFor('chef', pathname);
   useEffect(() => {
-    if (!ok) router.replace(CHEF_ROUTE as any);
-  }, [ok, router]);
+    if (view !== 'chef-redirect' || !nav.isReady()) return;
+    nav.dispatch(CommonActions.reset({ index: 0, routes: [{ name: '(shell)', state: { index: 0, routes: [{ name: 'shopping' }] } }] }));
+  }, [nav, pathname, view]);
   return (
     <View className="flex-1 bg-background dark:bg-zinc-950">
       <SafeAreaView edges={['top', 'left', 'right', 'bottom']} className="flex-1">
         <View role="main" testID="chef-shell" className="min-h-0 flex-1 px-4 pb-4 pt-3 md:px-6 md:pt-4 lg:px-8 lg:pt-6">
-          <View className="mx-auto w-full max-w-[1200px] flex-1">{ok ? <Slot /> : null}</View>
+          <View className="mx-auto w-full max-w-[1200px] flex-1">{view === 'chef' ? <Slot /> : null}</View>
         </View>
       </SafeAreaView>
     </View>

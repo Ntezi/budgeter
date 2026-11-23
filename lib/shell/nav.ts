@@ -67,6 +67,20 @@ export function chefMayOpen(pathname: string): boolean {
   return pathname === CHEF_ROUTE;
 }
 
+export type ShellView = 'loading' | 'household' | 'chef' | 'chef-redirect';
+
+/**
+ * BUDG-6 access boundary in the UI: what the (shell) layout may render. A chef on any route other than
+ * the shared list gets nothing rendered (no household screen, no navigation) and is sent to CHEF_ROUTE;
+ * this holds on first load, reload, Back and a pasted deep link because it is decided from the pathname
+ * on every render, not once.
+ */
+export function shellViewFor(audience: Audience | null, pathname: string): ShellView {
+  if (audience == null) return 'loading';
+  if (audience === 'household') return 'household';
+  return chefMayOpen(pathname) ? 'chef' : 'chef-redirect';
+}
+
 /** Routes whose screen reads ?month= today; add /accounts, /reports, /budgets/[pid] when S5/S8/S14 do. */
 export const MONTH_CHIP_ROUTES = ['/dashboard', '/transactions', '/budgets', '/reports'];
 
