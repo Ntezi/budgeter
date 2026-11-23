@@ -41,3 +41,9 @@ yarn-error.*
 app-example
 /.vscode/
 /.idea/
+
+# local emulator test output (BUDG-1)
+dist-emulator/
+test-results/
+playwright-report/
+firestore-debug.log
