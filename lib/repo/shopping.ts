@@ -1,5 +1,6 @@
 import {
   addDoc,
+  arrayUnion,
   collection,
   deleteDoc,
   doc,
@@ -26,6 +27,9 @@ export type ShoppingList = {
   closedAt?: unknown;
   closedBy?: string;
   archived?: boolean;
+  /** BUDG-4: set while the list is shared with a chef (sharedLists/{shareId}). */
+  shareId?: string;
+  sharedWithLabel?: string;
   workspaceId?: string;
   periodId?: string;
   createdAt?: unknown;
@@ -36,8 +40,14 @@ export type ShoppingListItem = {
   id?: string;
   name: string;
   quantity?: number;
+  /** BUDG-4: pc, g, kg, ml, l, pack. */
+  unit?: string;
   price?: number;
   category?: string;
+  /** BUDG-4: the catalog item this list item reuses (absent = list-only). */
+  catalogItemId?: string;
+  /** BUDG-4: added by the chef on the shared list, no private twin yet. */
+  fromChef?: boolean;
   ownerUid?: string;
   tags?: string[];
   tag?: string;
@@ -65,6 +75,10 @@ export type ShoppingListItem = {
 export type ShoppingCatalogItem = {
   id?: string;
   name: string;
+  /** BUDG-4: new items get random ids; legacy ids derive from the name. */
+  normalizedName?: string;
+  aliases?: string[];
+  variant?: { packSize?: number; unit?: string } | null;
   category?: string;
   tags?: string[];
   lastPrice?: number;
@@ -815,4 +829,41 @@ export async function backfillShoppingCatalogFromLists(uid: string) {
     }
   }
   return count;
+}
+
+/** BUDG-4 AC-2: save a new item to the permanent catalog with its own id (never merges by name). */
+export async function createShoppingCatalogItem(
+  uid: string,
+  input: { name: string; category?: string; unit?: string; packSize?: number }
+) {
+  const name = String(input.name || '').trim();
+  if (!name) throw new Error('Shopping item name is required.');
+  const ref = doc(shoppingCatalogCol(uid));
+  await setDoc(ref, withWorkspaceWrite(compactFields({
+    name,
+    normalizedName: normalizeItemName(name),
+    category: normalizeCategory(input.category),
+    tags: [],
+    aliases: [],
+    variant: input.unit ? compactFields({ unit: input.unit, packSize: input.packSize }) : undefined,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  })) as any);
+  return ref.id;
+}
+
+/** BUDG-4 AC-3: "Use existing" remembers the typed spelling as an alias of the chosen item. */
+export async function addShoppingCatalogAlias(uid: string, id: string, alias: string) {
+  const value = String(alias || '').trim().slice(0, 120);
+  if (!value) return;
+  return updateDoc(doc(shoppingCatalogCol(uid), id), withWorkspaceWrite({ aliases: arrayUnion(value), updatedAt: serverTimestamp() } as any));
+}
+
+/** BUDG-4: write fields of a list item whether or not its private twin exists yet (chef-added items). */
+export async function setShoppingListItemFields(uid: string, listId: string, id: string, patch: Partial<ShoppingListItem>) {
+  return setDoc(
+    doc(shoppingItemsCol(uid, listId), id),
+    withWorkspaceWrite(compactFields({ ...patch, ownerUid: uid, updatedAt: serverTimestamp() }) as any),
+    { merge: true }
+  );
 }

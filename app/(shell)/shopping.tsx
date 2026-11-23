@@ -26,7 +26,11 @@ import {
   type ShoppingList,
   type ShoppingListItem,
   updateShoppingListItem,
+  updateShoppingCatalogItem,
   upsertShoppingCatalogItem,
+  addShoppingCatalogAlias,
+  createShoppingCatalogItem,
+  setShoppingListItemFields,
   watchShoppingCatalog,
   watchShoppingListItems,
   watchShoppingLists,
@@ -36,7 +40,27 @@ import { canonicalShoppingItemName, normalizeShoppingItemName } from '@/lib/shop
 import { parseShoppingText } from '@/lib/shopping/import/parseShoppingText';
 import { reconcilePurchasedItems } from '@/lib/shopping/import/reconcilePurchasedItems';
 import type { PurchaseReconciliationResult, ShoppingImportBatch, ShoppingItemMatchResult, ShoppingImportMode } from '@/lib/shopping/import/shoppingImportTypes';
-import { addTransaction } from '@/lib/repo/transactions';
+import { useAuthUser } from '@/providers/AuthProvider';
+import { db } from '@/lib/firebase';
+import { watchAccounts, type Account } from '@/lib/repo/accounts';
+import { watchOwnedWorkspaceMembers } from '@/lib/repo/collaboration';
+import { localDateISO, postingPeriodId } from '@/lib/rules/postingMonth';
+import { monthTitle } from '@/lib/rules/months';
+import { SHOPPING_UNITS, planCatalogWrite, searchCatalog, suggestCatalogMatches, type AddChoice } from '@/lib/rules/catalogMatch';
+import { recordShoppingExpense } from '@/lib/repo/shoppingExpense';
+import {
+  addSharedItem,
+  deleteSharedItem,
+  revokeShare,
+  shareListWithChef,
+  updateSharedItem,
+  validateChefUid,
+  watchSharedItems,
+  watchSharedWithMe,
+  type SharedItem,
+  type SharedList,
+} from '@/lib/repo/sharedLists';
+import { SharedListView } from '@/components/SharedListView';
 import { useWorkspace, useWorkspaceUid } from '@/providers/WorkspaceProvider';
 
 type PlanOption = {
@@ -52,6 +76,9 @@ type CompletionInput = {
   price: string;
   planItemId: string;
 };
+
+const UNIT_OPTIONS = [{ label: 'No unit', value: '' }, ...SHOPPING_UNITS.map((u) => ({ label: u, value: u }))];
+const EMPTY_ADD_DRAFT = { name: '', quantity: '1', unit: '', category: '', note: '', saveToCatalog: true, choice: '' };
 
 function normalize(input: string) {
   return input.trim().toLowerCase();
@@ -83,6 +110,15 @@ function shoppingCategoryRank(category?: string) {
   return partial >= 0 ? partial : SHOPPING_CATEGORY_ORDER.length;
 }
 
+/** Private-twin fields for a chef-added item (no undefined values for Firestore). */
+function compactItem(item: ShoppingListItem): Partial<ShoppingListItem> {
+  const out: Record<string, unknown> = {};
+  (['name', 'quantity', 'unit', 'category', 'note', 'bought', 'assignedPlanItemId', 'assignedPlanItemName', 'assignedGroup'] as const).forEach((key) => {
+    if (item[key] !== undefined) out[key] = item[key];
+  });
+  return out as Partial<ShoppingListItem>;
+}
+
 function parseQuantity(input: string) {
   const value = parseInt(input, 10);
   return Number.isFinite(value) && value > 0 ? value : 0;
@@ -106,7 +142,7 @@ export default function ShoppingScreen() {
   const [lists, setLists] = useState<ShoppingList[]>([]);
   const [listItemCounts, setListItemCounts] = useState<Record<string, number>>({});
   const [selectedListId, setSelectedListId] = useState('');
-  const [items, setItems] = useState<ShoppingListItem[]>([]);
+  const [privateItems, setItems] = useState<ShoppingListItem[]>([]);
   const [catalogRows, setCatalogRows] = useState<ShoppingCatalogItem[]>([]);
 
   const [createListOpen, setCreateListOpen] = useState(false);
@@ -157,6 +193,23 @@ export default function ShoppingScreen() {
   const [purchaseReconciliation, setPurchaseReconciliation] = useState<PurchaseReconciliationResult | null>(null);
   const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
   const [closingList, setClosingList] = useState(false);
+  // BUDG-4: chef sharing, add-item flow, explicit expense review.
+  const authUser = useAuthUser();
+  const myUid = authUser?.uid || '';
+  const [sharedItems, setSharedItems] = useState<SharedItem[]>([]);
+  const [sharedWithMe, setSharedWithMe] = useState<SharedList[]>([]);
+  const [chefShareId, setChefShareId] = useState('');
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareDraft, setShareDraft] = useState({ chefUid: '', label: 'Chef' });
+  const [shareError, setShareError] = useState('');
+  const [sharing, setSharing] = useState(false);
+  const [memberUids, setMemberUids] = useState<string[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [expenseDate, setExpenseDate] = useState(localDateISO());
+  const [expenseAccountId, setExpenseAccountId] = useState('');
+  const [addOpen, setAddOpen] = useState(false);
+  const [addDraft, setAddDraft] = useState(EMPTY_ADD_DRAFT);
+  const [addError, setAddError] = useState('');
 
   useEffect(() => {
     if (!uid) return;
@@ -235,6 +288,73 @@ export default function ShoppingScreen() {
   }, [selectedListId]);
 
   const selectedList = useMemo(() => lists.find((row) => row.id === selectedListId) || null, [lists, selectedListId]);
+  const shareId = selectedList?.shareId || '';
+
+  useEffect(() => {
+    if (!shareId) {
+      setSharedItems([]);
+      return;
+    }
+    return watchSharedItems(shareId, setSharedItems, () => setSharedItems([]));
+  }, [shareId]);
+
+  // Household view of a shared list: private twins (price, plan, links) merged with
+  // the chef-visible fields in sharedLists/{shareId}/items; chef-added items have no twin yet.
+  const items = useMemo<ShoppingListItem[]>(() => {
+    if (!shareId) return privateItems;
+    const byId = new Map(sharedItems.map((row) => [row.id, row]));
+    const merged = privateItems.map((item) => {
+      const shared = item.id ? byId.get(item.id) : undefined;
+      if (!shared) return item;
+      return {
+        ...item,
+        name: shared.name,
+        quantity: shared.quantity ?? item.quantity,
+        unit: shared.unit ?? item.unit,
+        category: shared.category ?? item.category,
+        note: shared.note ?? item.note,
+        bought: shared.status === 'GOT_IT',
+      };
+    });
+    const known = new Set(privateItems.map((item) => item.id));
+    sharedItems.forEach((shared) => {
+      if (!shared.id || known.has(shared.id)) return;
+      merged.push({
+        id: shared.id,
+        name: shared.name,
+        quantity: shared.quantity,
+        unit: shared.unit,
+        category: shared.category,
+        note: shared.note,
+        bought: shared.status === 'GOT_IT',
+        fromChef: true,
+      });
+    });
+    return merged;
+  }, [privateItems, sharedItems, shareId]);
+
+  useEffect(() => {
+    if (!myUid) return;
+    return watchSharedWithMe(myUid, setSharedWithMe);
+  }, [myUid]);
+
+  useEffect(() => {
+    if (!uid || uid !== myUid) {
+      setMemberUids([]);
+      return;
+    }
+    return watchOwnedWorkspaceMembers(uid, (rows) => setMemberUids(rows.map((row) => row.memberUid)));
+  }, [uid, myUid]);
+
+  useEffect(() => {
+    if (!uid) return;
+    return watchAccounts(uid, setAccounts);
+  }, [uid]);
+
+  const addCategoryOptions = useMemo(() => {
+    const names = Array.from(new Set(catalogRows.map((row) => String(row.category || '').trim()).filter(Boolean))).sort();
+    return [{ label: 'No category', value: '' }, ...names.map((name) => ({ label: name, value: name }))];
+  }, [catalogRows]);
 
   const orderedLists = useMemo(() => {
     return [...lists].sort((a, b) => {
@@ -320,9 +440,7 @@ export default function ShoppingScreen() {
   }, [catalogRows, importCategoryFilter, importSearch]);
 
   const suggestedRows = useMemo(() => {
-    const q = normalize(itemDraftName);
-    if (!q) return [];
-    return catalogRows.filter((row) => normalize(row.name || '').includes(q)).slice(0, 10);
+    return searchCatalog(itemDraftName, catalogRows, 10);
   }, [catalogRows, itemDraftName]);
 
   const catalogByItemName = useMemo(() => {
@@ -464,18 +582,20 @@ export default function ShoppingScreen() {
     if (!name) return;
     const plan = resolvePlanForItemName(name, catalog);
     try {
-      await addShoppingListItem(uid, selectedListId, {
+      const ref = await addShoppingListItem(uid, selectedListId, {
         name,
         quantity: 1,
         price: catalog.lastPrice || 0,
         category: catalog.category || '',
         tags: catalog.tags || [],
+        catalogItemId: catalog.id || '',
         assignedPlanItemId: plan?.id || '',
         assignedPlanItemName: plan?.name || '',
         assignedGroup: plan?.group,
         bought: false,
         completed: false,
       });
+      if (shareId && ref) await addSharedItem(shareId, myUid, { name, quantity: 1, category: catalog.category || '', status: 'TO_BUY' }, ref.id);
       setItemError('');
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
@@ -483,49 +603,128 @@ export default function ShoppingScreen() {
     }
   }
 
-  async function addItem() {
-    if (!uid || !selectedListId) return;
+  function addItem() {
     const name = itemDraftName.trim();
     if (!name) {
       setItemError('Item name is required.');
       return;
     }
+    setAddDraft({ ...EMPTY_ADD_DRAFT, name });
+    setAddError('');
+    setAddOpen(true);
+  }
 
-    const catalog =
-      catalogRows.find((row) => normalize(row.name || '') === normalize(name)) ||
-      catalogByItemName.get(normalizeShoppingItemName(name));
-    const plan = resolvePlanForItemName(name, catalog);
+  // AC-3: likely duplicates are suggested only; nothing is merged without Use existing.
+  const addCandidates = useMemo(
+    () => (addOpen ? suggestCatalogMatches({ name: addDraft.name, unit: addDraft.unit }, catalogRows) : []),
+    [addOpen, addDraft.name, addDraft.unit, catalogRows]
+  );
 
+  async function submitAddItem() {
+    if (!uid || !selectedListId) return;
+    const name = addDraft.name.trim();
+    if (!name) {
+      setAddError('Item name is required.');
+      return;
+    }
+    const quantity = Number(addDraft.quantity || '1');
+    if (!Number.isFinite(quantity) || quantity <= 0 || quantity > 9999) {
+      setAddError('Quantity must be between 1 and 9999.');
+      return;
+    }
+    const choice: AddChoice = addDraft.choice.startsWith('use:')
+      ? { kind: 'use-existing', catalogItemId: addDraft.choice.slice(4) }
+      : addDraft.choice === 'keep'
+        ? { kind: 'keep-separate', saveToCatalog: addDraft.saveToCatalog }
+        : { kind: 'new', saveToCatalog: addDraft.saveToCatalog };
     try {
-      await addShoppingListItem(uid, selectedListId, {
-        name,
-        quantity: 1,
+      const write = planCatalogWrite(choice, addCandidates.length);
+      let catalog: ShoppingCatalogItem | undefined;
+      let catalogItemId = '';
+      let itemName = name;
+      if (write.catalog === 'reuse') {
+        catalog = catalogRows.find((row) => row.id === write.catalogItemId);
+        catalogItemId = write.catalogItemId;
+        itemName = catalog?.name || name;
+        if (write.addAlias && catalog && normalize(catalog.name) !== normalize(name)) {
+          await addShoppingCatalogAlias(uid, catalogItemId, name);
+        }
+      } else if (write.catalog === 'create') {
+        catalogItemId = await createShoppingCatalogItem(uid, { name, category: addDraft.category, unit: addDraft.unit || undefined });
+      }
+      const plan = resolvePlanForItemName(itemName, catalog);
+      const fields = {
+        name: itemName,
+        quantity,
+        unit: addDraft.unit || undefined,
+        category: addDraft.category.trim() || catalog?.category || '',
+        note: addDraft.note.trim() || undefined,
+      };
+      const ref = await addShoppingListItem(uid, selectedListId, {
+        ...fields,
         price: catalog?.lastPrice || 0,
-        category: catalog?.category || '',
         tags: catalog?.tags || [],
+        catalogItemId,
         assignedPlanItemId: plan?.id || '',
         assignedPlanItemName: plan?.name || '',
         assignedGroup: plan?.group,
         bought: false,
         completed: false,
       });
-
+      if (shareId && ref) await addSharedItem(shareId, myUid, { ...fields, status: 'TO_BUY' }, ref.id);
+      setAddOpen(false);
       setItemDraftName('');
       setItemError('');
     } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : String(e);
-      setItemError(message || 'Could not add item.');
+      setAddError(e instanceof Error ? e.message : 'Could not add item.');
+    }
+  }
+
+  async function submitShare() {
+    if (!uid || !myUid || !selectedList?.id || sharing) return;
+    const problem = validateChefUid(shareDraft.chefUid, uid, myUid, memberUids);
+    if (problem) {
+      setShareError(problem);
+      return;
+    }
+    setSharing(true);
+    try {
+      await shareListWithChef(uid, myUid, { id: selectedList.id, name: selectedList.name }, shareDraft.chefUid.trim(), shareDraft.label);
+      setShareOpen(false);
+      setShareDraft({ chefUid: '', label: 'Chef' });
+    } catch (e: unknown) {
+      const code = (e as { code?: string })?.code;
+      setShareError(code === 'permission-denied' ? 'Sharing is unavailable for this account or list.' : e instanceof Error ? e.message : 'Could not share the list.');
+    } finally {
+      setSharing(false);
+    }
+  }
+
+  async function revokeSelectedShare() {
+    if (!uid || !selectedList?.id || !selectedList.shareId) return;
+    try {
+      await revokeShare(uid, selectedList.id, selectedList.shareId);
+    } catch (e: unknown) {
+      Alert.alert('Revoke failed', e instanceof Error ? e.message : 'Could not revoke access.');
     }
   }
 
   async function toggleBought(item: ShoppingListItem) {
     if (!uid || !selectedListId || !item.id) return;
-    await updateShoppingListItem(uid, selectedListId, item.id, { bought: !item.bought });
+    // Check-off writes only bought/status: never a transaction (AC-7, SEC-22).
+    const bought = !item.bought;
+    if (item.fromChef) {
+      await setShoppingListItemFields(uid, selectedListId, item.id, compactItem({ ...item, bought }));
+    } else {
+      await updateShoppingListItem(uid, selectedListId, item.id, { bought });
+    }
+    if (shareId) await updateSharedItem(shareId, myUid, item.id, { status: bought ? 'GOT_IT' : 'TO_BUY' });
   }
 
   async function removeItem(item: ShoppingListItem) {
     if (!uid || !selectedListId || !item.id) return;
-    await deleteShoppingListItem(uid, selectedListId, item.id);
+    if (!item.fromChef) await deleteShoppingListItem(uid, selectedListId, item.id);
+    if (shareId) await deleteSharedItem(shareId, item.id);
   }
 
   async function removeList(list: ShoppingList) {
@@ -589,13 +788,20 @@ export default function ShoppingScreen() {
 
     const selectedPlan = planById.get(editDraft.planItemId);
     try {
-      await updateShoppingListItem(uid, selectedListId, editDraft.id, {
+      const patch = {
         name,
         quantity,
         assignedPlanItemId: selectedPlan?.id || '',
         assignedPlanItemName: selectedPlan?.name || '',
         assignedGroup: selectedPlan?.group,
-      });
+      };
+      const target = items.find((row) => row.id === editDraft.id);
+      if (target?.fromChef) {
+        await setShoppingListItemFields(uid, selectedListId, editDraft.id, compactItem({ ...target, ...patch }));
+      } else {
+        await updateShoppingListItem(uid, selectedListId, editDraft.id, patch);
+      }
+      if (shareId) await updateSharedItem(shareId, myUid, editDraft.id, { name, quantity });
 
       setEditItemOpen(false);
       setEditItemError('');
@@ -646,6 +852,9 @@ export default function ShoppingScreen() {
       };
     });
     setItemInputs(nextInputs);
+    const firstPlan = Object.values(nextInputs).map((row) => planById.get(row.planItemId)).find((plan) => plan?.plannedAccountId);
+    setExpenseAccountId(firstPlan?.plannedAccountId || '');
+    setExpenseDate(localDateISO());
     setCompleting(true);
   }
 
@@ -738,7 +947,26 @@ export default function ShoppingScreen() {
     }
   }
 
-  async function handleDoneAndClear() {
+  const expenseTotal = useMemo(
+    () => completionTargetItems.reduce((sum, item) => sum + Math.max(0, parseMoney(itemInputs[item.id || '']?.price || '0')), 0),
+    [completionTargetItems, itemInputs]
+  );
+
+  const expenseReview = useMemo(() => {
+    let periodLabel = '';
+    try {
+      periodLabel = monthTitle(postingPeriodId(expenseDate.trim()));
+    } catch {
+      return { ready: false, problem: 'Enter the date as YYYY-MM-DD.', periodLabel: '', accountName: '' };
+    }
+    const account = accounts.find((row) => row.id === expenseAccountId);
+    if (!account) return { ready: false, problem: 'Choose the account that paid.', periodLabel, accountName: '' };
+    return { ready: true, problem: '', periodLabel, accountName: account.name };
+  }, [accounts, expenseAccountId, expenseDate]);
+
+  // AC-7 / SEC-20 / SEC-22: one explicit Save after reviewing date, amount and account.
+  // Replaces the old per-item addTransaction loop; ids are shop_{listId}_{itemId}, so a retry never duplicates.
+  async function handleRecordExpense() {
     if (savingCompletion || finalizingCompletion) return;
     if (!uid || !selectedListId || !selectedList) return;
     if (!completionValidation.ready) {
@@ -746,6 +974,10 @@ export default function ShoppingScreen() {
         'Complete required fields',
         `Fill quantity, total amount, and funded budget item for every ${completionScopeLabel} first.`
       );
+      return;
+    }
+    if (!expenseReview.ready) {
+      Alert.alert('Review the expense', expenseReview.problem);
       return;
     }
 
@@ -761,40 +993,43 @@ export default function ShoppingScreen() {
         const plan = planById.get(String(input?.planItemId || '').trim());
         if (!plan || !quantity || totalAmount <= 0 || !hasFundedAmount(fundedByPlanId, plan.id)) continue;
 
-        await addTransaction(uid, targetPid, {
-          name: plan.name,
+        await recordShoppingExpense(db, uid, {
+          listId: selectedListId,
+          listName: selectedList.name,
+          itemId: item.id,
+          itemName: item.name,
           amount: totalAmount,
-          group: plan.group,
-          date: new Date().toISOString().slice(0, 10),
-          note: `Shopping: ${selectedList.name} · Item: ${item.name}`,
+          dateISO: expenseDate.trim(),
+          accountId: expenseAccountId,
           planItemId: plan.id,
-          categoryId: plan.id,
-          paidFromAccountId: plan.plannedAccountId || '',
-          shoppingListId: selectedListId,
-          shoppingListName: selectedList.name,
-          shoppingItemId: item.id,
-          shoppingItemName: item.name,
+          planItemName: plan.name,
+          group: plan.group,
         });
 
-        await upsertShoppingCatalogItem(uid, {
-          name: item.name,
-          category: item.category || '',
-          tags: item.tags || [],
-          assignedPlanItemId: plan.id,
-          assignedPlanItemName: plan.name,
-          assignedGroup: plan.group,
-          price: unitPrice,
-          quantity,
-        });
+        if (item.catalogItemId) {
+          await updateShoppingCatalogItem(uid, item.catalogItemId, { lastPrice: unitPrice });
+        } else if (item.catalogItemId === undefined) {
+          await upsertShoppingCatalogItem(uid, {
+            name: item.name,
+            category: item.category || '',
+            tags: item.tags || [],
+            assignedPlanItemId: plan.id,
+            assignedPlanItemName: plan.name,
+            assignedGroup: plan.group,
+            price: unitPrice,
+            quantity,
+          });
+        }
 
-        await deleteShoppingListItem(uid, selectedListId, item.id);
+        if (!item.fromChef) await deleteShoppingListItem(uid, selectedListId, item.id);
+        if (shareId) await deleteSharedItem(shareId, item.id);
       }
 
       setCompleting(false);
       setItemInputs({});
       if (!isWide) setSelectedListId('');
     } catch (e: unknown) {
-      Alert.alert('Error', e instanceof Error ? e.message : 'Failed to complete shopping list.');
+      Alert.alert('Error', e instanceof Error ? e.message : 'Could not record the expense.');
     } finally {
       setFinalizingCompletion(false);
     }
@@ -992,7 +1227,10 @@ export default function ShoppingScreen() {
               )}
             >
               <Pressable
-                onPress={() => setSelectedListId(list.id || '')}
+                onPress={() => {
+                  setChefShareId('');
+                  setSelectedListId(list.id || '');
+                }}
                 className="min-w-0 flex-1 p-3"
               >
                 <Text className="font-medium text-foreground dark:text-zinc-100" numberOfLines={1}>{list.name}</Text>
@@ -1008,6 +1246,29 @@ export default function ShoppingScreen() {
             </View>
           );
         })}
+        {sharedWithMe.length ? (
+          <View className="mt-1 gap-2">
+            <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Shared with you</Text>
+            {sharedWithMe.map((share) => (
+              <Pressable
+                key={share.id}
+                onPress={() => {
+                  setSelectedListId('');
+                  setChefShareId(share.id || '');
+                }}
+                className={cn(
+                  'rounded-lg border p-3',
+                  chefShareId === share.id
+                    ? 'border-primary/30 bg-primary/10 dark:border-primary/40 dark:bg-primary/20'
+                    : 'border-transparent bg-muted/30 dark:bg-zinc-800/40'
+                )}
+              >
+                <Text className="font-medium text-foreground dark:text-zinc-100" numberOfLines={1}>{share.listName}</Text>
+                <Text className="text-xs text-muted-foreground dark:text-zinc-400">Shared list</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
       </ScrollView>
     </AppCard>
   );
@@ -1062,6 +1323,24 @@ export default function ShoppingScreen() {
                   <Text className="text-xs font-medium text-muted-foreground">
                     Selected total: {fmtMoney(selectedTotal)} ({selectedItems.length} item{selectedItems.length === 1 ? '' : 's'})
                   </Text>
+                  <View className="mt-1 flex-row flex-wrap items-center gap-2">
+                    {selectedList.shareId ? (
+                      <>
+                        <Text className="text-xs font-medium text-muted-foreground">Shared with {selectedList.sharedWithLabel || 'chef'}</Text>
+                        <AppButton label="Revoke" variant="outline" size="sm" onPress={() => void revokeSelectedShare()} />
+                      </>
+                    ) : (
+                      <AppButton
+                        label="Share with chef"
+                        variant="outline"
+                        size="sm"
+                        onPress={() => {
+                          setShareError('');
+                          setShareOpen(true);
+                        }}
+                      />
+                    )}
+                  </View>
                   {selectedMissingUnitPriceCount > 0 ? (
                     <Text className="text-xs font-semibold text-amber-700 dark:text-amber-300">
                       {selectedMissingUnitPriceCount} selected item{selectedMissingUnitPriceCount === 1 ? '' : 's'} missing unit price
@@ -1144,7 +1423,7 @@ export default function ShoppingScreen() {
                       )}
                     >
                       <View className="flex-row flex-1 items-center gap-3">
-                        <Switch value={item.bought} onValueChange={() => toggleBought(item)} />
+                        <Switch value={Boolean(item.bought)} onValueChange={() => toggleBought(item)} accessibilityLabel={`${item.bought ? 'Got it' : 'To buy'}: ${item.name}`} />
                         <Pressable className="flex-1 py-1" onPress={() => openTagEdit(item)}>
                           <View className="flex-row flex-wrap items-center gap-1">
                             <Text
@@ -1153,7 +1432,7 @@ export default function ShoppingScreen() {
                                 item.bought && 'text-muted-foreground line-through dark:text-zinc-500'
                               )}
                             >
-                              {item.name} {item.quantity && item.quantity > 1 ? `(x${item.quantity})` : ''}
+                              {item.name} {item.quantity && (item.quantity > 1 || item.unit) ? `(x${item.quantity}${item.unit ? ` ${item.unit}` : ''})` : ''}
                             </Text>
                             {itemTag ? (
                               <Text className="text-xs text-muted-foreground dark:text-zinc-400">[{itemTag}]</Text>
@@ -1176,7 +1455,7 @@ export default function ShoppingScreen() {
                         </Pressable>
                       </View>
                       <View className="flex-row gap-1">
-                        {isWide ? <IconActionButton icon="pencil-outline" label="Edit item" onPress={() => openEditItem(item)} />: null}
+                        <IconActionButton icon="pencil-outline" label="Edit item" onPress={() => openEditItem(item)} />
                         <IconActionButton icon="trash-can-outline" label="Delete item" variant="danger" onPress={() => removeItem(item)} />
                       </View>
                     </View>
@@ -1190,7 +1469,7 @@ export default function ShoppingScreen() {
           ) : (
             <View className="flex-1">
               <Text className="mb-3 text-sm text-muted-foreground dark:text-zinc-400">
-                Fill quantity, total amount, and budget item for each {completionScopeLabel} before clearing.
+                Fill quantity, total amount, and budget item for each {completionScopeLabel}, then review the date and account and record the expense.
               </Text>
 
               {!completionValidation.ready ? (
@@ -1318,6 +1597,33 @@ export default function ShoppingScreen() {
                 })}
               </ScrollView>
 
+              <View className="mb-3 gap-2 rounded-md border border-border p-3 dark:border-zinc-800">
+                <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Review expense</Text>
+                <View className={cn('gap-2', isWide ? 'flex-row items-center' : '')}>
+                  <AppInput
+                    value={expenseDate}
+                    onChangeText={setExpenseDate}
+                    placeholder="YYYY-MM-DD"
+                    accessibilityLabel="Expense date"
+                    className={cn('h-9', isWide ? 'w-28' : 'w-full')}
+                  />
+                  <View className="flex-1">
+                    <DropdownField
+                      value={expenseAccountId}
+                      options={[{ label: 'Select account', value: '' }, ...accounts.map((row) => ({ label: row.name, value: row.id || '' }))]}
+                      onChange={setExpenseAccountId}
+                      placeholder="Account"
+                      menuStrategy="inline"
+                    />
+                  </View>
+                </View>
+                <Text className="text-xs font-medium text-muted-foreground">
+                  {expenseReview.ready
+                    ? `Posts to ${expenseReview.periodLabel} · ${expenseReview.accountName} · ${fmtMoney(expenseTotal)}`
+                    : expenseReview.problem}
+                </Text>
+              </View>
+
               <View className="flex-row flex-wrap gap-2">
                 <AppButton
                   label="Cancel"
@@ -1336,9 +1642,9 @@ export default function ShoppingScreen() {
                   disabled={savingCompletion || finalizingCompletion}
                 />
                 <AppButton
-                  label={finalizingCompletion ? 'Finalizing...' : 'Done & Clear'}
+                  label={finalizingCompletion ? 'Recording...' : 'Record expense'}
                   onPress={() => {
-                    void handleDoneAndClear();
+                    void handleRecordExpense();
                   }}
                   className="flex-1 min-w-[130px]"
                   textClassName="text-white"
@@ -1363,9 +1669,124 @@ export default function ShoppingScreen() {
       ) : null}
 
       <View className={cn('flex-1', isWide ? 'flex-row gap-4' : 'flex-col')}>
-        {!selectedListId || isWide ? renderLists() : null}
-        {selectedListId || isWide ? renderItems() : null}
+        {(!selectedListId && !chefShareId) || isWide ? renderLists() : null}
+        {chefShareId ? (
+          <SharedListView shareId={chefShareId} myUid={myUid} onBack={() => setChefShareId('')} />
+        ) : selectedListId || isWide ? (
+          renderItems()
+        ) : null}
       </View>
+
+      <AppModal open={addOpen} onClose={() => setAddOpen(false)} title="Add Item">
+        <View className="gap-3">
+          <AppInput
+            value={addDraft.name}
+            onChangeText={(value) => setAddDraft((prev) => ({ ...prev, name: value, choice: '' }))}
+            placeholder="Item name"
+            accessibilityLabel="Item name"
+          />
+          <View className="flex-row gap-2">
+            <AppInput
+              value={addDraft.quantity}
+              onChangeText={(value) => setAddDraft((prev) => ({ ...prev, quantity: value }))}
+              placeholder="Qty"
+              keyboardType="numeric"
+              accessibilityLabel="Quantity"
+              className="w-20 text-center"
+            />
+            <View className="flex-1">
+              <DropdownField value={addDraft.unit} options={UNIT_OPTIONS} onChange={(value) => setAddDraft((prev) => ({ ...prev, unit: value }))} placeholder="Unit" menuStrategy="inline" />
+            </View>
+          </View>
+          <DropdownField value={addDraft.category} options={addCategoryOptions} onChange={(value) => setAddDraft((prev) => ({ ...prev, category: value }))} placeholder="Category" menuStrategy="inline" />
+          <AppInput
+            value={addDraft.note}
+            onChangeText={(value) => setAddDraft((prev) => ({ ...prev, note: value }))}
+            placeholder="Note (optional)"
+            accessibilityLabel="Note"
+          />
+          {addCandidates.length ? (
+            <View className="gap-2 rounded-md border border-amber-400/40 bg-amber-50 px-3 py-2 dark:border-amber-500/30 dark:bg-amber-950/20">
+              <Text className="text-xs font-semibold text-amber-700 dark:text-amber-200">Already in your catalog?</Text>
+              {addCandidates.map((match) => {
+                const chosen = addDraft.choice === `use:${match.item.id}`;
+                return (
+                  <View key={match.item.id} className="flex-row flex-wrap items-center justify-between gap-2">
+                    <Text className="min-w-0 flex-1 text-xs text-amber-700 dark:text-amber-200">
+                      {match.item.name}
+                      {match.packDiffers ? ' · different pack' : match.reason === 'alias' ? ' · other spelling' : ''}
+                    </Text>
+                    <AppButton
+                      label={chosen ? 'Using this' : 'Use existing'}
+                      size="sm"
+                      variant={chosen ? 'primary' : 'outline'}
+                      textClassName={chosen ? 'text-white' : undefined}
+                      onPress={() => setAddDraft((prev) => ({ ...prev, choice: `use:${match.item.id}` }))}
+                    />
+                  </View>
+                );
+              })}
+              <AppButton
+                label={addDraft.choice === 'keep' ? 'Keeping separate' : 'Keep separate'}
+                size="sm"
+                variant={addDraft.choice === 'keep' ? 'primary' : 'outline'}
+                textClassName={addDraft.choice === 'keep' ? 'text-white' : undefined}
+                onPress={() => setAddDraft((prev) => ({ ...prev, choice: 'keep' }))}
+              />
+            </View>
+          ) : null}
+          {!addDraft.choice.startsWith('use:') ? (
+            <View className="flex-row items-center justify-between gap-2">
+              <Text className="min-w-0 flex-1 text-sm text-foreground dark:text-zinc-100">Save to catalog for next time</Text>
+              <Switch
+                value={addDraft.saveToCatalog}
+                onValueChange={(value) => setAddDraft((prev) => ({ ...prev, saveToCatalog: value }))}
+                accessibilityLabel="Save to catalog"
+              />
+            </View>
+          ) : null}
+          {!addDraft.saveToCatalog && !addDraft.choice.startsWith('use:') ? (
+            <Text className="text-xs text-muted-foreground">List only: the catalog stays unchanged.</Text>
+          ) : null}
+          {addError ? <Text className="text-xs text-destructive">{addError}</Text> : null}
+          <View className="flex-row gap-2">
+            <AppButton label="Cancel" variant="outline" className="flex-1" onPress={() => setAddOpen(false)} />
+            <AppButton
+              label="Add to list"
+              className="flex-1"
+              textClassName="text-white"
+              disabled={addCandidates.length > 0 && !addDraft.choice}
+              onPress={() => void submitAddItem()}
+            />
+          </View>
+        </View>
+      </AppModal>
+
+      <AppModal open={shareOpen} onClose={() => !sharing && setShareOpen(false)} title="Share List with Chef">
+        <View className="gap-3">
+          <Text className="text-sm text-muted-foreground dark:text-zinc-400">
+            The chef signs in with their own account and can add, edit and check off items on this list only. Prices, budgets, accounts, receipts and other lists stay private.
+          </Text>
+          <AppInput
+            value={shareDraft.chefUid}
+            onChangeText={(value) => setShareDraft((prev) => ({ ...prev, chefUid: value }))}
+            placeholder="Chef's Collaborator ID (from their Settings)"
+            autoCapitalize="none"
+            accessibilityLabel="Chef account ID"
+          />
+          <AppInput
+            value={shareDraft.label}
+            onChangeText={(value) => setShareDraft((prev) => ({ ...prev, label: value }))}
+            placeholder="Name to show (e.g. Chef)"
+            accessibilityLabel="Chef name"
+          />
+          {shareError ? <Text className="text-xs text-destructive">{shareError}</Text> : null}
+          <View className="flex-row gap-2">
+            <AppButton label="Cancel" variant="outline" className="flex-1" onPress={() => setShareOpen(false)} disabled={sharing} />
+            <AppButton label={sharing ? 'Sharing...' : 'Share'} className="flex-1" textClassName="text-white" onPress={() => void submitShare()} disabled={sharing} />
+          </View>
+        </View>
+      </AppModal>
 
       <AppModal open={createListOpen} onClose={() => setCreateListOpen(false)} title="New Shopping List">
         <View className="gap-4">
