@@ -43,17 +43,17 @@ function ws(ctx: Ctx) {
   return ctx.workspaceId ? { workspaceId: ctx.workspaceId } : {};
 }
 
-function periodRef(ctx: Ctx) {
+export function periodRef(ctx: Ctx) {
   return doc(ctx.firestore, 'users', ctx.userId, 'periods', ctx.periodDocId);
 }
-function lineRef(ctx: Ctx, lineId: string) {
+export function lineRef(ctx: Ctx, lineId: string) {
   return doc(ctx.firestore, 'users', ctx.userId, 'periods', ctx.periodDocId, 'planItems', lineId);
 }
-function allocationRef(ctx: Ctx, lineId: string) {
+export function allocationRef(ctx: Ctx, lineId: string) {
   return doc(ctx.firestore, 'users', ctx.userId, 'periods', ctx.periodDocId, 'allocations', `item_plan_${lineId}`);
 }
 
-async function requireDraft(tx: Transaction, ctx: Ctx) {
+export async function requireDraft(tx: Transaction, ctx: Ctx) {
   const snap = await tx.get(periodRef(ctx));
   if (!snap.exists()) throw new PlanLineError('NO_PERIOD', 'This month has no budget yet.');
   if (snap.data()?.status === 'DECIDED') {
@@ -61,7 +61,7 @@ async function requireDraft(tx: Transaction, ctx: Ctx) {
   }
 }
 
-async function requireUsableAccount(tx: Transaction, ctx: Ctx, accountId: string) {
+export async function requireUsableAccount(tx: Transaction, ctx: Ctx, accountId: string) {
   if (!isSafeId(accountId)) throw new PlanLineError('INVALID', 'Invalid account id.');
   const snap = await tx.get(doc(ctx.firestore, 'users', ctx.userId, 'accounts', accountId));
   const reason = accountIneligibility(accountId, snap.exists() ? [{ id: accountId, ...(snap.data() as any) }] : [], ctx.appCurrency);
@@ -69,7 +69,7 @@ async function requireUsableAccount(tx: Transaction, ctx: Ctx, accountId: string
 }
 
 /** Same allocation doc the existing assignAccount writes (item_plan_{lineId}); amount = line amount. */
-async function writeLineAllocation(
+export async function writeLineAllocation(
   tx: Transaction,
   ctx: Ctx,
   lineId: string,

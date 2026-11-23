@@ -36,6 +36,7 @@ import { seedBudgetForNewPeriod, watchRecurring, type Recurring } from '@/lib/re
 import { addLinkedPlanLine, APP_CURRENCY, applySuggestedLineAccounts, setLineAccount } from '@/lib/repo/planLines';
 import { isLinkedLine, repairReasonText, resolveLineAccount, suggestionForSource, type Resolution } from '@/lib/rules/defaultAccount';
 import { createPeriodIfAbsent, watchPeriodState, type PeriodState } from '@/lib/repo/periodCreate';
+import { FromYearPlanCard } from '@/components/plan/FromYearPlanCard';
 import { monthTitle } from '@/lib/rules/months';
 import { fmtMoney, parseMoney, parsePct100 } from '@/lib/format';
 import { planGroupLabel, PLAN_GROUP_OPTIONS, planGroupToTag } from '@/lib/groups';
@@ -1417,6 +1418,18 @@ export default function BudgetDetailScreen() {
 
       {section === 'PLAN' ? (
         <View className="gap-3">
+          {uid && pid && !readOnly ? (
+            <FromYearPlanCard
+              uid={uid}
+              pid={pid}
+              periodExists={Boolean(periodState?.exists)}
+              status={status}
+              planItems={planItems}
+              accounts={accounts}
+              expenses={expenseItems}
+              nextPriority={planWithPriority.reduce((max, row) => Math.max(max, row.priority), 0) + 1}
+            />
+          ) : null}
           {PLAN_GROUP_OPTIONS.map((group) => {
             let rows = planWithPriority.filter((item) => item.group === group.value);
             const subtotal = rows.reduce((sum, row) => sum + (row.amount || 0), 0);

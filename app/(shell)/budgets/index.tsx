@@ -1,12 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { AppCard } from '@/components/ui/AppCard';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppBadge } from '@/components/ui/AppBadge';
 import { AppModal } from '@/components/ui/AppModal';
 import { DropdownField } from '@/components/ui/DropdownField';
+import { AppSegmented } from '@/components/ui/AppSegmented';
+import { YearPlanView } from '@/components/plan/YearPlanView';
 import { useWorkspaceUid } from '@/providers/WorkspaceProvider';
 import { type PeriodDoc, watchPeriods } from '@/lib/repo/periods';
 import { createPeriodIfAbsent } from '@/lib/repo/periodCreate';
@@ -18,6 +20,10 @@ import { fmtMoney } from '@/lib/format';
 export default function BudgetsScreen() {
   const uid = useWorkspaceUid();
   const router = useRouter();
+  // BUDG-2: Month | Year inside Plan; the view is kept in the URL so Back and reload keep it.
+  const params = useLocalSearchParams<{ view?: string }>();
+  const view: 'MONTH' | 'YEAR' = params.view === 'year' ? 'YEAR' : 'MONTH';
+  const setView = (next: 'MONTH' | 'YEAR') => router.setParams({ view: next === 'YEAR' ? 'year' : undefined } as any);
 
   const [periods, setPeriods] = useState<(PeriodDoc & { id: string })[]>([]);
   const [totalsByPeriod, setTotalsByPeriod] = useState<Record<string, { income: number; planned: number }>>({});
@@ -110,14 +116,29 @@ export default function BudgetsScreen() {
           <Text className="text-3xl font-bold text-foreground dark:text-zinc-50">Budgets</Text>
           <Text className="text-sm text-muted-foreground">Plan and track your money by month.</Text>
         </View>
-        <AppButton onPress={openPicker} accessibilityLabel="New budget">
-          <View className="flex-row items-center gap-2">
-            <MaterialCommunityIcons name="plus" size={18} color="#FFFFFF" />
-            <Text className="text-sm font-semibold text-primary-foreground">New Budget</Text>
-          </View>
-        </AppButton>
+        {view === 'MONTH' ? (
+          <AppButton onPress={openPicker} accessibilityLabel="New budget">
+            <View className="flex-row items-center gap-2">
+              <MaterialCommunityIcons name="plus" size={18} color="#FFFFFF" />
+              <Text className="text-sm font-semibold text-primary-foreground">New Budget</Text>
+            </View>
+          </AppButton>
+        ) : null}
       </View>
 
+      <AppSegmented
+        value={view}
+        onChange={setView}
+        options={[
+          { label: 'Month', value: 'MONTH' },
+          { label: 'Year', value: 'YEAR' },
+        ]}
+        className="self-start"
+      />
+
+      {view === 'YEAR' && uid ? <YearPlanView uid={uid} periods={periods} /> : null}
+
+      {view === 'MONTH' ? (
       <View className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
         {sortedPeriods.map((period) => {
           const totals = totalsByPeriod[period.id] ?? { income: 0, planned: 0 };
@@ -172,6 +193,7 @@ export default function BudgetsScreen() {
           </AppCard>
         ) : null}
       </View>
+      ) : null}
 
       <AppModal open={pickerOpen} onClose={() => setPickerOpen(false)} title="New Budget">
         <View className="gap-3">
