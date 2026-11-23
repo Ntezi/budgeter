@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text, View } from 'react-native';
+import { Text, View, useWindowDimensions } from 'react-native';
 import { AppSheet } from '@/components/patterns/AppSheet';
 import { FormRow } from '@/components/patterns/FormLayout';
 import { AppButton } from '@/components/ui/AppButton';
@@ -124,12 +124,14 @@ export function RecordExpenseSheet(p: Props) {
 
 /** Sticky footer of a list, household only, when Got it has items (BUDG-8 07). */
 export function GotItFooter({ count, total, onRecord, onReceipt }: { count: number; total: string; onRecord: () => void; onReceipt: () => void }) {
+  const narrow = useWindowDimensions().width < 360;
   return (
     <View testID="got-it-footer" className="gap-2 border-t border-border bg-card px-4 pb-3 pt-3 dark:border-zinc-800 dark:bg-zinc-900">
       <Text className="text-sm font-medium text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>
         {`${count} item${count === 1 ? '' : 's'} got${total ? ` · ${total}` : ''}`}
       </Text>
-      <View className="flex-row gap-2">
+      {/* D-14: below 360 px the two actions stack so neither label wraps. */}
+      <View className={narrow ? 'gap-2' : 'flex-row gap-2'}>
         <AppButton label="Record expense" size="touch" className="min-w-0 flex-1" onPress={onRecord} />
         <AppButton label="Add receipt" variant="outline" size="touch" className="min-w-0 flex-1" onPress={onReceipt} />
       </View>

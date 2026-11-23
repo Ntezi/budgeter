@@ -464,7 +464,7 @@ export default function TransactionsScreen() {
     { id: 'WANT', label: 'Wants' },
     { id: 'SAVINGS_DEBT', label: 'Savings' },
     { id: 'SHOPPING', label: 'Shopping' },
-    { id: 'UNCATEGORIZED', label: `Review ${transactionSummary.uncategorizedCount}` },
+    { id: 'UNCATEGORIZED', label: `Needs a line (${transactionSummary.uncategorizedCount})` },
   ];
   const activeChip = scopeFilter === 'SHOPPING' || scopeFilter === 'UNCATEGORIZED' ? scopeFilter : filter;
   function pickChip(id: string) {
@@ -544,7 +544,8 @@ export default function TransactionsScreen() {
       </View>
       {readOnly ? <LockedState monthLabel={monthTitle(selectedPid).split(' ')[0]} testID="activity-closed" /> : null}
 
-      <View role="toolbar" aria-label="Filter costs" className="flex-row flex-wrap gap-2" testID="activity-chips">
+      {/* D-15: one horizontal row of chips at every width, so the first cost stays above the fold at 320. */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} role="toolbar" aria-label="Filter costs" className="flex-none" contentContainerClassName="gap-2" testID="activity-chips">
         {chipDefs.map((c) => {
           const on = activeChip === c.id;
           return (
@@ -562,7 +563,7 @@ export default function TransactionsScreen() {
             </Pressable>
           );
         })}
-      </View>
+      </ScrollView>
       {accountParam ? (
         <View className="flex-row flex-wrap items-center gap-2" testID="activity-account-filter">
           <Text className="px-1 text-sm text-foreground dark:text-zinc-50">Paid from one account only</Text>
