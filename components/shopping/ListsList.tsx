@@ -3,6 +3,7 @@ import { Pressable, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { ListGroup } from '@/components/patterns/ListRow';
 import { EmptyState, LoadingState } from '@/components/patterns/States';
+import { PrimaryAction } from '@/components/patterns/PrimaryAction';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppProgressBar } from '@/components/ui/AppProgressBar';
 import { cn } from '@/lib/cn';
@@ -74,9 +75,9 @@ export function ListsList({ loading, lists, shared, selectedId, onOpen, onOpenSh
         </ListGroup>
       ) : null}
       {onNew && !nothing ? (
-        <View className="flex-row flex-wrap items-center justify-between gap-2">
-          <AppButton label="+ New list" size="touch" onPress={onNew} />
-          {onCatalog ? <AppButton label="Catalog ›" variant="ghost" size="touch" onPress={onCatalog} /> : null}
+        <View className="gap-2">
+          <PrimaryAction label="New list" onPress={onNew} />
+          {onCatalog ? <AppButton label="Catalog ›" variant="ghost" size="touch" className="self-start" onPress={onCatalog} /> : null}
         </View>
       ) : null}
     </View>

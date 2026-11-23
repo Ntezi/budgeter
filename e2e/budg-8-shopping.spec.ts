@@ -139,7 +139,7 @@ test('S10 keyboard, focus return, Back, empty list, list options', async ({ page
   expect(stops.slice(0, stops.findIndex((l) => /^(To buy|Got it): /.test(l))).every((l) => /^Add$|^To buy|^Got it/.test(l))).toBe(true);
   // Empty list state.
   await page.getByLabel('Back to lists').click();
-  await page.getByText('+ New list', { exact: true }).click();
+  await page.getByText('New list', { exact: true }).click();
   await page.getByLabel('List name').fill('Lane Z empty');
   await page.getByText('Create list', { exact: true }).click();
   await expect(page.getByTestId('list-empty')).toBeVisible();

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Image, Pressable, View, useWindowDimensions } from 'react-native';
+import { Pressable, Text, View, useWindowDimensions } from 'react-native';
 import { CommonActions } from '@react-navigation/native';
 import { Slot, useGlobalSearchParams, useNavigationContainerRef, usePathname, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -11,17 +11,16 @@ import { MoreSheet } from '@/components/shell/MoreSheet';
 import { NavIcon } from '@/components/shell/NavIcon';
 import { SideRail } from '@/components/shell/SideRail';
 import { Sidebar } from '@/components/shell/Sidebar';
-import { activeAreaId, activeItem, audienceFor, layoutFor, shellViewFor, showsMonthChip, visibleItems, type Audience } from '@/lib/shell/nav';
+import { activeAreaId, activeItem, audienceFor, layoutFor, pageTitleFor, shellViewFor, showsMonthChip, visibleItems, type Audience } from '@/lib/shell/nav';
 import { useAuthUser } from '@/providers/AuthProvider';
 import { useWorkspace } from '@/providers/WorkspaceProvider';
 import { watchPeriods } from '@/lib/repo/periods';
 import { watchSharedWithMe } from '@/lib/repo/sharedLists';
-import { useThemeMode } from '@/providers/ThemeProvider';
 
 /**
  * BUDG-8 S2 navigation shell (briefs/redesign/00 "Shell"): bottom bar below 768 px, rail
  * 768-1023, sidebar from 1024; More sheet; no drawer, no floating button. Routes unchanged.
- * Each screen still renders its own heading, so the shell shows no page title (title once).
+ * Phone: the top bar shows the page title (h1, design review D-2); from 768 px PageHeader shows it.
  */
 export default function ShellLayout() {
   return (
@@ -91,7 +90,6 @@ function HouseholdShell({ ready }: { ready: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
   const more = useSheet();
-  const { theme } = useThemeMode();
 
   const items = useMemo(() => visibleItems('household'), []);
   const primary = useMemo(() => items.filter((it) => it.group === 'primary'), [items]);
@@ -100,13 +98,10 @@ function HouseholdShell({ ready }: { ready: boolean }) {
   const areaId = activeAreaId(pathname, items, params);
   const itemId = activeItem(pathname, items, params)?.id;
   const chip = showsMonthChip(pathname);
+  const title = pageTitleFor(pathname, params);
 
   const go = useCallback((href: string) => router.push(href as any), [router]);
   const { openAdd: onAdd } = useAddSheet();
-  const logo =
-    theme === 'dark'
-      ? require('../../assets/images/logo/budgeter_logo_white_280x72.png')
-      : require('../../assets/images/logo/budgeter_logo_black_280x72.png');
 
   return (
     <View className="flex-1 bg-background dark:bg-zinc-950">
@@ -118,16 +113,18 @@ function HouseholdShell({ ready }: { ready: boolean }) {
           <View className="min-w-0 flex-1">
             {ready && mode === 'phone' ? (
               <View testID="top-bar" className="h-14 flex-row items-center gap-2 border-b border-border bg-card pl-4 pr-1 dark:border-zinc-800 dark:bg-zinc-900">
-                <Image source={logo} style={{ width: 96, height: 24 }} resizeMode="contain" accessibilityLabel="Budgeta" />
-                <View className="min-w-0 flex-1" />
+                <Text testID="page-title" role="heading" aria-level={1} numberOfLines={1} className="min-w-0 flex-1 text-lg font-semibold text-foreground dark:text-zinc-50">
+                  {title}
+                </Text>
                 {chip ? <MonthChip /> : null}
                 <Pressable testID="more-button" accessibilityRole="button" accessibilityLabel="More" onPress={more.show} className="h-11 w-11 items-center justify-center rounded-md">
                   <NavIcon name="dots-horizontal" />
                 </Pressable>
               </View>
-            ) : chip ? (
-              <View testID="top-bar" className="flex-row justify-end px-6 pt-4 lg:px-8">
-                <MonthChip />
+            ) : ready ? (
+              // C-8: the month-chip row is always reserved from 768 px so every h1 starts at the same offset.
+              <View testID="top-bar" className="h-14 flex-row items-end justify-end px-6 lg:px-8">
+                {chip ? <MonthChip /> : null}
               </View>
             ) : null}
 

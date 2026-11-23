@@ -141,7 +141,7 @@ test('S6 lifecycle: New month sheet, Close month asks first, Keep open changes n
     await page.evaluate((t) => window.localStorage.setItem('budgeter:theme', t), theme);
     for (const width of [320, 390, 1440]) {
       await open(page, '/budgets', width, 'month-plan');
-      await page.getByLabel('New budget').click();
+      await page.getByLabel('New month').click();
       await expect(page.getByTestId('new-month-sheet')).toBeVisible();
       await expect(page.getByRole('radio').first()).toBeVisible();
       await snap(page, `S6-new-month-sheet-w${width}-${theme}`);

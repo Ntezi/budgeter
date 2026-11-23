@@ -1783,7 +1783,7 @@ export default function ShoppingScreen() {
         </View>
       </AppModal>
 
-      <AppModal open={closeConfirmOpen} onClose={() => setCloseConfirmOpen(false)} title="Close Shopping List">
+      <AppModal open={closeConfirmOpen} onClose={() => setCloseConfirmOpen(false)} title="Close shopping list">
         <View className="gap-3">
           <Text className="text-sm text-muted-foreground">
             Close this shopping list now? Planned items missing from the purchase import will stay on the list as not purchased.

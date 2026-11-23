@@ -163,7 +163,7 @@ export function RegularCostsView(p: Props) {
     </View>
   ) : null;
 
-  const addButton = <AppButton label={`+ Add ${noun}`} size={desktop ? 'touch' : 'touch-lg'} className={desktop ? undefined : 'w-full'} onPress={(e) => openNew(undefined, e)} />;
+  const addButton = <AppButton label={`Add ${noun}`} size={desktop ? 'touch' : 'touch-lg'} className={desktop ? undefined : 'w-full'} onPress={(e) => openNew(undefined, e)} />;
 
   return (
     <View testID="regular-costs" className="flex-1">

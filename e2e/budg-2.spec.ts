@@ -46,7 +46,7 @@ test('AC-1 Plan keeps Month / Year; Year shows outline, upcoming (due and where 
   expect(scroll.scrollWidth).toBeLessThanOrEqual(scroll.innerWidth);
   await shot(page, info, 'AC-1-year-view');
   await page.getByText('Month', { exact: true }).first().click();
-  await expect(page.getByText('New Budget')).toBeVisible();
+  await expect(page.getByText('New month', { exact: true })).toBeVisible();
   guard.assertOnlyLoopback();
 });
 

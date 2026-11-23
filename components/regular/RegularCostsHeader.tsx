@@ -17,18 +17,23 @@ export function RegularCostsHeader({ kind, right }: { kind: RegularKind; right?:
   const router = useRouter();
   return (
     <View className="gap-3">
-      <PageHeader title="Regular costs" right={right} />
-      <AppSegmented
-        touch
-        className="self-start"
-        value={kind}
-        onChange={(v) => {
-          if (v !== kind) router.replace(v === 'repeats' ? '/recurring' : '/expenses');
-        }}
-        options={[
-          { label: 'Categories', value: 'categories' },
-          { label: 'Repeats', value: 'repeats' },
-        ]}
+      <PageHeader
+        title="Regular costs"
+        right={right}
+        switcher={
+          <AppSegmented
+            touch
+            full
+            value={kind}
+            onChange={(v) => {
+              if (v !== kind) router.replace(v === 'repeats' ? '/recurring' : '/expenses');
+            }}
+            options={[
+              { label: 'Categories', value: 'categories' },
+              { label: 'Repeats', value: 'repeats' },
+            ]}
+          />
+        }
       />
       <Text className="text-sm text-muted-foreground dark:text-zinc-400">{KIND_SENTENCE[kind]}</Text>
     </View>

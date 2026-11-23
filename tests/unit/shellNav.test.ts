@@ -92,3 +92,22 @@ test('BUDG-6: a chef is sent to the shared list from every other route and nothi
   for (const p of [...household, '/shopping']) assert.equal(shellViewFor('household', p), 'household');
   assert.equal(shellViewFor(null, '/dashboard'), 'loading');
 });
+
+test('BUDG-8 D-2: every household screen has a page title for the phone top bar', async () => {
+  const { pageTitleFor } = await import('../../lib/shell/nav');
+  const cases: [string, Record<string, string>, string][] = [
+    ['/dashboard', {}, 'Home'],
+    ['/budgets', {}, 'Plan'],
+    ['/budgets/2026-10', {}, 'Plan'],
+    ['/budgets', { view: 'year' }, 'Year plan'],
+    ['/transactions', {}, 'Activity'],
+    ['/accounts', {}, 'Accounts'],
+    ['/shopping', {}, 'Shopping'],
+    ['/shopping-items', {}, 'Catalog'],
+    ['/expenses', {}, 'Regular costs'],
+    ['/recurring', {}, 'Regular costs'],
+    ['/reports', {}, 'Reports'],
+    ['/settings', {}, 'Settings'],
+  ];
+  for (const [p, q, title] of cases) assert.equal(pageTitleFor(p, q), title, p);
+});

@@ -508,7 +508,7 @@ export default function TransactionsScreen() {
 
   return (
     <ScrollView className="flex-1" contentContainerClassName="gap-4 pb-8">
-      <PageHeader title="Activity" right={<AccountsSegment active="activity" month={selectedPid} />} />
+      <PageHeader title="Activity" switcher={<AccountsSegment active="activity" month={selectedPid} />} />
       <View className="gap-1">
         <Pressable
           accessibilityRole="button"
@@ -626,7 +626,7 @@ export default function TransactionsScreen() {
               />
             </View>
             <View className="gap-1">
-              <Text className="text-xs uppercase tracking-wide text-muted-foreground">Budget Item</Text>
+              <Text className="text-xs uppercase tracking-wide text-muted-foreground">Plan line</Text>
               <DropdownField
                 value={mobileDetailEdit.categoryId}
                 options={mobileBudgetOptions}

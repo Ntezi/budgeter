@@ -10,6 +10,7 @@ import { IconActionButton } from '@/components/ui/IconActionButton';
 import { AppSheet } from '@/components/patterns/AppSheet';
 import { FormField } from '@/components/patterns/FormLayout';
 import { PageHeader } from '@/components/patterns/PageHeader';
+import { PrimaryAction } from '@/components/patterns/PrimaryAction';
 import { EmptyState, ErrorState, LoadingState } from '@/components/patterns/States';
 import { useSheetEffects } from '@/components/shopping/useSheetEffects';
 import { cn } from '@/lib/cn';
@@ -571,25 +572,29 @@ export default function ShoppingItemsScreen() {
   return (
     <View className="min-h-0 flex-1 bg-background dark:bg-zinc-950">
       <ScrollView className="flex-1" contentContainerClassName="gap-6 pb-8" keyboardShouldPersistTaps="handled">
-        <PageHeader title="Catalog" subtitle={`${rows.length} item${rows.length === 1 ? '' : 's'} you buy · ${mappedCount} linked to a budget line`} />
-        <View className="flex-row flex-wrap gap-2">
-          <AppButton label="+ Add item" size="touch" onPress={() => setAddOpen(true)} />
-          <AppButton label="Manage" variant="outline" size="touch" testID="catalog-manage" onPress={() => setManageOpen(true)} />
-        </View>
-        {screenError ? <ErrorState message={screenError} onRetry={() => setScreenError('')} /> : null}
-
-        <View className="gap-3">
-          <View className="flex-row flex-wrap items-center gap-2">
-            <AppInput value={search} onChangeText={setSearch} placeholder="Search items" accessibilityLabel="Search catalog" className="h-11 min-w-48 flex-1 text-base" />
+        <PageHeader
+          title="Catalog"
+          subtitle={`${rows.length} item${rows.length === 1 ? '' : 's'} you buy · ${mappedCount} linked to a budget line`}
+          right={<AppButton label="Manage" variant="ghost" size="touch" testID="catalog-manage" onPress={() => setManageOpen(true)} />}
+          switcher={
             <AppSegmented
               value={sortMode}
               touch
+              full
               onChange={(value) => setSortMode(value as 'NAME' | 'CATEGORY')}
               options={[
                 { label: 'A–Z', value: 'NAME' },
                 { label: 'By category', value: 'CATEGORY' },
               ]}
             />
+          }
+          action={<PrimaryAction label="Add item" onPress={() => setAddOpen(true)} />}
+        />
+        {screenError ? <ErrorState message={screenError} onRetry={() => setScreenError('')} /> : null}
+
+        <View className="gap-3">
+          <View className="flex-row flex-wrap items-center gap-2">
+            <AppInput value={search} onChangeText={setSearch} placeholder="Search items" accessibilityLabel="Search catalog" className="h-11 min-w-48 flex-1 text-base" />
           </View>
           {categoryNames.length ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerClassName="gap-2">

@@ -288,7 +288,7 @@ export default function AccountsScreen() {
   const phoneDetail = !desktop && phoneId;
   return (
     <ScrollView className="flex-1" contentContainerClassName="gap-4 pb-8">
-      <PageHeader title="Accounts" right={<AccountsSegment active="balances" month={pid} />} />
+      <PageHeader title="Accounts" switcher={<AccountsSegment active="balances" month={pid} />} />
       {phoneDetail ? (
         selected ? detail : data.accountsLoaded ? <EmptyState icon="bank-off-outline" message="This account was not found." actionLabel="All accounts" onAction={() => router.replace('/accounts' as any)} /> : <LoadingState rows={4} />
       ) : desktop ? (

@@ -32,7 +32,7 @@ export function NewMonthSheet(p: Props) {
     </View>
   );
   return (
-    <AppSheet open={p.open} onClose={p.onClose} title="New Budget" footer={footer} testID="new-month-sheet">
+    <AppSheet open={p.open} onClose={p.onClose} title="New month" footer={footer} testID="new-month-sheet">
       <View className="gap-3">
         <View accessibilityRole="radiogroup" className="overflow-hidden rounded-xl border border-border dark:border-zinc-800">
           {p.choices.map((row, i) => {
@@ -52,7 +52,7 @@ export function NewMonthSheet(p: Props) {
             );
           })}
         </View>
-        <Text className="text-sm text-muted-foreground dark:text-zinc-400">A new month starts blank. Add from templates is available inside the draft.</Text>
+        <Text className="text-sm text-muted-foreground dark:text-zinc-400">A new month starts blank. You can add your regular costs once it is open.</Text>
         {p.error ? <Text className="text-sm text-destructive dark:text-red-300">{p.error}</Text> : null}
       </View>
     </AppSheet>

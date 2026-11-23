@@ -143,3 +143,16 @@ export function tapsTo(id: string, mode: LayoutMode, items: NavItem[] = NAV_ITEM
   if (item.group === 'primary' || mode === 'desktop') return 1;
   return 2;
 }
+
+/**
+ * BUDG-8 D-2/C-1: the page title the shell shows in the phone top bar (PageHeader shows the same
+ * text as the h1 from 768 px). Activity lives under the Accounts area but has its own title.
+ */
+export function pageTitleFor(pathname: string, params: RouteParams = {}, items: NavItem[] = NAV_ITEMS): string {
+  if (pathname === '/transactions' || pathname.startsWith('/transactions/')) return 'Activity';
+  if (pathname === '/budgets' || pathname.startsWith('/budgets/')) {
+    const view = params.view;
+    return (Array.isArray(view) ? view[0] : view) === 'year' && pathname === '/budgets' ? 'Year plan' : 'Plan';
+  }
+  return activeItem(pathname, items, params)?.label ?? '';
+}

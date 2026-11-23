@@ -15,12 +15,14 @@ type Props<T extends string> = {
   compact?: boolean;
   /** BUDG-8: 44 px segments for phone widths. */
   touch?: boolean;
+  /** BUDG-8 D-4: equal segments filling the width (the page switcher under the title). */
+  full?: boolean;
 };
 
-export function AppSegmented<T extends string>({ value, options, onChange, className, compact, touch }: Props<T>) {
+export function AppSegmented<T extends string>({ value, options, onChange, className, compact, touch, full }: Props<T>) {
   return (
     <View className={cn('rounded-md border border-border bg-muted p-0.5 dark:border-zinc-800 dark:bg-zinc-800/70', className)}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerClassName="gap-1">
+      <SegmentRow full={full}>
         {options.map((option) => {
           const active = option.value === value;
           return (
@@ -28,6 +30,7 @@ export function AppSegmented<T extends string>({ value, options, onChange, class
               key={option.value}
               className={cn(
                 'items-center justify-center rounded-md',
+                full && 'flex-1',
                 touch ? 'h-11 px-4' : compact ? 'h-7 px-2.5' : 'h-8 px-3',
                 active ? 'border border-border bg-card dark:border-zinc-800 dark:bg-zinc-900' : 'bg-transparent'
               )}
@@ -47,7 +50,16 @@ export function AppSegmented<T extends string>({ value, options, onChange, class
             </Pressable>
           );
         })}
-      </ScrollView>
+      </SegmentRow>
     </View>
+  );
+}
+
+function SegmentRow({ full, children }: { full?: boolean; children: React.ReactNode }) {
+  if (full) return <View className="w-full flex-row gap-1">{children}</View>;
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerClassName="gap-1">
+      {children}
+    </ScrollView>
   );
 }

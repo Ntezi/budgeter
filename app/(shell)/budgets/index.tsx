@@ -3,6 +3,7 @@ import { ScrollView, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { AppButton } from '@/components/ui/AppButton';
+import { PageHeader } from '@/components/patterns/PageHeader';
 import { AppSegmented } from '@/components/ui/AppSegmented';
 import { YearPlanView } from '@/components/plan/YearPlanView';
 import { useWorkspace, useWorkspaceUid } from '@/providers/WorkspaceProvider';
@@ -33,7 +34,7 @@ export default function BudgetsScreen() {
     });
   }, [uid]);
 
-  // New Budget (BUDG-1 AC-2/AC-3): current local month by default, next month,
+  // New month (was New Budget, BUDG-1 AC-2/AC-3): current local month by default, next month,
   // missing recent months; existing months open instead of being created again.
   const [pickerOpen, setPickerOpen] = useState(false);
   const [chosenId, setChosenId] = useState('');
@@ -87,25 +88,31 @@ export default function BudgetsScreen() {
 
   return (
     <ScrollView className="flex-1" contentContainerClassName="gap-4 pb-8">
-      <View className="mx-auto w-full flex-row flex-wrap items-center gap-3 md:max-w-2xl lg:max-w-none">
-        <AppSegmented
-          value={view}
-          onChange={setView}
-          options={[
-            { label: 'Month', value: 'MONTH' },
-            { label: 'Year', value: 'YEAR' },
-          ]}
-          className="min-w-0 flex-1 lg:max-w-xs"
-        />
-        {view === 'MONTH' ? (
-          <AppButton onPress={openPicker} accessibilityLabel="New budget" size="touch" variant="outline">
-            <View className="flex-row items-center gap-2">
-              <MaterialCommunityIcons name="plus" size={18} color="#717182" />
-              <Text className="text-sm font-medium text-foreground dark:text-zinc-50">New Budget</Text>
-            </View>
-          </AppButton>
-        ) : null}
-      </View>
+      <PageHeader
+        title={view === 'YEAR' ? 'Year plan' : 'Plan'}
+        right={
+          view === 'MONTH' ? (
+            <AppButton onPress={openPicker} accessibilityLabel="New month" testID="new-month-link" size="touch" variant="ghost">
+              <View className="flex-row items-center gap-1">
+                <MaterialCommunityIcons name="plus" size={18} color="#717182" />
+                <Text className="text-sm font-medium text-foreground underline dark:text-zinc-50">New month</Text>
+              </View>
+            </AppButton>
+          ) : undefined
+        }
+        switcher={
+          <AppSegmented
+            touch
+            full
+            value={view}
+            onChange={setView}
+            options={[
+              { label: 'Month', value: 'MONTH' },
+              { label: 'Year', value: 'YEAR' },
+            ]}
+          />
+        }
+      />
 
       {view === 'YEAR' && uid ? <YearPlanView uid={uid} periods={periods} /> : null}
 

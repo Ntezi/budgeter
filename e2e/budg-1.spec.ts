@@ -16,7 +16,7 @@ test.beforeAll(() => reseed());
 test('AC-2/AC-3/AC-4 New Budget: default, next, missing past, existing draft, locked, double submit', async ({ page }, info) => {
   const guard = await signIn(page, info);
   await page.goto('/budgets');
-  await page.getByLabel('New budget').click();
+  await page.getByLabel('New month').click();
   // Default: current local month, which the seed already holds as a draft -> opens, never creates.
   await expect(page.getByText(`Opens ${monthTitle(CUR)} · existing draft`)).toBeVisible();
   await shot(page, info, 'AC-2-new-budget-default-current-month');
@@ -39,7 +39,7 @@ test('AC-2/AC-3/AC-4 New Budget: default, next, missing past, existing draft, lo
 
   // Missing past month (e.g. January during February).
   await page.goto('/budgets');
-  await page.getByLabel('New budget').click();
+  await page.getByLabel('New month').click();
   await page.getByText(`${monthTitle(CUR)} · this month, draft exists`).click();
   await page.getByText(`${monthTitle(MISSING_PAST)} · missing`).click();
   await expect(page.getByText(`Creates ${monthTitle(MISSING_PAST)} · blank draft`)).toBeVisible();
@@ -50,7 +50,7 @@ test('AC-2/AC-3/AC-4 New Budget: default, next, missing past, existing draft, lo
 
   // Existing draft via New Budget: opens, count unchanged.
   await page.goto('/budgets');
-  await page.getByLabel('New budget').click();
+  await page.getByLabel('New month').click();
   await page.getByText(`Open ${monthTitle(CUR)}`, { exact: true }).click();
   await page.waitForURL(new RegExp(`/budgets/${CUR}`));
   expect((await listIds('periods')).length).toBe(before + 2);
