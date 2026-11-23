@@ -1039,7 +1039,7 @@ export function MonthPlanView({ pid }: { pid: string }) {
         <AppBadge label={readOnly ? 'Closed' : 'Open'} variant={readOnly ? 'secondary' : 'success'} />
       </View>
       <Text className="text-sm text-muted-foreground dark:text-zinc-400">
-        {readOnly ? 'Budget is closed (DECIDED) and now view-only.' : 'You can still change this month.'}
+        {readOnly ? 'This month is closed. You can look, but not change it.' : 'You can still change this month.'}
       </Text>
     </View>
   );
@@ -1106,7 +1106,7 @@ export function MonthPlanView({ pid }: { pid: string }) {
         <Text className="text-base font-semibold text-foreground dark:text-zinc-50">Start from your regular costs</Text>
         <Text className="text-sm text-muted-foreground dark:text-zinc-400">{`${monthLabel} is blank. Copy your repeats in once, or add lines yourself below.`}</Text>
         <AppButton
-          label={templatePending ? 'Adding…' : 'Add from templates'}
+          label={templatePending ? 'Adding…' : 'Add regular costs'}
           size="touch"
           className="self-start"
           onPress={addFromTemplates}
@@ -1147,12 +1147,12 @@ export function MonthPlanView({ pid }: { pid: string }) {
             <>
               {summary}
               {banner}
-              {yearPlan}
             </>
           )}
           {blankStart}
           <PlanGroupList groups={groups} wide={wide} readOnly={readOnly} onOpenLine={openLine} onAddLine={openAdd} />
           {incomeRow}
+          {wide ? null : yearPlan}
           {wide ? null : finish}
         </View>
         {wide ? (

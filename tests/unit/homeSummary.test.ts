@@ -32,3 +32,14 @@ test('BUDG-8 S4 Needs you: overdrawn, unlinked costs, next month from day 25; em
   assert.equal(all[2].title, "Start December's plan");
   assert.equal(needsYou({ ...n, todayDay: 26, nextMonthExists: false, monthId: '2026-10' }, m).length, 0);
 });
+
+test('BUDG-8 D-6: the unlinked-costs row says what to do in plain words, amount on the sub-line', async () => {
+  const { needsYou } = await import('../../lib/view-models/homeSummary');
+  const n = { monthId: '2026-11', todayMonthId: '2026-11', todayDay: 10, overdraftCount: 0, unlinkedSpent: 1165, unlinkedCount: 5, nextMonthExists: true };
+  const [row] = needsYou(n, (v) => `GHS ${v.toFixed(2)}`);
+  assert.equal(row.title, 'Sort 5 costs into your plan');
+  assert.equal(row.sub, 'GHS 1165.00 spent that is not on a plan line yet');
+  assert.equal(row.amount, undefined);
+  assert.ok(!/no plan line/.test(row.title));
+  assert.equal(needsYou({ ...n, unlinkedCount: 1 }, String)[0].title, 'Sort 1 cost into your plan');
+});

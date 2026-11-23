@@ -93,7 +93,7 @@ export function SpendBreakdownCard(p: { title: string; loading: boolean; spent: 
           {p.topLine?.name ? <LabelValue label={`Biggest line: ${p.topLine.name}`} value={fmtMoney(p.topLine.amount)} /> : null}
         </View>
       )}
-      <Disclosure label="Set aside by tag">
+      <Disclosure label="Planned by tag">
         <View className="gap-1">
           {p.byTag.map((t) => (
             <LabelValue key={t.x} label={t.x} value={fmtMoney(t.y)} />

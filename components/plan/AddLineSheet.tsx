@@ -91,7 +91,7 @@ export function AddLineSheet(p: Props) {
         <View className="gap-2 border-t border-border pt-4 dark:border-zinc-800">
           <Text className="text-sm text-muted-foreground dark:text-zinc-400">Copies every active repeat into this month once. Accounts arrive as suggestions.</Text>
           <AppButton
-            label={p.templatePending ? 'Adding…' : 'Add from templates'}
+            label={p.templatePending ? 'Adding…' : 'Add regular costs'}
             variant="outline"
             size="touch"
             onPress={p.onAddFromTemplates}

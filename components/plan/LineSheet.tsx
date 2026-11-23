@@ -171,7 +171,7 @@ export function LineSheet(props: Props) {
 
         {!readOnly && props.pinned ? (
           <ToggleRow
-            label="Fund this line first"
+            label="Pay this line first"
             description={props.pinned.disabled ? 'Fully spent lines are no longer prioritised.' : 'Income covers this line before the others.'}
             value={props.pinned.value}
             disabled={props.pinned.disabled}

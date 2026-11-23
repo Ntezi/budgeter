@@ -57,8 +57,8 @@ test('AC-3/AC-6 change a linked line: one clear choice; "Only this month" leaves
   const txBefore = JSON.stringify(await listIds('periods', CUR, 'transactions'));
 
   await openSection(page, 'Reconcile');
-  await expect(page.getByText('1 line has a suggested account')).toBeVisible();
-  await expect(page.getByText(/1 line needs an account choice/)).toBeVisible();
+  await expect(page.getByText(/1 with a suggestion ready/)).toBeVisible();
+  await expect(page.getByText(/1 to choose on the line itself/)).toBeVisible();
   await shot(page, info, 'AC-2-AC-4-reconcile-banner-suggestion-and-repair');
 
   await page.getByTestId('plan-groups').getByText('Water bill', { exact: true }).first().click(); // BUDG-8 S5: line sheet at every width

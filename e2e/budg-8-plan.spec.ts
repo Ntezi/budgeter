@@ -96,7 +96,7 @@ for (const theme of THEMES) {
     }
     // States, once each at 390: closed month, not started (never created by viewing).
     await open(page, `/budgets/${PREV}`, 390, 'month-plan');
-    await expect(page.getByText('Budget is closed (DECIDED) and now view-only.')).toBeVisible();
+    await expect(page.getByText('This month is closed. You can look, but not change it.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Add a need' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Close month' })).toHaveCount(0);
     await snap(page, `S5-closed-w390-${theme}`);

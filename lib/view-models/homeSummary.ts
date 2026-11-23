@@ -47,7 +47,7 @@ export function homeSummary(i: HomeSummaryInput, money: (n: number) => string): 
   return { tone, label, amount: left, over, progress, usedPct, sentence: `${spentOf} · ${tail}` };
 }
 
-export type NeedsYouItem = { id: string; icon: string; title: string; amount?: string; href: string; tone: 'danger' | 'warning' | 'info' };
+export type NeedsYouItem = { id: string; icon: string; title: string; sub?: string; amount?: string; href: string; tone: 'danger' | 'warning' | 'info' };
 
 export type NeedsYouInput = {
   monthId: string;
@@ -71,8 +71,9 @@ export function needsYou(i: NeedsYouInput, money: (n: number) => string): NeedsY
       icon: 'help-circle-outline',
       tone: 'warning',
       href: `/transactions?month=${i.monthId}&scope=UNCATEGORIZED`,
-      title: `${i.unlinkedCount} ${i.unlinkedCount === 1 ? 'cost has' : 'costs have'} no plan line`,
-      amount: money(i.unlinkedSpent),
+      // D-6: plain words; the amount goes on the sub-line so the title is not read as an accusation.
+      title: `Sort ${i.unlinkedCount} ${i.unlinkedCount === 1 ? 'cost' : 'costs'} into your plan`,
+      sub: `${money(i.unlinkedSpent)} spent that is not on a plan line yet`,
     });
   }
   const next = addMonthsToId(i.monthId, 1);

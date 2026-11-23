@@ -11,6 +11,7 @@ import { AppSheet } from '@/components/patterns/AppSheet';
 import { FormField } from '@/components/patterns/FormLayout';
 import { PageHeader } from '@/components/patterns/PageHeader';
 import { PrimaryAction } from '@/components/patterns/PrimaryAction';
+import { plainPriceWords, priceLine } from '@/lib/shopping/priceWords';
 import { EmptyState, ErrorState, LoadingState } from '@/components/patterns/States';
 import { useSheetEffects } from '@/components/shopping/useSheetEffects';
 import { cn } from '@/lib/cn';
@@ -557,10 +558,10 @@ export default function ShoppingItemsScreen() {
     if (mine.length) {
       const last = mine[0];
       const cmp = priceChipText(last, lastComparable(last, mine), fmtObs(last));
-      if (cmp.startsWith('Last')) return { text: cmp, muted: false };
+      if (cmp.startsWith('Last')) return { text: plainPriceWords(cmp), muted: false };
       const unit = displayUnitPriceMinor(last);
       const base = unit ? `Last ${fmtObs(last)(unit.minor)} / ${unit.unitLabel} · ${last.observedOn}` : `Last receipt ${last.observedOn}`;
-      return { text: `${base} · ${cmp}`, muted: false };
+      return { text: priceLine(base, plainPriceWords(cmp)), muted: false };
     }
     if ((row.lastPrice || 0) > 0) return { text: `List estimate ${fmtMoney(row.lastPrice || 0)} · not compared`, muted: true };
     return { text: 'No comparable price', muted: true };
@@ -737,7 +738,7 @@ export default function ShoppingItemsScreen() {
               <Text className="text-base font-semibold text-foreground dark:text-zinc-50">Prices from receipts</Text>
               {receiptPrices.length ? (
                 <Text className="text-base font-medium text-foreground dark:text-zinc-50">
-                  {priceChipText(receiptPrices[0], lastComparable(receiptPrices[0], receiptPrices), fmtObs(receiptPrices[0]))}
+                  {plainPriceWords(priceChipText(receiptPrices[0], lastComparable(receiptPrices[0], receiptPrices), fmtObs(receiptPrices[0]))) || 'First price for this item.'}
                 </Text>
               ) : (
                 <Text className="text-sm text-muted-foreground dark:text-zinc-400">No receipt prices yet. Add a receipt from a finished list.</Text>
@@ -753,7 +754,7 @@ export default function ShoppingItemsScreen() {
                             {`${o.observedOn}${o.storeName ? ` · ${o.storeName}` : ''} · ${o.quantity} ${o.unit}${o.packSize ? ` (pack ${o.packSize})` : ''}`}
                           </Text>
                           <Text className="text-sm text-muted-foreground dark:text-zinc-400" style={{ fontVariant: ['tabular-nums'] }}>
-                            {`${fmtMoney(fromMinor(o.lineTotalMinor), o.currencyCode)}${unit ? ` · ${fmtMoney(fromMinor(unit.minor), o.currencyCode)} / ${unit.unitLabel}` : ' · Missing quantity or price'}${o.isReturn ? ' · Return' : ''}${o.promo ? ' · Promo' : ''}${o.currencyCode !== APP_CURRENCY ? ' · Other currency' : ''}`}
+                            {`${fmtMoney(fromMinor(o.lineTotalMinor), o.currencyCode)}${unit ? ` · ${fmtMoney(fromMinor(unit.minor), o.currencyCode)} / ${unit.unitLabel}` : ' · Missing quantity or price'}${o.isReturn ? ' · Returned' : ''}${o.promo ? ' · Promo' : ''}${o.currencyCode !== APP_CURRENCY ? ' · Other currency' : ''}`}
                           </Text>
                         </View>
                         <IconActionButton

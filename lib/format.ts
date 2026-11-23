@@ -6,6 +6,8 @@ export function fmtMoney(value: number, currency = DEFAULT_CURRENCY, locale?: st
     return new Intl.NumberFormat(locale, {
       style: 'currency',
       currency,
+      // BUDG-8 C-6: the code, never a symbol, so GHS and USD read the same way ("USD 1.50").
+      currencyDisplay: 'code',
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(amount);

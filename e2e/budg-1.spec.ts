@@ -34,7 +34,7 @@ test('AC-2/AC-3/AC-4 New Budget: default, next, missing past, existing draft, lo
   // AC-4: blank, and templates stay a separate explicit action.
   expect(await listIds('periods', NEXT, 'planItems')).toHaveLength(0);
   expect(await listIds('periods', NEXT, 'incomeItems')).toHaveLength(0);
-  await expect(page.getByText('Add from templates')).toBeVisible();
+  await expect(page.getByText('Add regular costs')).toBeVisible();
   await shot(page, info, 'AC-4-new-month-blank-with-template-action');
 
   // Missing past month (e.g. January during February).
@@ -58,7 +58,7 @@ test('AC-2/AC-3/AC-4 New Budget: default, next, missing past, existing draft, lo
   // Existing locked month: read-only, nothing created or reseeded.
   const planPrev = (await listIds('periods', PREV, 'planItems')).length;
   await page.goto(`/budgets/${PREV}`);
-  await expect(page.getByText('Budget is closed (DECIDED) and now view-only.')).toBeVisible();
+  await expect(page.getByText('This month is closed. You can look, but not change it.')).toBeVisible();
   await shot(page, info, 'AC-3-existing-locked-read-only');
   expect((await listIds('periods', PREV, 'planItems')).length).toBe(planPrev);
 

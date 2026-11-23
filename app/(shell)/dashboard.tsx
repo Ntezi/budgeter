@@ -162,7 +162,8 @@ export default function DashboardScreen() {
   const chips: SpendChip[] = [
     { id: 'NEED', label: planGroupLabel('NEED'), amount: fmtMoney(actualTotals.needs), dotClassName: 'bg-needs', value: actualTotals.needs },
     { id: 'WANT', label: planGroupLabel('WANT'), amount: fmtMoney(actualTotals.wants), dotClassName: 'bg-wants', value: actualTotals.wants },
-    { id: 'SAVINGS_DEBT', label: planGroupLabel('SAVINGS_DEBT'), amount: fmtMoney(actualTotals.sd), dotClassName: 'bg-savings', value: actualTotals.sd },
+    { id: 'SAVINGS_DEBT', label: 'Savings', // D-7: glossary word, fits at 320
+    amount: fmtMoney(actualTotals.sd), dotClassName: 'bg-savings', value: actualTotals.sd },
   ].map((c) => ({
     id: c.id,
     label: c.label,
@@ -199,6 +200,8 @@ export default function DashboardScreen() {
             title={it.title}
             titleLines={0}
             titleTestID="home-needs-you-label"
+            sub={it.sub}
+            subLines={0}
             amount={it.amount}
             onPress={() => router.push(it.href as any)}
             left={
