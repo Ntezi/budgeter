@@ -92,7 +92,7 @@ test('BUDG-4 shopping: catalog, duplicates, chef sharing and revoke', async ({ b
   // AC-4 share with the chef (separate signed-in account)
   await household.getByText('Share with chef', { exact: true }).click();
   await household.getByLabel('Chef account ID').fill('seed-chef');
-  await household.getByText('Share', { exact: true }).click();
+  await household.getByText('Share list', { exact: true }).click(); // BUDG-8 S11: sheet button renamed
   await expect(household.getByText('Shared with Chef')).toBeVisible();
   taps['share-list'] = 3;
 
@@ -133,7 +133,8 @@ test('BUDG-4 shopping: catalog, duplicates, chef sharing and revoke', async ({ b
   await shot(household, testInfo, 'AC-5-household-sees-chef-updates');
 
   // AC-5 revoke takes effect for the chef
-  await household.getByText('Revoke', { exact: true }).click();
+  await household.getByText('Stop sharing', { exact: true }).click(); // BUDG-8 S11: Revoke -> Stop sharing + confirm
+  await household.getByTestId('confirm-stop-sharing').click();
   await expect(household.getByText('Share with chef', { exact: true })).toBeVisible();
   await expect(chefPage.getByText('Access ended')).toBeVisible();
   await expect(chefPage.getByText('Juice')).toHaveCount(0);
