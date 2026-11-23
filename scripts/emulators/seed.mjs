@@ -8,6 +8,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { PROJECT_ID, assertLoopback, childEnv } from './env.mjs';
 import { seedDefaultAccounts } from './seed.default-accounts.mjs';
+import { seedYearPlan } from './seed.year-plan.mjs';
 
 const env = childEnv();
 for (const key of ['FIRESTORE_EMULATOR_HOST', 'FIREBASE_AUTH_EMULATOR_HOST', 'GCLOUD_PROJECT']) {
@@ -119,6 +120,7 @@ async function main() {
     }
   }
   seedDefaultAccounts({ batch, u, ts, prevId: pid(prev), curId: pid(cur) }); // BUDG-3
+  seedYearPlan({ batch, u, ts, prevId: pid(prev), curId: pid(cur) }); // BUDG-2
   await batch.commit();
   console.log(`[seed] demo-budgeta seeded: 3 users, 4 accounts, periods ${pid(prev)} (DECIDED) and ${pid(cur)} (DRAFT), 2 shopping lists`);
 }
