@@ -2,8 +2,9 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, type Page, type TestInfo } from '@playwright/test';
+import { emulatorPorts } from '../lib/emulatorPorts';
 
-export const FIRESTORE = 'http://127.0.0.1:8080/v1/projects/demo-budgeta/databases/(default)/documents';
+export const FIRESTORE = `http://127.0.0.1:${emulatorPorts().firestore}/v1/projects/demo-budgeta/databases/(default)/documents`;
 export const OWNER = { uid: 'seed-owner', email: 'owner@example.test', password: 'seed-owner-pass' };
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 export const EVIDENCE = process.env.BUDG_EVIDENCE_DIR || path.resolve('test-results/evidence');
@@ -20,7 +21,7 @@ export async function listIds(...segments: string[]) {
 }
 
 /** Installs the host guard, marks onboarding done and signs in as the seeded owner. */
-export async function signIn(page: Page, testInfo: TestInfo) {
+export async function signIn(page: Page, testInfo: TestInfo, who: { email: string; password: string } = OWNER) {
   const hosts = new Set<string>();
   const blocked: string[] = [];
   await page.route('**/*', (route) => {
@@ -34,7 +35,7 @@ export async function signIn(page: Page, testInfo: TestInfo) {
   await page.addInitScript(() => window.localStorage.setItem('budgeter:onboarding-complete', 'true'));
   await page.goto('/');
   await page.waitForFunction(() => typeof (window as any).__budgetaEmulatorSignIn === 'function', null, { timeout: 90_000 });
-  await page.evaluate(({ email, password }) => (window as any).__budgetaEmulatorSignIn(email, password), OWNER);
+  await page.evaluate(({ email, password }) => (window as any).__budgetaEmulatorSignIn(email, password), who);
   await page.waitForURL(/\/(dashboard|shopping|budgets|transactions)/, { timeout: 60_000 });
   return {
     assertOnlyLoopback: () => {
