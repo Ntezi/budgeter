@@ -348,6 +348,15 @@ export default function AccountsScreen() {
               <Text className="min-w-0 flex-1 text-sm font-medium text-foreground dark:text-zinc-50">Daily reminder</Text>
               <Switch value={form.dailyReminderEnabled} onValueChange={(dailyReminderEnabled) => setForm({ ...form, dailyReminderEnabled })} accessibilityLabel="Daily reminder" />
             </View>
+            {/* The reminder itself (on/off, email, hour) lives only in Settings › Daily reminder. */}
+            <AppButton
+              label="Reminder email and time"
+              variant="ghost"
+              size="touch"
+              className="self-start px-0"
+              testID="account-reminder-settings-link"
+              onPress={() => accountSheet.hide(() => router.push('/settings?page=reminder' as never))}
+            />
             {form.id ? (
               archiveAsk ? (
                 <View className="gap-2 rounded-xl border border-border p-3 dark:border-zinc-800" testID="archive-confirm">
