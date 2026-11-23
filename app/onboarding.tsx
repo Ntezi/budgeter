@@ -4,7 +4,6 @@ import { useRouter } from 'expo-router';
 import { AppButton } from '@/components/ui/AppButton';
 import { cn } from '@/lib/cn';
 import { setOnboardingComplete } from '@/lib/onboarding';
-import { rememberPlanAfterSignIn } from '@/components/onboarding/planIntent';
 import { monthIdFromDate } from '@/lib/rules/months';
 import { periodTitleFromId } from '@/lib/repo/periods';
 
@@ -16,8 +15,8 @@ const GROUPS = [
 
 /**
  * BUDG-8 01: three skippable steps, no writes (C-10). The seen flag is the existing lib/onboarding.
- * Step 3 "Plan <Month>" remembers (in memory) to open /budgets?new=1 after sign-in: Plan with the New
- * month sheet on the current month.
+ * Step 3 "Plan <Month>" goes to /auth?next=/budgets?new=1; the root gate keeps that link through
+ * sign-in, landing on Plan with the New month sheet on the current month.
  */
 export default function OnboardingScreen() {
   const router = useRouter();
@@ -72,8 +71,8 @@ export default function OnboardingScreen() {
           {step === 2 ? (
             <>
               <AppButton label={`Plan ${monthTitle}`} size="touch-lg" className="w-full" onPress={() => {
-                  rememberPlanAfterSignIn();
-                  void finish('/auth');
+                  // The intent travels as a URL; the root gate keeps it through sign-in (lib/rules/appGate.ts).
+                  void finish(`/auth?next=${encodeURIComponent('/budgets?new=1')}`);
                 }} />
               <AppButton label="Look around first" variant="ghost" size="touch" className="w-full" onPress={() => void finish('/dashboard')} />
             </>

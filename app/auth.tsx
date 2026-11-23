@@ -1,9 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Image, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { AppButton } from '@/components/ui/AppButton';
-import { router } from 'expo-router';
-import { takePlanAfterSignIn } from '@/components/onboarding/planIntent';
 import { useAuth, useAuthUser } from '@/providers/AuthProvider';
 import { useThemeMode } from '@/providers/ThemeProvider';
 
@@ -22,12 +20,6 @@ export default function AuthScreen() {
   const user = useAuthUser();
   const [pending, setPending] = useState(false);
 
-  // Onboarding step 3 ("Plan <Month>"): once signed in, open Plan with the New month sheet. The root gate
-  // sends a fresh sign-in to Home in the same commit, so this replace runs just after it.
-  useEffect(() => {
-    if (!user || !takePlanAfterSignIn()) return;
-    setTimeout(() => router.replace('/budgets?new=1' as never), 50);
-  }, [user]);
   const [error, setError] = useState<string | null>(null);
 
   async function onSignIn() {

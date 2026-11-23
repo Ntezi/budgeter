@@ -7,7 +7,7 @@ import { AuthProvider, useAuth } from '@/providers/AuthProvider';
 import { ThemeProvider, useThemeMode } from '@/providers/ThemeProvider';
 import { WorkspaceProvider, useWorkspace } from '@/providers/WorkspaceProvider';
 import { getOnboardingComplete } from '@/lib/onboarding';
-import { decideGate } from '@/lib/rules/appGate';
+import { decideGate, nextFromLocation } from '@/lib/rules/appGate';
 import { firstRouteFor } from '@/lib/shell/nav';
 
 // The navigator mounts only after auth/workspace load, so on web a refresh or deep link
@@ -17,7 +17,8 @@ let pendingReturnPath: string | null = initialDeepLink();
 function initialDeepLink() {
   if (Platform.OS !== 'web' || typeof window === 'undefined') return null;
   const { pathname, search } = window.location;
-  if (pathname === '/' || pathname.startsWith('/auth') || pathname.startsWith('/onboarding')) return null;
+  if (pathname.startsWith('/auth') || pathname.startsWith('/onboarding')) return nextFromLocation(`${pathname}${search}`);
+  if (pathname === '/') return null;
   return `${pathname}${search}`;
 }
 
