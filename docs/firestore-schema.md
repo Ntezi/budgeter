@@ -159,3 +159,14 @@ Potential future indexes:
 2. `users/{uid}/periods/{pid}/allocations` on `createdAt`.
 3. `users/{uid}/allocationDefaults` on `createdAt`.
 4. `users/{uid}/accounts` on `createdAt`.
+
+## Default funding accounts (BUDG-3)
+
+Draft, branch `atelier/BUDG-3-default-accounts`. No migration: old lines and sources simply lack the fields.
+
+- `users/{owner}/expenses/{id}` and `users/{owner}/recurring/{id}` gain `defaultAccountId?: string` (an `accounts/{id}` doc id) and `defaultAccountUpdatedAt?: timestamp`. Links are Firestore doc ids under the workspace owner, never display names, so renaming a category or account keeps the link.
+- `periods/{pid}/planItems/{id}` gains `sourceType?: 'EXPENSE_ITEM' | 'RECURRING' | 'YEAR_ITEM'`, `sourceId?`, `accountChoice?: 'DEFAULT' | 'EXPLICIT' | 'REPAIR'`, `repairReason?`, `suggestedAccountId?`.
+- Deterministic ids: a line added from an expense item is `exp_{expenseItemId}` (one per month; the month is in the path); template lines keep `recbudget_plan_{templateId}_{pid}`. Ids are built from server ids only (`[A-Za-z0-9_-]`).
+- Eligible account: exists, not archived, `currencyCode` absent or equal to the app currency. Otherwise the UI asks the user to choose (repair); it never switches silently.
+- Money: applying an account to a line (Add with the pre-filled account, a change on a line, or Review → Apply all) writes the same `allocations/item_plan_{lineId}` the existing account selector writes; this earmarks the line amount in the account's computed balance, as before. Changing a source's default writes the source doc only. Template seeding writes `suggestedAccountId` and no allocation. No code path here creates a transaction or touches another month.
+- Locks: every line write runs in `runTransaction` that reads the period and requires `DRAFT`, so a concurrent `DECIDED` aborts it. **This is a client-transaction guarantee, not a rule guarantee (SEC-14):** `firestore.rules` grants every workspace member read/write on `users/{owner}/**`, and Firestore ORs matching allows, so no narrower `match` can restrict these fields while that wildcard exists. Residual risk R-1, for Marius.

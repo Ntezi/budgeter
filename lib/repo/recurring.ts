@@ -25,6 +25,9 @@ export type Recurring = {
     end?: string;                // YYYY-MM inclusive
     note?: string;
     workspaceId?: string;
+    /** BUDG-3: future default funding account (accounts/{id} doc id). */
+    defaultAccountId?: string;
+    defaultAccountUpdatedAt?: unknown;
 };
 
 export const recCol = (uid: string) => collection(db, 'users', uid, 'recurring');
@@ -347,6 +350,10 @@ export async function seedBudgetFromRecurring(
                 amount: r.amount,
                 group: (r.group ?? 'NEED') as Group,
                 priority: nextPriority,
+                // BUDG-3: link only; the suggestion is applied by an explicit Review, never here (SEC-21).
+                sourceType: 'RECURRING',
+                sourceId: r.id,
+                ...(r.defaultAccountId ? {suggestedAccountId: r.defaultAccountId} : {}),
             });
             planWritten++;
             nextPriority++;
