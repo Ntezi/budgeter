@@ -20,6 +20,7 @@ export default defineConfig({
   },
   projects: [
     { name: 'w320', use: { viewport: { width: 320, height: 740 } } },
+    { name: 'w390', use: { viewport: { width: 390, height: 844 } } },
     { name: 'w1440', use: { viewport: { width: 1440, height: 900 } } },
   ],
 });

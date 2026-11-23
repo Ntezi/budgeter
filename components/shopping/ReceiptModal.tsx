@@ -197,7 +197,7 @@ export function ReceiptModal({ open, onClose, onSaved, ownerUid, actorUid, accou
         <View className="gap-3">
           <View className="flex-row gap-2">
             <AppInput value={storeName} onChangeText={setStoreName} placeholder="Store (optional)" accessibilityLabel="Store" className="flex-1" />
-            <AppInput value={purchaseDate} onChangeText={setPurchaseDate} placeholder="YYYY-MM-DD" accessibilityLabel="Purchase date" className="w-32 text-center" />
+            <AppInput value={purchaseDate} onChangeText={setPurchaseDate} placeholder="YYYY-MM-DD" accessibilityLabel="Purchase date" className="w-28 text-center" />
           </View>
           <Text className="text-xs text-muted-foreground">Check each item, quantity and the price paid.</Text>
           {parsed.map((p) => (
@@ -211,7 +211,7 @@ export function ReceiptModal({ open, onClose, onSaved, ownerUid, actorUid, accou
                 <View className="flex-1">
                   <DropdownField value={p.l.unit} options={UNIT_OPTIONS} onChange={(v) => setLine(p.l.lineId, { unit: v })} placeholder="Unit" menuStrategy="inline" />
                 </View>
-                <AppInput value={p.l.total} onChangeText={(v) => setLine(p.l.lineId, { total: v })} keyboardType="decimal-pad" placeholder="Paid" accessibilityLabel="Price paid" className="w-24 text-center" />
+                <AppInput value={p.l.total} onChangeText={(v) => setLine(p.l.lineId, { total: v })} keyboardType="decimal-pad" placeholder="Paid" accessibilityLabel="Price paid" className="w-20 text-center" />
               </View>
               <DropdownField value={p.l.catalogItemId} options={catalogOptions} onChange={(v) => setLine(p.l.lineId, { catalogItemId: v })} placeholder="Catalog item" menuStrategy="inline" />
               <View className="flex-row flex-wrap items-center justify-between gap-2">
