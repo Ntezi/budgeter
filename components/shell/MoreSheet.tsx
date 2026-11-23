@@ -22,7 +22,7 @@ export function MoreSheet({ open, items, onClose, onGo }: Props) {
           <ListRow key={it.id} title={it.label} accessibilityLabel={it.label} left={<NavIcon name={it.icon} size={22} />} onPress={() => onGo(it.href)} />
         ))}
       </ListGroup>
-      <WorkspaceSwitcher />
+      <WorkspaceSwitcher onManage={() => onGo('/settings?page=workspace')} />
       <View className="flex-row gap-2">
         <AppButton label="Light" size="touch" className="flex-1" variant={theme === 'light' ? 'primary' : 'outline'} aria-pressed={theme === 'light'} onPress={() => void setTheme('light')} />
         <AppButton label="Dark" size="touch" className="flex-1" variant={theme === 'dark' ? 'primary' : 'outline'} aria-pressed={theme === 'dark'} onPress={() => void setTheme('dark')} />

@@ -59,7 +59,7 @@ export function Sidebar({ primary, more, activeItemId, activeAreaId, onGo, onAdd
         ))}
       </ScrollView>
       <View className="px-4 pb-4">
-        <WorkspaceSwitcher />
+        <WorkspaceSwitcher onManage={() => onGo('/settings?page=workspace')} />
       </View>
     </View>
   );
