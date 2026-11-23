@@ -37,7 +37,7 @@ export function Sidebar({ primary, more, activeItemId, activeAreaId, onGo, onAdd
   return (
     <View role="navigation" aria-label="Main" testID="sidebar" className="w-64 border-r border-border bg-sidebar dark:border-zinc-800 dark:bg-zinc-900">
       <View className="gap-4 px-4 pb-3 pt-5">
-        <Image source={logo} className="h-8 w-[180px]" resizeMode="contain" accessibilityLabel="Budgeta" />
+        <Image source={logo} style={{ width: 180, height: 32 }} resizeMode="contain" accessibilityLabel="Budgeta" />
         <Pressable
           testID="add-button"
           accessibilityRole="button"

@@ -19,7 +19,9 @@ export default defineConfig({
     trace: 'off',
   },
   projects: [
-    { name: 'w320', use: { viewport: { width: 320, height: 740 } } },
-    { name: 'w1440', use: { viewport: { width: 1440, height: 900 } } },
+    { name: 'w320', testIgnore: /budg-8/, use: { viewport: { width: 320, height: 740 } } },
+    { name: 'w1440', testIgnore: /budg-8/, use: { viewport: { width: 1440, height: 900 } } },
+    // BUDG-8 shell and Add sheet: the spec sets 320/390/768/1024/1440 and light/dark itself.
+    { name: 'budg8', testMatch: /budg-8/, use: { viewport: { width: 390, height: 844 } } },
   ],
 });

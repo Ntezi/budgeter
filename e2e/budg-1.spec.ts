@@ -75,7 +75,7 @@ test('AC-5 viewed month never changes the posting month', async ({ page }, info)
   const guard = await signIn(page, info);
   await page.goto(`/transactions?month=${CUR}`);
   await page.goto(`/transactions?month=${PREV}`);
-  await page.getByText('Shopping', { exact: true }).last().click(); // the Source filter, not the nav link
+  await page.getByRole('main').getByText('Shopping', { exact: true }).last().click(); // the Source filter, not the nav link
   await page.goBack();
   await page.reload();
   await expect(page).toHaveURL(new RegExp(`month=${CUR}`));
@@ -86,12 +86,11 @@ test('AC-5 viewed month never changes the posting month', async ({ page }, info)
 
   await page.getByText('Add Expense', { exact: true }).first().click();
   await expect(page.getByText(`Posts to ${monthTitle(CUR)}`, { exact: false })).toBeVisible();
-  await page.getByText('Select budget line').click();
-  await page.getByText(/^Groceries ·/).click();
+  await page.getByRole('button', { name: 'Groceries', exact: true }).click(); // BUDG-8: line chip replaces the dropdown
   await page.getByPlaceholder('0.00').fill('12.50');
   await expect(page.getByText(`Posts to ${monthTitle(CUR)} · Household account ·`, { exact: false })).toBeVisible();
   await shot(page, info, 'AC-5-expense-form-posts-to-date-month');
-  await page.getByText('Save Expense').dblclick();
+  await page.getByRole('button', { name: 'Save expense' }).dblclick();
   await expect(page.getByText(`Expense saved to ${monthTitle(CUR)}.`)).toBeVisible();
   await page.waitForTimeout(1000);
   const curRows = await listIds('periods', CUR, 'transactions');
@@ -116,9 +115,9 @@ test('AC-5 viewed month never changes the posting month', async ({ page }, info)
 test('AC-6 Home: one step to the expense form; shopping total opens filtered Transactions', async ({ page }, info) => {
   const guard = await signIn(page, info);
   await page.goto('/dashboard');
-  await page.getByLabel('Add expense').click();
+  await page.getByRole('main').getByLabel('Add expense').click(); // BUDG-8: the shell + has the same name
   await expect(page).toHaveURL(/\/transactions/);
-  await expect(page.getByText('Save Expense')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save expense' })).toBeVisible();
   await shot(page, info, 'AC-6-home-add-expense-one-step');
 
   await page.goto('/dashboard');

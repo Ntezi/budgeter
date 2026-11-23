@@ -16,25 +16,41 @@ export function useSheet() {
   const pushedRef = useRef(false);
   const afterRef = useRef<null | (() => void)>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
+  const closingRef = useRef(false);
 
   const finish = useCallback(() => {
+    closingRef.current = false;
     setOpen(false);
     const after = afterRef.current;
     afterRef.current = null;
     const trigger = triggerRef.current;
-    setTimeout(() => {
-      if (WEB && trigger && document.contains(trigger)) trigger.focus();
-      if (after) after();
-    }, 0);
+    // The modal keeps focus trapped until its close animation ends, so retry until focus lands.
+    setTimeout(() => after?.(), 0);
+    if (!WEB || !trigger) return;
+    let tries = 0;
+    const tick = () => {
+      if (!document.contains(trigger) || document.activeElement === trigger || tries++ > 20) return;
+      trigger.focus();
+      setTimeout(tick, 50);
+    };
+    setTimeout(tick, 0);
   }, []);
 
-  const show = useCallback(() => {
-    if (WEB) triggerRef.current = (document.activeElement as HTMLElement) || null;
+  /** Pass the press event when you have it: on web a pressed div may not hold focus. */
+  const show = useCallback((e?: unknown) => {
+    if (WEB) {
+      const active = document.activeElement as HTMLElement | null;
+      const target = (e as { currentTarget?: unknown } | undefined)?.currentTarget;
+      const fromEvent = target instanceof HTMLElement ? (target.closest('button, a, [role="button"], [tabindex]') as HTMLElement | null) : null;
+      triggerRef.current = active && active !== document.body ? active : fromEvent;
+    }
     setOpen(true);
   }, []);
 
   const hide = useCallback(
     (after?: () => void) => {
+      if (closingRef.current) return; // Escape can arrive twice (our listener and the Modal's)
+      closingRef.current = true;
       afterRef.current = after ?? null;
       if (WEB && pushedRef.current) {
         window.history.back(); // popstate below finishes the close
@@ -54,9 +70,20 @@ export function useSheet() {
       pushedRef.current = false;
       finish();
     };
+    // Escape closes from anywhere in the sheet, a focused text field included.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') hideRef.current();
+    };
     window.addEventListener('popstate', onPop);
-    return () => window.removeEventListener('popstate', onPop);
+    window.addEventListener('keydown', onKey, true);
+    return () => {
+      window.removeEventListener('popstate', onPop);
+      window.removeEventListener('keydown', onKey, true);
+    };
   }, [open, finish]);
+
+  const hideRef = useRef(() => hide());
+  hideRef.current = () => hide();
 
   return { open, show, hide };
 }

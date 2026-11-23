@@ -2,6 +2,7 @@ import React, { useCallback, useMemo } from 'react';
 import { Image, Pressable, View, useWindowDimensions } from 'react-native';
 import { Slot, usePathname, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { AddSheetProvider, useAddSheet } from '@/components/add/AddSheetContext';
 import { useSheet } from '@/components/patterns/AppSheet';
 import { BottomBar } from '@/components/shell/BottomBar';
 import { MonthChip } from '@/components/shell/MonthChip';
@@ -18,6 +19,14 @@ import { useThemeMode } from '@/providers/ThemeProvider';
  * Each screen still renders its own heading, so the shell shows no page title (title once).
  */
 export default function ShellLayout() {
+  return (
+    <AddSheetProvider>
+      <Shell />
+    </AddSheetProvider>
+  );
+}
+
+function Shell() {
   const { width } = useWindowDimensions();
   const mode = layoutFor(width);
   const pathname = usePathname();
@@ -33,7 +42,7 @@ export default function ShellLayout() {
   const chip = showsMonthChip(pathname);
 
   const go = useCallback((href: string) => router.push(href as any), [router]);
-  const onAdd = useCallback(() => router.push('/transactions?action=new-expense' as any), [router]);
+  const { openAdd: onAdd } = useAddSheet();
   const logo =
     theme === 'dark'
       ? require('../../assets/images/logo/budgeter_logo_white_280x72.png')
@@ -49,7 +58,7 @@ export default function ShellLayout() {
           <View className="min-w-0 flex-1">
             {mode === 'phone' ? (
               <View testID="top-bar" className="h-14 flex-row items-center gap-2 border-b border-border bg-card pl-4 pr-1 dark:border-zinc-800 dark:bg-zinc-900">
-                <Image source={logo} className="h-6 w-[96px]" resizeMode="contain" accessibilityLabel="Budgeta" />
+                <Image source={logo} style={{ width: 96, height: 24 }} resizeMode="contain" accessibilityLabel="Budgeta" />
                 <View className="min-w-0 flex-1" />
                 {chip ? <MonthChip /> : null}
                 <Pressable testID="more-button" accessibilityRole="button" accessibilityLabel="More" onPress={more.show} className="h-11 w-11 items-center justify-center rounded-md">

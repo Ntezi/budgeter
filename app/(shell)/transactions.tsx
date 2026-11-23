@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ExpenseFormModal } from '@/components/ExpenseFormModal';
+import { useAddSheet } from '@/components/add/AddSheetContext';
 import { localDateISO, postingPeriodId } from '@/lib/rules/postingMonth';
 import { isMonthId, monthTitle } from '@/lib/rules/months';
 import { Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
@@ -64,8 +64,8 @@ export default function TransactionsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ month?: string; scope?: string; action?: string }>();
   const monthParam = typeof params.month === 'string' && isMonthId(params.month) ? params.month : '';
-  const [expenseFormOpen, setExpenseFormOpen] = useState(false);
-  const [savedNotice, setSavedNotice] = useState('');
+  // BUDG-8 S3: the shell's Add sheet replaces the page's expense modal (and handles ?action=new-expense).
+  const { openAdd } = useAddSheet();
 
   const [periods, setPeriods] = useState<(PeriodDoc & { id: string })[]>([]);
   const [selectedPid, setSelectedPidState] = useState(monthParam || defaultPid);
@@ -107,12 +107,6 @@ export default function TransactionsScreen() {
   useEffect(() => {
     if (params.scope === 'SHOPPING') setScopeFilter('SHOPPING');
   }, [params.scope]);
-
-  useEffect(() => {
-    if (params.action !== 'new-expense') return;
-    setExpenseFormOpen(true);
-    router.setParams({ action: '' });
-  }, [params.action, router]);
 
   useEffect(() => {
     if (!uid) return;
@@ -542,11 +536,10 @@ export default function TransactionsScreen() {
         </View>
         <View className="flex-row flex-wrap items-center gap-2">
           <AppBadge label={periodStatus} variant={readOnly ? 'secondary' : 'success'} />
-          <AppButton label="Add Expense" size="sm" onPress={() => setExpenseFormOpen(true)} textClassName="text-white" />
+          <AppButton label="Add Expense" size="sm" onPress={openAdd} textClassName="text-white" />
         </View>
       </View>
       <Text className="text-xs text-muted-foreground">Viewing {monthTitle(selectedPid)}. New expenses post to the month of their date.</Text>
-      {savedNotice ? <Text className="text-xs text-muted-foreground">{savedNotice}</Text> : null}
       {readOnly ? <Text className="text-xs text-muted-foreground">Closed budgets are view-only.</Text> : null}
 
       <View className="grid grid-cols-1 gap-3 md:grid-cols-4">
@@ -938,12 +931,6 @@ export default function TransactionsScreen() {
         )}
       </AppCard>
 
-      <ExpenseFormModal
-        open={expenseFormOpen}
-        uid={uid}
-        onClose={() => setExpenseFormOpen(false)}
-        onSaved={(pid) => setSavedNotice(`Expense saved to ${monthTitle(pid)}.`)}
-      />
       <AppModal open={Boolean(mobileDetailId)} onClose={closeMobileDetail} title="Transaction Details">
         {mobileDetailRow && mobileDetailEdit ? (
           <View className="gap-3">
