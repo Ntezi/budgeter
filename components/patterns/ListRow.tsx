@@ -14,11 +14,13 @@ type Props = {
   testID?: string;
   /** Lines the title may use before it truncates; 0 = wrap freely (for sentences such as Needs-you rows). */
   titleLines?: number;
+  /** Lines the muted sub line may use; 0 = wrap freely (when it carries an amount). */
+  subLines?: number;
   titleTestID?: string;
 };
 
 /** Name left, amount right, one muted line under it; whole row is the target (min 56 px). */
-export function ListRow({ title, sub, amount, amountClassName, left, onPress, accessibilityLabel, testID, titleLines = 1, titleTestID }: Props) {
+export function ListRow({ title, sub, amount, amountClassName, left, onPress, accessibilityLabel, testID, titleLines = 1, titleTestID, subLines = 1 }: Props) {
   // A wrapping title (sentence) takes the full width; its amount drops below it so neither is cut.
   const wrap = titleLines <= 0;
   const body = (
@@ -29,7 +31,7 @@ export function ListRow({ title, sub, amount, amountClassName, left, onPress, ac
           {title}
         </Text>
         {sub ? (
-          <Text className="text-sm text-muted-foreground dark:text-zinc-400" numberOfLines={1}>
+          <Text className="text-sm text-muted-foreground dark:text-zinc-400" numberOfLines={subLines > 0 ? subLines : undefined}>
             {sub}
           </Text>
         ) : null}

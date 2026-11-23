@@ -226,16 +226,18 @@ test('S8 Accounts: balances, detail, Move money (pre-fill, cap, explicit Save), 
   // through the existing manual-balance sheet so a move is possible.
   await open(page, '/accounts?id=acc-household', 390);
   await page.getByTestId('detail-actual').click();
-  await page.getByLabel('Manual balance').fill('5000');
+  await page.getByTestId('manual-input').fill('5000');
   await page.getByRole('button', { name: 'Save balance' }).click();
   await expect(page.getByTestId('manual-sheet')).toBeHidden();
+  await expect(page.getByTestId('detail-actual')).toContainText(fmtMoney(5000));
+  await open(page, '/accounts?id=acc-household', 390); // fresh history after the sheet's own Back entry
 
   // Detail: Accounts (1) -> row (2) -> Move money (3) -> To (4) -> amount -> Move money (5).
   const txBefore = await listIds('periods', CUR, 'transactions');
   await expect(page.getByTestId('account-month').getByText('Set aside for plans')).toBeVisible();
   await page.getByTestId('detail-move').click();
   const sheet = page.getByTestId('move-sheet');
-  await expect(page.getByTestId('move-form')).toBeVisible();
+  await expect(page.getByTestId('move-money-form')).toBeVisible();
   await page.getByTestId('move-from').getByRole('radio', { name: 'From Household account' }).click();
   await page.getByTestId('move-to').getByRole('radio').first().click();
   const toName = ((await page.getByTestId('move-to').getByRole('radio', { checked: true }).getAttribute('aria-label')) || '').replace(/^To /, '');
@@ -257,9 +259,9 @@ test('S8 Accounts: balances, detail, Move money (pre-fill, cap, explicit Save), 
 
   // Escape closes the sheet and returns focus to the trigger; nothing written.
   await page.getByTestId('detail-move').click();
-  await expect(page.getByTestId('move-form')).toBeVisible();
+  await expect(page.getByTestId('move-money-form')).toBeVisible();
   await page.keyboard.press('Escape');
-  await expect(page.getByTestId('move-form')).toBeHidden();
+  await expect(page.getByTestId('move-money-form')).toBeHidden();
   await expect(page.getByTestId('detail-move')).toBeFocused();
   // Row opens the detail as a pushed screen; Back returns to the list.
   await open(page, '/accounts', 390);
@@ -289,7 +291,7 @@ test('S8 Accounts: balances, detail, Move money (pre-fill, cap, explicit Save), 
   // Add sheet: Move money segment is the same form, finished in place.
   await page.getByTestId('add-button').first().click();
   await page.getByRole('button', { name: 'Move money', exact: true }).or(page.getByRole('tab', { name: 'Move money' })).first().click();
-  await expect(page.getByTestId('move-form')).toBeVisible();
+  await expect(page.getByTestId('move-money-form')).toBeVisible();
   await expect(page.getByTestId('move-save')).toBeVisible();
   await snap(page, 'S8-add-sheet-move-w390-light');
   await page.keyboard.press('Escape');

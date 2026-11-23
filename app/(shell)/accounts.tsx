@@ -55,6 +55,7 @@ function AccountRow({ vm, balance, selected, onPress }: { vm: AccountViewModel; 
       <ListRow
         testID={`account-row-${vm.accountId}`}
         title={vm.accountName}
+        subLines={0}
         sub={`${TYPE_LABEL[(vm.accountType ?? 'OTHER') as WalletType] ?? 'Other'} · ${hint.text}`}
         amount={fmtMoney(balance)}
         amountClassName={balance < 0 ? 'text-destructive dark:text-red-300' : undefined}
@@ -383,7 +384,7 @@ export default function AccountsScreen() {
       >
         {manualSheet.open ? (
           <FormField label={`Balance for ${month}`}>
-            <AppInput autoFocus value={manualDraft} onChangeText={setManualDraft} keyboardType="decimal-pad" inputMode="decimal" accessibilityLabel="Manual balance" style={{ height: 44 }} />
+            <AppInput autoFocus value={manualDraft} onChangeText={setManualDraft} keyboardType="decimal-pad" inputMode="decimal" accessibilityLabel="Manual balance" testID="manual-input" style={{ height: 44 }} />
           </FormField>
         ) : null}
       </AppSheet>
