@@ -6,10 +6,11 @@ import { deleteApp, initializeApp } from 'firebase/app';
 import { collection, connectFirestoreEmulator, doc, getDoc, getDocs, getFirestore, terminate } from 'firebase/firestore';
 import { connectAuthEmulator, getAuth, signInWithEmailAndPassword } from 'firebase/auth';
 import { resolveFirebaseTarget } from '../../lib/firebaseEmulator';
+import { emulatorPorts } from '../../lib/emulatorPorts';
 import { createPeriodDocIfAbsent } from '../../lib/repo/periodCreateCore';
 import { addMonthsToId, monthIdFromDate } from '../../lib/rules/months';
 
-const target = resolveFirebaseTarget({ useEmulators: '1', projectId: 'demo-budgeta', host: '127.0.0.1' });
+const target = resolveFirebaseTarget({ useEmulators: '1', projectId: 'demo-budgeta', host: '127.0.0.1', authPort: String(emulatorPorts().auth), firestorePort: String(emulatorPorts().firestore) });
 if (!target.useEmulators) throw new Error('emulator target required');
 const app = initializeApp({ projectId: 'demo-budgeta', apiKey: 'demo-api-key' }, `emu-test-${Date.now()}`);
 const db = getFirestore(app);

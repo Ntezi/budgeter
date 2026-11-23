@@ -2,6 +2,7 @@
 // Start the app first with `npm run web:emulators`; every test aborts and
 // fails on any request to a host other than localhost/127.0.0.1.
 import { defineConfig } from '@playwright/test';
+import { emulatorPorts } from './lib/emulatorPorts';
 
 export default defineConfig({
   testDir: './e2e',
@@ -12,7 +13,7 @@ export default defineConfig({
   reporter: [['list']],
   outputDir: 'test-results',
   use: {
-    baseURL: process.env.E2E_BASE_URL || 'http://127.0.0.1:8081',
+    baseURL: process.env.E2E_BASE_URL || `http://127.0.0.1:${emulatorPorts().web}`,
     channel: 'chrome',
     headless: true,
     trace: 'off',
