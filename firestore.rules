@@ -12,13 +12,30 @@ service cloud.firestore {
       return isSelf(ownerUid) || isWorkspaceMember(ownerUid);
     }
 
+    // SEC-1 (BUDG-4): the membership id is bound to its fields, keys are allowlisted
+    // and ownerUid/memberUid can never change, so nobody can forge {owner}_{me}.
+    function notAnonymous() { return request.auth.token.firebase.sign_in_provider != 'anonymous'; }
+    function memberKeys() {
+      return ['ownerUid', 'ownerEmail', 'ownerName', 'memberUid', 'memberEmail', 'memberName',
+              'role', 'status', 'createdAt', 'updatedAt'];
+    }
+
     match /workspaceMembers/{membershipId} {
-      allow create: if isSignedIn() &&
+      allow create: if isSignedIn() && notAnonymous() &&
+        request.resource.data.keys().hasOnly(memberKeys()) &&
         request.resource.data.ownerUid == request.auth.uid &&
-        request.resource.data.memberUid is string;
+        request.resource.data.memberUid is string &&
+        request.resource.data.memberUid.size() > 0 &&
+        request.resource.data.memberUid != request.auth.uid &&
+        membershipId == membershipDocId(request.resource.data.ownerUid, request.resource.data.memberUid) &&
+        request.resource.data.status == 'ACTIVE';
       allow read: if isSignedIn() &&
         (resource.data.ownerUid == request.auth.uid || resource.data.memberUid == request.auth.uid);
-      allow update, delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+      allow update: if isSignedIn() && resource.data.ownerUid == request.auth.uid &&
+        request.resource.data.keys().hasOnly(memberKeys()) &&
+        request.resource.data.ownerUid == resource.data.ownerUid &&
+        request.resource.data.memberUid == resource.data.memberUid;
+      allow delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
     }
 
     function isOwner() { return isSignedIn() && request.auth.uid == resource.data.ownerId; }
