@@ -1,24 +1,25 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, ScrollView, Text, View } from 'react-native';
-import { AppCard } from '@/components/ui/AppCard';
+import { Alert, ScrollView, Text, View, useWindowDimensions } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useSheet } from '@/components/patterns/AppSheet';
+import { PageHeader } from '@/components/patterns/PageHeader';
+import { EmptyState, LoadingState } from '@/components/patterns/States';
+import { Disclosure, LabelValue, PricesCard, ReportCard, SpendBreakdownCard, TrendCard, type ShareRow, type TrendRange } from '@/components/reports/ReportCards';
+import { ExportSheet } from '@/components/reports/ExportSheet';
+import { addMonthsToId } from '@/lib/rules/months';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppBadge } from '@/components/ui/AppBadge';
-import { AppProgressBar } from '@/components/ui/AppProgressBar';
 import { useWorkspaceUid } from '@/providers/WorkspaceProvider';
-import { type PeriodDoc, periodTitleFromId, watchPeriods } from '@/lib/repo/periods';
+import { type PeriodDoc, periodIdFromDate, periodTitleFromId, watchPeriods } from '@/lib/repo/periods';
 import { fetchAccountsReport, fetchPeriodReport, type AccountReport, type PeriodReport } from '@/lib/repo/reports';
 import { watchExpenses, type ExpenseItem } from '@/lib/repo/expenses';
 import { buildWorkbook, exportWorkbook } from '@/lib/export';
 import { fmtMoney } from '@/lib/format';
-import { PieChart } from '@/components/components/PieChart';
 import { Colors } from '@/lib/budget';
 import { walletTagLabel } from '@/lib/domain';
-import { cn } from '@/lib/cn';
 import { useThemeMode } from '@/providers/ThemeProvider';
 import { transactionSignedBudgetAmount } from '@/lib/accounting';
 
-import { DropdownField } from '@/components/ui/DropdownField';
-import { LineChart } from '@/components/components/LineChart';
 import {
   watchShoppingListItems,
   watchShoppingLists,
@@ -485,10 +486,22 @@ export default function ReportsScreen() {
   const [catalog, setCatalog] = useState<ShoppingCatalogItem[]>([]);
   const [selectedItemId, setSelectedItemId] = useState('');
   const [priceHistory, setPriceHistory] = useState<PriceHistoryEntry[]>([]);
+  // BUDG-8 S14: viewed month from the MonthChip, trend range, export sheet.
+  const params = useLocalSearchParams<{ month?: string }>();
+  const router = useRouter();
+  const { width } = useWindowDimensions();
+  const desktop = width >= 1024;
+  const exportSheet = useSheet();
+  const [range, setRange] = useState<TrendRange>('6');
+  const [exportError, setExportError] = useState('');
+  const [periodsLoaded, setPeriodsLoaded] = useState(false);
 
   useEffect(() => {
     if (!uid) return;
-    return watchPeriods(uid, setPeriods);
+    return watchPeriods(uid, (rows) => {
+      setPeriods(rows);
+      setPeriodsLoaded(true);
+    });
   }, [uid]);
 
   useEffect(() => {
@@ -773,6 +786,7 @@ export default function ReportsScreen() {
       await exportWorkbook(buildBudgetWorkbook(report), `budget_${pid}`);
     } catch (e: unknown) {
       Alert.alert('Export failed', e instanceof Error ? e.message : String(e));
+      setExportError("The file couldn't be made. Try again.");
     } finally {
       setExportingById((prev) => ({ ...prev, [pid]: false }));
     }
@@ -787,6 +801,7 @@ export default function ReportsScreen() {
       await exportWorkbook(buildAccountsWorkbook(report), 'accounts_summary');
     } catch (e: unknown) {
       Alert.alert('Export failed', e instanceof Error ? e.message : String(e));
+      setExportError("The file couldn't be made. Try again.");
     } finally {
       setAccountExporting(false);
     }
@@ -812,6 +827,7 @@ export default function ReportsScreen() {
       );
     } catch (e: unknown) {
       Alert.alert('Export failed', e instanceof Error ? e.message : String(e));
+      setExportError("The file couldn't be made. Try again.");
     } finally {
       setFullExportingById((prev) => ({ ...prev, [pid]: false }));
     }
@@ -828,452 +844,174 @@ export default function ReportsScreen() {
     }
   }
 
+  // ---- BUDG-8 S14 layout (08-reports-export.md); the calculations above are unchanged ----
+  const monthParam = typeof params.month === 'string' && /^\d{4}-\d{2}$/.test(params.month) ? params.month : '';
+  const pid = monthParam || periodIdFromDate();
+  const monthLabel = periodTitleFromId(pid);
+  const monthName = monthLabel.split(' ')[0];
+  const period = periods.find((row) => row.id === pid);
+  const report = reportsById[pid];
+  const lineColor = theme === 'dark' ? '#22C55E' : '#16A34A';
+  const axisColor = theme === 'dark' ? '#A1A1AA' : '#717182';
+
+  // Data refreshes on open: the viewed month and the trend range load without a button.
+  useEffect(() => {
+    if (period) void loadReport(pid);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pid, period?.id]);
+  useEffect(() => {
+    periods.slice(0, Number(range)).forEach((row) => {
+      if (!reportsById[row.id]) void loadReport(row.id);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [periods, range]);
+
+  const spentNow = report?.totals.transactions.total || 0;
+  const shareRows: ShareRow[] = report
+    ? [
+        { label: 'Needs', amount: report.totals.transactions.needs || 0, color: 'bg-needs' },
+        { label: 'Wants', amount: report.totals.transactions.wants || 0, color: 'bg-wants' },
+        { label: 'Savings', amount: report.totals.transactions.sd || 0, color: 'bg-savings' },
+      ].map((row) => ({ ...row, pct: (row.amount / Math.max(spentNow, 1)) * 100 }))
+    : [];
+  const insight = report ? analyzePeriodBehavior(report) : null;
+
+  const trendPoints = periods
+    .slice(0, Number(range))
+    .filter((row) => reportsById[row.id])
+    .reverse()
+    .map((row) => ({ x: periodTitleFromId(row.id).slice(0, 3), y: reportsById[row.id].totals.transactions.total || 0 }));
+  const prevId = addMonthsToId(pid, -1);
+  const prevReport = reportsById[prevId];
+  let trendSentence = 'Spending per month for the months you have.';
+  if (report && prevReport) {
+    const prevSpent = prevReport.totals.transactions.total || 0;
+    const diff = spentNow - prevSpent;
+    const pct = prevSpent > 0 ? Math.round((Math.abs(diff) / prevSpent) * 100) : 0;
+    trendSentence =
+      diff === 0 || pct === 0
+        ? `Spent about the same as ${periodTitleFromId(prevId).split(' ')[0]}.`
+        : `Spent ${pct}% ${diff < 0 ? 'less' : 'more'} than ${periodTitleFromId(prevId).split(' ')[0]}.`;
+  }
+
+  function runMonthExport(kind: 'summary' | 'everything') {
+    setExportError('');
+    void (kind === 'summary' ? exportBudget(pid) : exportCompleteBudget(pid));
+  }
+
+  const exportButton = (
+    <AppButton label="Export" accessibilityLabel="Export" size="touch" variant={desktop ? 'primary' : 'outline'} onPress={(e) => exportSheet.show(e)} />
+  );
+  const cardWrap = 'min-w-0 lg:basis-[48%] lg:grow';
+
   return (
-    <ScrollView className="flex-1" contentContainerClassName="gap-4 pb-8">
-      <View className="gap-1">
-        <Text className="text-3xl font-bold text-foreground dark:text-zinc-50">Reports</Text>
-        <Text className="text-sm text-muted-foreground">Track budgeting behavior and export complete selected-budget workbooks.</Text>
-      </View>
-
-      <View className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <AppCard className="gap-2">
-          <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Expense Summary</Text>
-          <View className="grid grid-cols-3 gap-2">
-            <View className="rounded-md border border-border bg-muted/20 p-2 dark:border-zinc-800 dark:bg-zinc-800/30">
-              <Text className="text-[10px] uppercase tracking-wide text-muted-foreground">Templates</Text>
-              <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">{expenseTotals.count}</Text>
-            </View>
-            <View className="rounded-md border border-border bg-muted/20 p-2 dark:border-zinc-800 dark:bg-zinc-800/30">
-              <Text className="text-[10px] uppercase tracking-wide text-muted-foreground">Active</Text>
-              <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">{expenseTotals.activeCount}</Text>
-            </View>
-            <View className="rounded-md border border-border bg-muted/20 p-2 dark:border-zinc-800 dark:bg-zinc-800/30">
-              <Text className="text-[10px] uppercase tracking-wide text-muted-foreground">Active Total</Text>
-              <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">{fmtMoney(expenseTotals.total)}</Text>
-            </View>
-          </View>
-        </AppCard>
-
-        <AppCard className="gap-2">
-          <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Shopping Summary</Text>
-          <View className="grid grid-cols-4 gap-2">
-            <View className="rounded-md border border-border bg-muted/20 p-2 dark:border-zinc-800 dark:bg-zinc-800/30">
-              <Text className="text-[10px] uppercase tracking-wide text-muted-foreground">Pending</Text>
-              <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">{shoppingTotals.pending}</Text>
-            </View>
-            <View className="rounded-md border border-border bg-muted/20 p-2 dark:border-zinc-800 dark:bg-zinc-800/30">
-              <Text className="text-[10px] uppercase tracking-wide text-muted-foreground">Completed</Text>
-              <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">{shoppingTotals.completed}</Text>
-            </View>
-            <View className="rounded-md border border-border bg-muted/20 p-2 dark:border-zinc-800 dark:bg-zinc-800/30">
-              <Text className="text-[10px] uppercase tracking-wide text-muted-foreground">Spent</Text>
-              <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">{fmtMoney(shoppingTotals.spent)}</Text>
-            </View>
-            <View className="rounded-md border border-border bg-muted/20 p-2 dark:border-zinc-800 dark:bg-zinc-800/30">
-              <Text className="text-[10px] uppercase tracking-wide text-muted-foreground">Total Est.</Text>
-              <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">{fmtMoney(shoppingTotals.totalPrice)}</Text>
-            </View>
-          </View>
-        </AppCard>
-      </View>
-
-      <AppCard className="gap-3">
-        <View>
-          <Text className="text-base font-semibold text-foreground dark:text-zinc-50">Behavior Signals</Text>
-          <Text className="text-xs text-muted-foreground">Insights across budgeting, expenses, transactions, and shopping quality.</Text>
-        </View>
-        <View className="grid grid-cols-1 gap-2 md:grid-cols-2">
-          {behaviorSignals.map((signal) => (
-            <View key={signal.id} className="rounded-md border border-border bg-muted/20 p-3 dark:border-zinc-800 dark:bg-zinc-800/30">
-              <View className="flex-row items-center justify-between gap-2">
-                <Text className="text-xs uppercase tracking-wide text-muted-foreground">{signal.label}</Text>
-                <Text className={`text-sm font-semibold ${toneClass(signal.tone)}`}>{signal.value}</Text>
-              </View>
-              <Text className="mt-1 text-xs text-muted-foreground">{signal.detail}</Text>
-            </View>
-          ))}
-        </View>
-      </AppCard>
-
-      <AppCard className="gap-4">
-        <View>
-          <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Shopping Price Trends</Text>
-          <Text className="text-xs text-muted-foreground">Track latest price, movement, and purchase history by catalog item.</Text>
-        </View>
-        
-        <View className="w-full md:w-96">
-          <DropdownField
-            value={selectedItemId}
-            options={[{ label: 'Select an item...', value: '' }, ...itemOptions]}
-            onChange={setSelectedItemId}
-            placeholder="Select an item..."
-            menuStrategy="inline"
-          />
-        </View>
-
-        {selectedItemId && chartData.length > 0 && priceTrend ? (
-          <View className="gap-4">
-            <View className="grid grid-cols-2 gap-2 md:grid-cols-4">
-              <View className="rounded-md border border-border bg-muted/20 p-3 dark:border-zinc-800 dark:bg-zinc-800/30">
-                <Text className="text-[10px] uppercase tracking-wide text-muted-foreground">Latest</Text>
-                <Text className="text-base font-semibold text-foreground dark:text-zinc-50">{fmtMoney(priceTrend.latest)}</Text>
-                <Text className="text-xs text-muted-foreground">
-                  {priceTrend.lastDate ? new Date(priceTrend.lastDate).toLocaleDateString() : '-'}
-                </Text>
-              </View>
-              <View className="rounded-md border border-border bg-muted/20 p-3 dark:border-zinc-800 dark:bg-zinc-800/30">
-                <Text className="text-[10px] uppercase tracking-wide text-muted-foreground">Last Change</Text>
-                <Text className={cn('text-base font-semibold', trendValueClass(priceTrend.previousChange))}>
-                  {signedMoney(priceTrend.previousChange)}
-                </Text>
-                <Text className={cn('text-xs', trendValueClass(priceTrend.previousChange))}>
-                  {signedPct(priceTrend.previousChangePct)} vs previous
-                </Text>
-              </View>
-              <View className="rounded-md border border-border bg-muted/20 p-3 dark:border-zinc-800 dark:bg-zinc-800/30">
-                <Text className="text-[10px] uppercase tracking-wide text-muted-foreground">Average</Text>
-                <Text className="text-base font-semibold text-foreground dark:text-zinc-50">{fmtMoney(priceTrend.average)}</Text>
-                <Text className="text-xs text-muted-foreground">
-                  {priceTrend.count} point(s) · Avg qty {round1(priceTrend.averageQuantity)}
-                </Text>
-              </View>
-              <View className="rounded-md border border-border bg-muted/20 p-3 dark:border-zinc-800 dark:bg-zinc-800/30">
-                <Text className="text-[10px] uppercase tracking-wide text-muted-foreground">Range</Text>
-                <Text className="text-base font-semibold text-foreground dark:text-zinc-50">{fmtMoney(priceTrend.min)} - {fmtMoney(priceTrend.max)}</Text>
-                <Text className="text-xs text-muted-foreground">Spread {fmtMoney(priceTrend.range)}</Text>
-              </View>
-            </View>
-
-            <View className="rounded-md border border-border bg-muted/20 p-3 dark:border-zinc-800 dark:bg-zinc-800/30">
-              <View className="flex-row flex-wrap items-center justify-between gap-2">
-                <View>
-                  <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">
-                    {selectedCatalogItem?.name || 'Selected item'}
-                  </Text>
-                  <Text className="text-xs text-muted-foreground">
-                    {[selectedCatalogItem?.category, selectedCatalogItem?.assignedPlanItemName].filter(Boolean).join(' · ') || 'No category or budget item'}
-                  </Text>
-                </View>
-                <View className="items-end">
-                  <Text className={cn('text-sm font-semibold', trendValueClass(priceTrend.totalChange))}>
-                    {signedMoney(priceTrend.totalChange)}
-                  </Text>
-                  <Text className={cn('text-xs', trendValueClass(priceTrend.totalChange))}>
-                    {signedPct(priceTrend.totalChangePct)} since first record
-                  </Text>
-                </View>
-              </View>
-              <View className="mt-3">
-                <LineChart
-                  data={chartData}
-                  lineColor={theme === 'dark' ? '#22C55E' : '#16A34A'}
-                  axisColor={theme === 'dark' ? '#A1A1AA' : '#717182'}
-                />
-              </View>
-            </View>
-
-            <View className="rounded-md border border-border bg-muted/20 dark:border-zinc-800 dark:bg-zinc-800/30">
-              <View className="flex-row border-b border-border px-3 py-2 dark:border-zinc-800">
-                <Text className="w-[120px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Date</Text>
-                <Text className="flex-1 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Unit Price</Text>
-                <Text className="w-[100px] text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Change</Text>
-                <Text className="w-[80px] text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Qty</Text>
-              </View>
-              {priceTrendRows.map((row) => (
-                <View key={row.id} className="flex-row border-b border-border px-3 py-2 last:border-b-0 dark:border-zinc-800">
-                  <Text className="w-[120px] text-sm text-foreground dark:text-zinc-50">
-                    {new Date(row.createdAt).toLocaleDateString()}
-                  </Text>
-                  <Text className="flex-1 text-right text-sm font-medium text-foreground dark:text-zinc-50">
-                    {fmtMoney(row.price)}
-                  </Text>
-                  <Text className={cn('w-[100px] text-right text-sm font-medium', trendValueClass(row.change))}>
-                    {signedMoney(row.change)}
-                  </Text>
-                  <Text className="w-[80px] text-right text-sm text-muted-foreground">
-                    {row.quantity}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        ) : selectedItemId ? (
-          <Text className="text-sm text-muted-foreground py-4">No price history available for this item.</Text>
-        ) : null}
-      </AppCard>
-
-      <AppCard className="gap-4">
-        <View className="flex-row flex-wrap items-center justify-between gap-2">
-          <View>
-            <Text className="text-base font-semibold text-foreground dark:text-zinc-50">Accounts Summary</Text>
-            <Text className="text-xs text-muted-foreground">All-time opening, spending, remaining, and allocation mix.</Text>
-          </View>
-          <AppButton
-            label={accountExporting ? 'Exporting...' : 'Export Excel'}
-            onPress={exportAccounts}
-            disabled={accountExporting || accountLoading}
-            variant="outline"
-          />
-        </View>
-
-        {accountLoading ? <Text className="text-sm text-muted-foreground">Loading account summary...</Text> : null}
-
-        {accountReport ? (
-          <View className="gap-4">
-            <View className="grid grid-cols-1 gap-3 md:grid-cols-4">
-              <AppCard className="p-3">
-                <Text className="text-xs uppercase tracking-wide text-muted-foreground">Opening</Text>
-                <Text className="text-lg font-semibold text-foreground dark:text-zinc-50">
-                  {fmtMoney(accountReport.totals.openingBalance)}
-                </Text>
-              </AppCard>
-              <AppCard className="p-3">
-                <Text className="text-xs uppercase tracking-wide text-muted-foreground">Spent</Text>
-                <Text className="text-lg font-semibold text-foreground dark:text-zinc-50">
-                  {fmtMoney(accountReport.totals.spent)}
-                </Text>
-              </AppCard>
-              <AppCard className="p-3">
-                <Text className="text-xs uppercase tracking-wide text-muted-foreground">Current</Text>
-                <Text className={cn('text-lg font-semibold', accountReport.totals.current < 0 ? 'text-red-700 dark:text-red-300' : 'text-foreground dark:text-zinc-50')}>
-                  {fmtMoney(accountReport.totals.current)}
-                </Text>
-              </AppCard>
-              <AppCard className="p-3">
-                <Text className="text-xs uppercase tracking-wide text-muted-foreground">Overdrawn</Text>
-                <Text className={cn('text-lg font-semibold', accountReport.totals.overdraftCount > 0 ? 'text-amber-700 dark:text-amber-300' : 'text-foreground dark:text-zinc-50')}>
-                  {accountReport.totals.overdraftCount}
-                </Text>
-              </AppCard>
-            </View>
-
-            <View>
-              <Text className="mb-2 text-sm font-semibold text-foreground dark:text-zinc-50">Allocation mix by tag</Text>
-              <PieChart
-                data={allocationTagChart}
-                total={Math.max(accountReport.totals.allocated, 1)}
-                colors={CHART_COLORS}
-                labelColor={theme === 'dark' ? '#FAFAFA' : '#09090B'}
+    <View testID="reports" className="flex-1">
+      <ScrollView className="flex-1" contentContainerClassName="gap-6 pb-8">
+        <PageHeader
+          title="Reports"
+          right={
+            <>
+              {period?.status === 'DECIDED' ? <AppBadge label="Closed" variant="secondary" /> : null}
+              {desktop ? exportButton : null}
+            </>
+          }
+        />
+        <View className="w-full gap-6 md:max-w-2xl lg:max-w-none lg:flex-row lg:flex-wrap">
+          {periodsLoaded && !period ? (
+            <View className={cardWrap}>
+              <EmptyState
+                testID="report-not-started"
+                message={`No plan or spending for ${monthName}.`}
+                actionLabel={`Plan ${monthName}`}
+                onAction={() => router.push(`/budgets?month=${pid}`)}
               />
             </View>
-          </View>
-        ) : (
-          !accountLoading && <Text className="text-sm text-muted-foreground">No accounts report available yet.</Text>
-        )}
-      </AppCard>
-
-      <AppCard className="gap-4">
-        <View className="flex-row flex-wrap items-center justify-between gap-2">
-          <View>
-            <Text className="text-base font-semibold text-foreground dark:text-zinc-50">Portfolio Summary</Text>
-            <Text className="text-xs text-muted-foreground">Cross-budget totals and trend analytics.</Text>
-          </View>
-          <AppButton
-            label={loadingLatest ? 'Loading...' : 'Load Latest 6 Budgets'}
-            onPress={() => void loadLatestReports()}
-            variant="outline"
-            disabled={loadingLatest || !periods.length}
-          />
-        </View>
-
-        <View className="grid grid-cols-1 gap-3 md:grid-cols-4">
-          <AppCard className="p-3">
-            <Text className="text-xs uppercase tracking-wide text-muted-foreground">Loaded Budgets</Text>
-            <Text className="text-lg font-semibold text-foreground dark:text-zinc-50">{loadedReports.length}</Text>
-          </AppCard>
-          <AppCard className="p-3">
-            <Text className="text-xs uppercase tracking-wide text-muted-foreground">Income</Text>
-            <Text className="text-lg font-semibold text-foreground dark:text-zinc-50">{fmtMoney(portfolioTotals.income)}</Text>
-          </AppCard>
-          <AppCard className="p-3">
-            <Text className="text-xs uppercase tracking-wide text-muted-foreground">Spent</Text>
-            <Text className="text-lg font-semibold text-foreground dark:text-zinc-50">{fmtMoney(portfolioTotals.spent)}</Text>
-          </AppCard>
-          <AppCard className="p-3">
-            <Text className="text-xs uppercase tracking-wide text-muted-foreground">Remaining</Text>
-            <Text
-              className={`text-lg font-semibold ${
-                portfolioTotals.income - portfolioTotals.spent >= 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-700 dark:text-red-300'
-              }`}
-            >
-              {fmtMoney(portfolioTotals.income - portfolioTotals.spent)}
-            </Text>
-          </AppCard>
-        </View>
-
-        {loadedReports.length ? (
-          <>
-            <View className="gap-2">
-              <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Category Spend Share</Text>
-              {categoryShare.map((row) => (
-                <View key={row.label} className="gap-1">
-                  <View className="flex-row items-center justify-between">
-                    <Text className="text-xs text-foreground dark:text-zinc-50">{row.label}</Text>
-                    <Text className="text-xs text-muted-foreground">
-                      {fmtMoney(row.amount)} · {Math.round(row.pct)}%
-                    </Text>
-                  </View>
-                  <AppProgressBar value={row.pct} indicatorClassName={row.color} />
-                </View>
-              ))}
+          ) : (
+            <View className={cardWrap}>
+              <SpendBreakdownCard
+                title={`Where did ${monthName}'s money go?`}
+                loading={!report}
+                spent={spentNow}
+                rows={shareRows}
+                topLine={insight && insight.topSpendName ? { name: insight.topSpendName, amount: insight.topSpendAmount } : undefined}
+                byTag={allocationTagChart}
+              />
             </View>
-
-            <View className="gap-2">
-              <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Monthly Trend</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                <View className="min-w-[560px] rounded-md border border-border dark:border-zinc-800">
-                  <View className="flex-row border-b border-border px-3 py-2 dark:border-zinc-800">
-                    <Text className="w-[180px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Period</Text>
-                    <Text className="w-[120px] text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Income</Text>
-                    <Text className="w-[120px] text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Spent</Text>
-                    <Text className="w-[120px] text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">Remaining</Text>
+          )}
+          <View className={cardWrap}>
+            <TrendCard range={range} onRange={setRange} loading={periods.slice(0, Number(range)).some((row) => loadingById[row.id])} points={trendPoints} sentence={trendSentence} lineColor={lineColor} axisColor={axisColor} />
+          </View>
+          {period ? (
+            <View className={cardWrap}>
+              <ReportCard title="Did we stick to the plan?" testID="report-plan">
+                {insight && report ? (
+                  <View className="gap-1">
+                    <LabelValue
+                      label="Lines over plan"
+                      value={String(insight.overspentCount)}
+                      sub={insight.overspentCount ? `${fmtMoney(insight.overspentAmount)} over in total` : 'None so far'}
+                      onPress={() => router.push(`/budgets/${pid}`)}
+                    />
+                    <LabelValue label="Planned vs spent" value={`${round1(insight.planUtilizationPct)}%`} />
+                    <LabelValue label="Left from income" value={fmtMoney((report.totals.incomeTotal || 0) - spentNow)} />
                   </View>
-                  {trendRows.map((row) => (
-                    <View key={row.periodId} className="flex-row border-b border-border px-3 py-2 last:border-b-0 dark:border-zinc-800">
-                      <View className="w-[180px]">
-                        <Text className="text-sm text-foreground dark:text-zinc-50">{row.title}</Text>
-                        <Text className="text-xs text-muted-foreground">{row.periodId}</Text>
-                      </View>
-                      <Text className="w-[120px] text-right text-sm text-foreground dark:text-zinc-50">{fmtMoney(row.income)}</Text>
-                      <Text className="w-[120px] text-right text-sm text-foreground dark:text-zinc-50">{fmtMoney(row.spent)}</Text>
-                      <Text className={`w-[120px] text-right text-sm ${row.remaining >= 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-700 dark:text-red-300'}`}>
-                        {fmtMoney(row.remaining)}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-              </ScrollView>
+                ) : (
+                  <LoadingState rows={2} />
+                )}
+                <Disclosure label="How we calculate">
+                  <View className="gap-2">
+                    <Text className="text-sm text-muted-foreground dark:text-zinc-400">Across the months in the comparison above.</Text>
+                    {behaviorSignals.map((signal) => (
+                      <LabelValue key={signal.id} label={signal.label} value={signal.value} sub={signal.detail} valueClassName={toneClass(signal.tone)} />
+                    ))}
+                  </View>
+                </Disclosure>
+              </ReportCard>
             </View>
-          </>
-        ) : (
-          <Text className="text-sm text-muted-foreground">Load budgets to view aggregate trend reports.</Text>
-        )}
-      </AppCard>
-
-      <View className="gap-3">
-        {periods.map((period) => {
-          const report = reportsById[period.id];
-          const loading = loadingById[period.id];
-          const exporting = exportingById[period.id];
-          const fullExporting = fullExportingById[period.id];
-          const title = period.title ?? periodTitleFromId(period.id);
-          const remaining = report ? report.totals.incomeTotal - report.totals.transactions.total : 0;
-          const periodInsight = report ? analyzePeriodBehavior(report) : null;
-
-          return (
-            <AppCard key={period.id} className="gap-3">
-              <View className="flex-row flex-wrap items-center justify-between gap-2">
-                <View>
-                  <Text className="text-base font-semibold text-foreground dark:text-zinc-50">{title}</Text>
-                  <View className="mt-1 flex-row items-center gap-2">
-                    <Text className="text-xs text-muted-foreground">{period.id}</Text>
-                    <AppBadge label={period.status ?? 'DRAFT'} variant={period.status === 'DECIDED' ? 'secondary' : 'success'} />
-                  </View>
-                </View>
-                <View className="flex-row gap-2">
-                  <AppButton
-                    label={loading ? 'Loading...' : 'Refresh'}
-                    onPress={() => void loadReport(period.id, true)}
-                    variant="outline"
-                    size="sm"
-                    disabled={loading}
-                  />
-                  <AppButton
-                    label={exporting ? 'Exporting...' : 'Export Core'}
-                    onPress={() => void exportBudget(period.id)}
-                    variant="outline"
-                    size="sm"
-                    disabled={exporting || loading || fullExporting}
-                  />
-                  <AppButton
-                    label={fullExporting ? 'Exporting...' : 'Export Full'}
-                    onPress={() => void exportCompleteBudget(period.id)}
-                    variant="outline"
-                    size="sm"
-                    disabled={fullExporting || loading || exporting}
-                  />
-                </View>
-              </View>
-
-              {report ? (
-                <View className="gap-2">
-                  <View className="grid grid-cols-1 gap-2 md:grid-cols-4">
-                    <AppCard className="p-3">
-                      <Text className="text-xxs uppercase tracking-wide text-muted-foreground">Income</Text>
-                      <Text className="text-base font-semibold text-foreground dark:text-zinc-50">{fmtMoney(report.totals.incomeTotal)}</Text>
-                    </AppCard>
-                    <AppCard className="p-3">
-                      <Text className="text-xxs uppercase tracking-wide text-muted-foreground">Planned</Text>
-                      <Text className="text-base font-semibold text-foreground dark:text-zinc-50">{fmtMoney(report.totals.plan.total)}</Text>
-                    </AppCard>
-                    <AppCard className="p-3">
-                      <Text className="text-xxs uppercase tracking-wide text-muted-foreground">Spent</Text>
-                      <Text className="text-base font-semibold text-foreground dark:text-zinc-50">{fmtMoney(report.totals.transactions.total)}</Text>
-                    </AppCard>
-                    <AppCard className="p-3">
-                      <Text className="text-xxs uppercase tracking-wide text-muted-foreground">Remaining</Text>
-                      <Text className={`text-base font-semibold ${remaining >= 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-700 dark:text-red-300'}`}>
-                        {fmtMoney(remaining)}
-                      </Text>
-                    </AppCard>
-                  </View>
-
-                  {periodInsight ? (
-                    <>
-                      <View className="grid grid-cols-1 gap-2 md:grid-cols-4">
-                        <AppCard className="p-3">
-                          <Text className="text-xxs uppercase tracking-wide text-muted-foreground">Burn Rate</Text>
-                          <Text className={`text-base font-semibold ${periodInsight.burnRatePct <= 100 ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-700 dark:text-red-300'}`}>
-                            {round1(periodInsight.burnRatePct)}%
-                          </Text>
-                        </AppCard>
-                        <AppCard className="p-3">
-                          <Text className="text-xxs uppercase tracking-wide text-muted-foreground">Plan Use</Text>
-                          <Text className="text-base font-semibold text-foreground dark:text-zinc-50">
-                            {round1(periodInsight.planUtilizationPct)}%
-                          </Text>
-                        </AppCard>
-                        <AppCard className="p-3">
-                          <Text className="text-xxs uppercase tracking-wide text-muted-foreground">Transactions</Text>
-                          <Text className="text-base font-semibold text-foreground dark:text-zinc-50">
-                            {periodInsight.txCount} · {fmtMoney(periodInsight.averageTx)} avg
-                          </Text>
-                        </AppCard>
-                        <AppCard className="p-3">
-                          <Text className="text-xxs uppercase tracking-wide text-muted-foreground">Overspent Items</Text>
-                          <Text className={`text-base font-semibold ${periodInsight.overspentCount ? 'text-red-700 dark:text-red-300' : 'text-emerald-700 dark:text-emerald-300'}`}>
-                            {periodInsight.overspentCount} · {fmtMoney(periodInsight.overspentAmount)}
-                          </Text>
-                        </AppCard>
-                      </View>
-
-                      <View className="rounded-md border border-border bg-muted/20 p-3 dark:border-zinc-800 dark:bg-zinc-800/30">
-                        <Text className="text-xs text-foreground dark:text-zinc-100">
-                          Top spending item: {periodInsight.topSpendName || 'None'} {periodInsight.topSpendName ? `(${fmtMoney(periodInsight.topSpendAmount)})` : ''}
-                        </Text>
-                        <Text className="mt-1 text-xs text-muted-foreground">
-                          Shopping-linked transactions: {periodInsight.shoppingTxCount} ({fmtMoney(periodInsight.shoppingTxAmount)})
-                        </Text>
-                        <Text className="mt-1 text-xs text-muted-foreground">
-                          Uncategorized transactions: {periodInsight.uncategorizedCount}
-                        </Text>
-                      </View>
-                    </>
-                  ) : null}
-                </View>
-              ) : (
-                <Text className="text-sm text-muted-foreground">Load details to view this period’s report and export workbook.</Text>
-              )}
-            </AppCard>
-          );
-        })}
-
-        {!periods.length ? (
-          <AppCard>
-            <Text className="text-sm text-muted-foreground">No budgets found. Create a budget first.</Text>
-          </AppCard>
-        ) : null}
-      </View>
-    </ScrollView>
+          ) : null}
+          <View className={cardWrap}>
+            <PricesCard
+              options={itemOptions}
+              value={selectedItemId}
+              onPick={setSelectedItemId}
+              points={chartData}
+              latest={
+                priceTrend
+                  ? { price: priceTrend.latest, change: priceTrend.previousChange, changePct: priceTrend.previousChangePct, min: priceTrend.min, max: priceTrend.max, count: priceTrend.count }
+                  : undefined
+              }
+              onCatalog={() => router.push('/shopping-items')}
+              lineColor={lineColor}
+              axisColor={axisColor}
+            />
+          </View>
+        </View>
+        <View className="w-full gap-6 md:max-w-2xl lg:max-w-none">
+          <View className="rounded-xl border border-border bg-card px-4 dark:border-zinc-800 dark:bg-zinc-900">
+            <LabelValue label="Accounts" value="Balances" onPress={() => router.push('/accounts')} />
+          </View>
+          {!desktop ? (
+            <View testID="report-export" className="gap-3 rounded-xl border border-border bg-card p-4 dark:border-zinc-800 dark:bg-zinc-900">
+              <Text role="heading" aria-level={2} className="text-lg font-semibold text-foreground dark:text-zinc-50">Export</Text>
+              <Text className="text-sm text-muted-foreground dark:text-zinc-400">{`${monthLabel} workbook and the accounts workbook, as .xlsx files.`}</Text>
+              {exportButton}
+            </View>
+          ) : null}
+        </View>
+      </ScrollView>
+      <ExportSheet
+        open={exportSheet.open}
+        onClose={() => exportSheet.hide()}
+        monthLabel={monthLabel}
+        busyMonth={Boolean(exportingById[pid] || fullExportingById[pid] || loadingById[pid])}
+        busyAccounts={accountExporting || accountLoading}
+        error={exportError}
+        onMonth={runMonthExport}
+        onAccounts={() => {
+          setExportError('');
+          void exportAccounts();
+        }}
+      />
+    </View>
   );
 }
