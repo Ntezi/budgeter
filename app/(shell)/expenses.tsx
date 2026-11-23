@@ -8,6 +8,7 @@ import { IconActionButton } from '@/components/ui/IconActionButton';
 import { DropdownField } from '@/components/ui/DropdownField';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppModal } from '@/components/ui/AppModal';
+import { DefaultAccountField } from '@/components/DefaultAccountField';
 import { useWorkspaceUid } from '@/providers/WorkspaceProvider';
 import { addExpense, deleteExpense, type ExpenseItem, updateExpense, watchExpenses } from '@/lib/repo/expenses';
 import { addPlanItem, type PlanItem, watchPlanTotals } from '@/lib/repo/plans';
@@ -598,6 +599,7 @@ export default function ExpensesScreen() {
                 options={PLAN_GROUP_OPTIONS}
               />
             </View>
+            {uid ? <DefaultAccountField uid={uid} collectionName="expenses" sourceId={mobileDetailRow.id!} value={mobileDetailRow.defaultAccountId} /> : null}
             <View className="gap-1">
               <Text className="text-xs uppercase tracking-wide text-muted-foreground">Amount</Text>
               <AppInput

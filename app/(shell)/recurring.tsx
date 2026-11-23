@@ -10,6 +10,7 @@ import { AppSegmented } from '@/components/ui/AppSegmented';
 import { IconActionButton } from '@/components/ui/IconActionButton';
 import { DropdownField } from '@/components/ui/DropdownField';
 import { AppModal } from '@/components/ui/AppModal';
+import { DefaultAccountField } from '@/components/DefaultAccountField';
 import { useWorkspaceUid } from '@/providers/WorkspaceProvider';
 import {
   addRecurring,
@@ -749,6 +750,9 @@ export default function RecurringScreen() {
                 keyboardType="decimal-pad"
               />
             </View>
+            {uid && editingId && (editingDraft.flow ?? 'EXPENSE') === 'EXPENSE' ? (
+              <DefaultAccountField uid={uid} collectionName="recurring" sourceId={editingId} value={rows.find((r) => r.id === editingId)?.defaultAccountId} />
+            ) : null}
             <View className="flex-row items-center justify-between rounded-md border border-border bg-muted/20 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/30">
               <Text className="text-sm text-muted-foreground">Active</Text>
               <Switch value={editingDraft.active !== false} onValueChange={(value) => setEditingDraft((prev) => (prev ? { ...prev, active: value } : prev))} />

@@ -32,7 +32,9 @@ import {
   upsertAllocationForBudgetItem,
   watchAllocations,
 } from '@/lib/repo/allocations';
-import { seedBudgetForNewPeriod } from '@/lib/repo/recurring';
+import { seedBudgetForNewPeriod, watchRecurring, type Recurring } from '@/lib/repo/recurring';
+import { addLinkedPlanLine, APP_CURRENCY, applySuggestedLineAccounts, setLineAccount } from '@/lib/repo/planLines';
+import { isLinkedLine, repairReasonText, resolveLineAccount, suggestionForSource, type Resolution } from '@/lib/rules/defaultAccount';
 import { createPeriodIfAbsent, watchPeriodState, type PeriodState } from '@/lib/repo/periodCreate';
 import { monthTitle } from '@/lib/rules/months';
 import { fmtMoney, parseMoney, parsePct100 } from '@/lib/format';
@@ -125,6 +127,13 @@ export default function BudgetDetailScreen() {
 
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [allocations, setAllocations] = useState<Allocation[]>([]);
+  // BUDG-3 default accounts
+  const [recurringRows, setRecurringRows] = useState<Recurring[]>([]);
+  const [addAccountId, setAddAccountId] = useState('');
+  const [pendingAccountChange, setPendingAccountChange] = useState<{ lineId: string; name: string; group: string; accountId: string; sourceLabel: string } | null>(null);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [defaultsError, setDefaultsError] = useState('');
+  const [defaultsBusy, setDefaultsBusy] = useState(false);
 
   const readOnly = status === 'DECIDED';
 
@@ -168,6 +177,7 @@ export default function BudgetDetailScreen() {
 
     const unAlloc = watchAllocations(uid, pid, (rows) => setAllocations(rows));
     const unAccounts = watchAccounts(uid, setAccounts, { includeArchived: true });
+    const unRecurring = watchRecurring(uid, setRecurringRows);
 
     return () => {
       unPeriod();
@@ -177,6 +187,7 @@ export default function BudgetDetailScreen() {
       unExpenses();
       unAlloc();
       unAccounts();
+      unRecurring();
     };
   }, [uid, pid]);
 
@@ -714,13 +725,28 @@ export default function BudgetDetailScreen() {
     const selected = expenseItems.find((row) => row.id === selectedExpenseId);
     if (!selected) return;
     const nextPriority = planWithPriority.reduce((max, row) => Math.max(max, row.priority), 0) + 1;
-    await addPlanItem(uid, pid, {
-      name: selected.name,
-      amount: selected.amount,
-      group: selected.group as any,
-      tags: selected.tags ?? [],
-      priority: nextPriority as any,
-    } as any);
+    const suggestion = suggestionForSource(selected, accounts, APP_CURRENCY);
+    setDefaultsError('');
+    try {
+      // BUDG-3: stable link exp_{expenseItemId}; pressing Add is the explicit act that applies the account.
+      const result = await addLinkedPlanLine(uid, pid, {
+        expenseItemId: selectedExpenseId,
+        name: selected.name,
+        amount: selected.amount,
+        group: selected.group as string,
+        tags: selected.tags ?? [],
+        priority: nextPriority,
+        accountId: addAccountId,
+        suggestedAccountId: suggestion.accountId,
+      });
+      if (!result.created) {
+        setDefaultsError(`${selected.name} is already in this month.`);
+        return;
+      }
+    } catch (e: unknown) {
+      setDefaultsError(e instanceof Error ? e.message : String(e));
+      return;
+    }
 
     // Deactivate from expenses templates
     await updateExpense(uid, selectedExpenseId, { active: false });
@@ -782,6 +808,54 @@ export default function BudgetDetailScreen() {
     if (!uid || !pid || readOnly) return;
     if (item.spendFlag === 'SPENT') return;
     await updatePlanItem(uid, pid, item.id, { reconcilePinned: enabled } as any);
+  }
+
+  /** BUDG-3: linked lines ask "only this month" vs "future default"; unlinked lines keep assignAccount (AC-5). */
+  function pickAccount(item: PlanWithId, accountId: string) {
+    if (!uid || !pid || readOnly) return;
+    const line = planItems.find((row) => row.id === item.id);
+    if (!line || !isLinkedLine(line)) {
+      void assignAccount(item, accountId);
+      return;
+    }
+    if ((line.plannedAccountId || '') === accountId) return;
+    const source = sourceFor(line);
+    setMobileDetail(null);
+    setDefaultsError('');
+    setPendingAccountChange({
+      lineId: item.id,
+      name: item.name,
+      group: String(item.group),
+      accountId,
+      sourceLabel: line.sourceType === 'RECURRING' ? `template "${source?.name ?? item.name}"` : `"${source?.name ?? item.name}"`,
+    });
+  }
+
+  async function confirmAccountChange(scope: 'LINE' | 'FUTURE') {
+    if (!uid || !pid || !pendingAccountChange) return;
+    setDefaultsBusy(true);
+    try {
+      await setLineAccount(uid, pid, { lineId: pendingAccountChange.lineId, accountId: pendingAccountChange.accountId, scope, group: pendingAccountChange.group });
+      setPendingAccountChange(null);
+    } catch (e: unknown) {
+      setDefaultsError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDefaultsBusy(false);
+    }
+  }
+
+  async function applyAllSuggestions() {
+    if (!uid || !pid || readOnly) return;
+    setDefaultsBusy(true);
+    try {
+      const result = await applySuggestedLineAccounts(uid, pid, suggestedLines.map((row) => row.line.id!));
+      setDefaultsError(result.skipped.length ? `${result.skipped.length} line(s) skipped: choose their account.` : '');
+      setReviewOpen(false);
+    } catch (e: unknown) {
+      setDefaultsError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDefaultsBusy(false);
+    }
   }
 
   async function assignAccount(item: PlanWithId, accountId: string) {
@@ -867,6 +941,53 @@ export default function BudgetDetailScreen() {
           value: row.id,
         })),
     [expenseItems]
+  );
+
+  // BUDG-3: sources by doc id (never by name) and per-line resolution.
+  const sourceFor = (line: PlanItem): { name: string; defaultAccountId?: string } | null => {
+    if (line.sourceType === 'EXPENSE_ITEM') return expenseItems.find((row) => row.id === line.sourceId) ?? null;
+    if (line.sourceType === 'RECURRING') return recurringRows.find((row) => row.id === line.sourceId) ?? null;
+    return null;
+  };
+
+  const resolutionByLineId = useMemo(() => {
+    const map: Record<string, Resolution> = {};
+    planItems.forEach((line) => {
+      if (!line.id) return;
+      map[line.id] = resolveLineAccount({ line, source: sourceFor(line), accounts, appCurrency: APP_CURRENCY });
+    });
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planItems, expenseItems, recurringRows, accounts]);
+
+  const accountName = (id: string) => accounts.find((row) => row.id === id)?.name ?? 'Unknown account';
+
+  const suggestedLines = useMemo(
+    () =>
+      planItems
+        .filter((line) => line.id && resolutionByLineId[line.id]?.kind === 'SUGGEST')
+        .map((line) => ({ line, accountId: (resolutionByLineId[line.id!] as { accountId: string }).accountId })),
+    [planItems, resolutionByLineId]
+  );
+  const repairLines = useMemo(
+    () => planItems.filter((line) => line.id && resolutionByLineId[line.id]?.kind === 'REPAIR'),
+    [planItems, resolutionByLineId]
+  );
+
+  const selectedExpense = expenseItems.find((row) => row.id === selectedExpenseId) ?? null;
+  const addSuggestion = suggestionForSource(selectedExpense, accounts, APP_CURRENCY);
+  useEffect(() => {
+    setAddAccountId(addSuggestion.accountId);
+  }, [selectedExpenseId, addSuggestion.accountId]);
+
+  const eligibleAccountOptions = useMemo(
+    () => [
+      { label: 'No account', value: '' },
+      ...accounts
+        .filter((row): row is Account & { id: string } => Boolean(row.id) && !row.archived)
+        .map((row) => ({ label: row.name, value: row.id })),
+    ],
+    [accounts]
   );
 
   const incomeCol = {
@@ -1430,7 +1551,7 @@ export default function BudgetDetailScreen() {
                 <View className="gap-2 rounded-lg border border-border bg-muted/20 p-3 dark:border-zinc-800 dark:bg-zinc-800/20">
                   <Text className="text-xs uppercase tracking-wide text-muted-foreground">Add from Expense Templates</Text>
                   <View className="flex-col gap-2 md:flex-row md:items-center">
-                    <View className="flex-1">
+                    <View className="z-10 flex-1">
                       <DropdownField
                         value={selectedExpenseId}
                         options={expenseOptions}
@@ -1439,8 +1560,30 @@ export default function BudgetDetailScreen() {
                         menuStrategy="inline"
                       />
                     </View>
+                    <View className="flex-1">
+                      <DropdownField
+                        value={addAccountId}
+                        options={eligibleAccountOptions}
+                        onChange={setAddAccountId}
+                        placeholder="Account"
+                        menuStrategy="inline"
+                      />
+                    </View>
                     <AppButton label="Add Template" variant="outline" size="sm" onPress={addExpenseTemplateToPlan} />
                   </View>
+                  {selectedExpense && addSuggestion.accountId ? (
+                    <Text className="text-xs text-muted-foreground" testID="default-account-hint">
+                      {addAccountId === addSuggestion.accountId
+                        ? `Default for ${selectedExpense.name}: ${accountName(addSuggestion.accountId)}`
+                        : `Only this line · default stays ${accountName(addSuggestion.accountId)}`}
+                    </Text>
+                  ) : null}
+                  {selectedExpense && addSuggestion.reason ? (
+                    <Text className="text-xs text-amber-700 dark:text-amber-300" testID="default-account-repair">
+                      {`${repairReasonText(addSuggestion.reason)} · choose an account`}
+                    </Text>
+                  ) : null}
+                  {defaultsError ? <Text className="text-xs text-red-600 dark:text-red-300">{defaultsError}</Text> : null}
                 </View>
               ) : null}
 
@@ -1651,6 +1794,25 @@ export default function BudgetDetailScreen() {
             <Text className="text-xs text-muted-foreground">Fully spent rows are no longer available for prioritization.</Text>
           </AppCard>
 
+          {suggestedLines.length || repairLines.length || defaultsError ? (
+            <AppCard className="gap-2" testID="default-accounts-banner">
+              {suggestedLines.length ? (
+                <View className="flex-row flex-wrap items-center justify-between gap-2">
+                  <Text className="text-sm text-foreground dark:text-zinc-50">
+                    {`${suggestedLines.length} ${suggestedLines.length === 1 ? 'line has' : 'lines have'} a suggested account`}
+                  </Text>
+                  {!readOnly ? <AppButton label="Review" variant="outline" size="sm" onPress={() => setReviewOpen(true)} /> : null}
+                </View>
+              ) : null}
+              {repairLines.length ? (
+                <Text className="text-sm text-amber-700 dark:text-amber-300">
+                  {`${repairLines.length} ${repairLines.length === 1 ? 'line needs' : 'lines need'} an account choice: its saved account can't be used.`}
+                </Text>
+              ) : null}
+              {defaultsError ? <Text className="text-xs text-red-600 dark:text-red-300">{defaultsError}</Text> : null}
+            </AppCard>
+          ) : null}
+
           {PLAN_GROUP_OPTIONS.map((group) => {
             const rows = reconcileByGroup[group.value];
             const totals = reconcileTotalsByGroup[group.value];
@@ -1712,6 +1874,14 @@ export default function BudgetDetailScreen() {
                             <View className="w-[260px] pr-2">
                               <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{row.name}</Text>
                               {row.tags?.length ? <Text className="text-xs text-muted-foreground dark:text-zinc-400">{tagsLabel(row.tags)}</Text> : null}
+                              {resolutionByLineId[row.id]?.kind === 'REPAIR' && !readOnly ? (
+                                <View className="flex-row flex-wrap items-center gap-1">
+                                  <AppBadge label="Choose account" variant="warning" />
+                                  <Text className="text-xs text-muted-foreground">{repairReasonText((resolutionByLineId[row.id] as { reason: any }).reason)}</Text>
+                                </View>
+                              ) : resolutionByLineId[row.id]?.kind === 'SUGGEST' && !readOnly ? (
+                                <Text className="text-xs text-muted-foreground">{`Suggested: ${accountName((resolutionByLineId[row.id] as { accountId: string }).accountId)}`}</Text>
+                              ) : null}
                             </View>
 
                             <Text className="w-[120px] text-right text-sm text-foreground dark:text-zinc-100">{fmtMoney(row.amount)}</Text>
@@ -1730,7 +1900,7 @@ export default function BudgetDetailScreen() {
                               <DropdownField
                                 value={allocation?.accountId ?? ''}
                                 options={accountOptions}
-                                onChange={(value) => assignAccount(row, value)}
+                                onChange={(value) => pickAccount(row, value)}
                                 disabled={readOnly || isSpent}
                                 placeholder="Select account"
                                 className="w-full"
@@ -1946,12 +2116,20 @@ export default function BudgetDetailScreen() {
                 <AppBadge label={`Funded ${fmtMoney(mobileReconcileRow.funded)}`} variant="success" />
                 <AppBadge label={`Unfunded ${fmtMoney(mobileReconcileRow.unfunded)}`} variant={mobileReconcileRow.unfunded > 0 ? 'warning' : 'secondary'} />
               </View>
+              {resolutionByLineId[mobileReconcileRow.id]?.kind === 'REPAIR' && !readOnly ? (
+                <View className="flex-row flex-wrap items-center gap-1">
+                  <AppBadge label="Choose account" variant="warning" />
+                  <Text className="text-xs text-muted-foreground">{repairReasonText((resolutionByLineId[mobileReconcileRow.id] as { reason: any }).reason)}</Text>
+                </View>
+              ) : resolutionByLineId[mobileReconcileRow.id]?.kind === 'SUGGEST' && !readOnly ? (
+                <Text className="text-xs text-muted-foreground">{`Suggested: ${accountName((resolutionByLineId[mobileReconcileRow.id] as { accountId: string }).accountId)}`}</Text>
+              ) : null}
               <View className="gap-1">
                 <Text className="text-xs text-muted-foreground">Account</Text>
                 <DropdownField
                   value={mobileReconcileAllocation?.accountId ?? ''}
                   options={accountOptions}
-                  onChange={(value) => assignAccount(mobileReconcileRow, value)}
+                  onChange={(value) => pickAccount(mobileReconcileRow, value)}
                   disabled={readOnly || mobileReconcileRow.spendFlag === 'SPENT'}
                   placeholder="Select account"
                   menuStrategy="inline"
@@ -1977,6 +2155,42 @@ export default function BudgetDetailScreen() {
               </View>
             </>
           ) : null}
+        </View>
+      </AppModal>
+
+      <AppModal open={Boolean(pendingAccountChange)} onClose={() => setPendingAccountChange(null)} title="Use this account for">
+        {pendingAccountChange ? (
+          <View className="gap-3">
+            <Text className="text-sm text-foreground dark:text-zinc-50">
+              {`${pendingAccountChange.name} → ${pendingAccountChange.accountId ? accountName(pendingAccountChange.accountId) : 'No account'}`}
+            </Text>
+            <Text className="text-xs text-muted-foreground">Nothing is posted or transferred. Other months, locked budgets and posted expenses stay as they are.</Text>
+            <AppButton label="Only this month" onPress={() => confirmAccountChange('LINE')} disabled={defaultsBusy} />
+            <AppButton
+              label="Also use for future months"
+              variant="outline"
+              onPress={() => confirmAccountChange('FUTURE')}
+              disabled={defaultsBusy || !pendingAccountChange.accountId}
+            />
+            <Text className="text-xs text-muted-foreground">{`Future months: new lines from ${pendingAccountChange.sourceLabel} will suggest this account.`}</Text>
+            {defaultsError ? <Text className="text-xs text-red-600 dark:text-red-300">{defaultsError}</Text> : null}
+            <AppButton label="Cancel" variant="ghost" onPress={() => setPendingAccountChange(null)} />
+          </View>
+        ) : null}
+      </AppModal>
+
+      <AppModal open={reviewOpen} onClose={() => setReviewOpen(false)} title="Apply suggested accounts">
+        <View className="gap-3">
+          {suggestedLines.map(({ line, accountId }) => (
+            <View key={line.id} className="flex-row flex-wrap items-center justify-between gap-2 border-b border-border py-2 dark:border-zinc-800">
+              <Text className="flex-1 text-sm text-foreground dark:text-zinc-50" numberOfLines={2}>{line.name}</Text>
+              <Text className="text-sm text-muted-foreground">{accountName(accountId)}</Text>
+              <Text className="text-sm text-foreground dark:text-zinc-50">{fmtMoney(line.amount || 0)}</Text>
+            </View>
+          ))}
+          <Text className="text-xs text-muted-foreground">Each line earmarks its amount in that account, as choosing an account does today. Nothing is posted.</Text>
+          <AppButton label={defaultsBusy ? 'Applying…' : 'Apply all'} onPress={applyAllSuggestions} disabled={defaultsBusy || !suggestedLines.length} />
+          <AppButton label="Cancel" variant="ghost" onPress={() => setReviewOpen(false)} />
         </View>
       </AppModal>
     </ScrollView>
