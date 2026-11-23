@@ -44,7 +44,7 @@ test('Q year rollover: December to January in the New month sheet; missing month
   await page.clock.setFixedTime(new Date('2026-12-15T10:00:00'));
   const guard = await signIn(page, info);
   await page.goto('/budgets');
-  await page.getByLabel('New budget').click();
+  await page.getByLabel('New month', { exact: true }).click();
   const sheet = page.getByTestId('new-month-sheet');
   await expect(sheet).toBeVisible();
   const labels = await sheet.getByRole('radio').allInnerTexts();
@@ -146,7 +146,7 @@ test('Q Escape and Back close every sheet type and keep the route', async ({ pag
   const phone = (page.viewportSize()?.width ?? 0) < 980;
   const cases: { id: string; url: string; open: () => Promise<void> }[] = [
     { id: 'add-sheet', url: '/dashboard', open: () => page.getByTestId('add-button').first().click() },
-    { id: 'new-month-sheet', url: '/budgets', open: () => page.getByLabel('New budget').click() },
+    { id: 'new-month-sheet', url: '/budgets', open: () => page.getByLabel('New month', { exact: true }).click() },
     { id: 'line-sheet', url: `/budgets/${CUR}`, open: () => page.getByTestId('plan-groups').getByText('Rent', { exact: true }).first().click() },
     { id: 'month-sheet', url: '/transactions', open: () => page.getByTestId('month-chip').click() },
     { id: 'export-sheet', url: '/reports', open: () => page.getByRole('button', { name: 'Export', exact: true }).first().click() },
@@ -192,7 +192,7 @@ test('Q New Budget sheet: Escape on first load vs after navigating from Home (pr
   const attempt = async (name: string, prep: () => Promise<void>) => {
     await prep();
     await page.waitForTimeout(1800);
-    await page.getByLabel('New budget').click();
+    await page.getByLabel('New month', { exact: true }).click();
     await expect(page.getByTestId('new-month-sheet')).toBeVisible();
     await page.keyboard.press('Escape');
     await page.waitForTimeout(1500);
