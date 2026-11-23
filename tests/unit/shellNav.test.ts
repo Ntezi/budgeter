@@ -65,3 +65,11 @@ test('BUDG-6 nav: chef sees the shared list only; household sees year plan, cata
   assert.equal(firstRouteFor('household'), '/dashboard');
   assert.equal(firstRouteFor('chef'), '/shopping');
 });
+
+test('BUDG-8 X: Year plan is active on /budgets?view=year, Plan on bare /budgets and /budgets/<month>', () => {
+  assert.equal(activeItem('/budgets', NAV_ITEMS, { view: 'year' })?.id, 'year-plan');
+  assert.equal(activeAreaId('/budgets', NAV_ITEMS, { view: 'year' }), 'plan');
+  assert.equal(activeItem('/budgets', NAV_ITEMS, {})?.id, 'plan');
+  assert.equal(activeItem('/budgets', NAV_ITEMS, { view: 'month' })?.id, 'plan');
+  assert.equal(activeItem('/budgets/2026-11', NAV_ITEMS, { view: 'year' })?.id, 'plan');
+});

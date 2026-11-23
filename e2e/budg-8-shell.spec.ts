@@ -165,12 +165,15 @@ test('S2 reach: Settings in 2 taps on phone and 1 on desktop; active area on nes
 
   await open(page, '/dashboard', 1440);
   for (const label of ['Home', 'Plan', 'Shopping', 'Accounts', 'Reports', 'Regular costs', 'Catalog', 'Settings']) {
-    await page.getByTestId('sidebar').getByRole('link', { name: label }).click();
+    await page.getByTestId('sidebar').getByRole('link', { name: label, exact: true }).click();
     taps[`desktop ${label}`] = 1;
   }
   await expect(page).toHaveURL(/\/settings$/);
   await open(page, '/shopping-items', 1440);
   await expect(page.getByTestId('sidebar').getByRole('link', { name: 'Catalog' })).toHaveAttribute('aria-current', 'page');
+  await open(page, '/budgets?view=year', 1440);
+  await expect(page.getByTestId('sidebar').getByRole('link', { name: 'Year plan', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByTestId('sidebar').getByRole('link', { name: 'Plan', exact: true })).not.toHaveAttribute('aria-current', 'page');
   results.navTaps = taps;
   guard.assertOnlyLoopback();
 });
