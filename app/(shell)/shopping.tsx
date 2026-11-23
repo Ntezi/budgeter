@@ -159,6 +159,9 @@ export default function ShoppingScreen() {
     name: '',
     quantity: '1',
     planItemId: '',
+    unit: '',
+    category: '',
+    note: '',
   });
   const [tagEditOpen, setTagEditOpen] = useState(false);
   const [tagEditError, setTagEditError] = useState('');
@@ -753,6 +756,9 @@ export default function ShoppingScreen() {
       name: item.name || '',
       quantity: String(item.quantity || 1),
       planItemId: assigned,
+      unit: item.unit || '',
+      category: item.category || '',
+      note: item.note || '',
     });
     setEditItemError('');
     setEditItemOpen(true);
@@ -788,6 +794,9 @@ export default function ShoppingScreen() {
       const patch = {
         name,
         quantity,
+        unit: editDraft.unit,
+        category: editDraft.category.trim(),
+        note: editDraft.note.trim().slice(0, 500),
         assignedPlanItemId: selectedPlan?.id || '',
         assignedPlanItemName: selectedPlan?.name || '',
         assignedGroup: selectedPlan?.group,
@@ -1825,6 +1834,23 @@ export default function ShoppingScreen() {
               value={editDraft.quantity}
               onChangeText={(value) => setEditDraft((prev) => ({ ...prev, quantity: value }))}
               keyboardType="numeric"
+            />
+          </View>
+          <View className="gap-1">
+            <Text className="text-xs text-muted-foreground">Unit</Text>
+            <DropdownField value={editDraft.unit} options={UNIT_OPTIONS} onChange={(value) => setEditDraft((prev) => ({ ...prev, unit: value }))} placeholder="Unit" menuStrategy="inline" />
+          </View>
+          <View className="gap-1">
+            <Text className="text-xs text-muted-foreground">Category</Text>
+            <DropdownField value={editDraft.category} options={addCategoryOptions} onChange={(value) => setEditDraft((prev) => ({ ...prev, category: value }))} placeholder="Category" menuStrategy="inline" />
+          </View>
+          <View className="gap-1">
+            <Text className="text-xs text-muted-foreground">Note</Text>
+            <AppInput
+              value={editDraft.note}
+              onChangeText={(value) => setEditDraft((prev) => ({ ...prev, note: value }))}
+              placeholder="Note (optional)"
+              accessibilityLabel="Edit note"
             />
           </View>
           <View className="gap-1">
