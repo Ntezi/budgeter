@@ -14,6 +14,7 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/patterns/Stat
 import { useSheetEffects } from '@/components/shopping/useSheetEffects';
 import { cn } from '@/lib/cn';
 import { useWorkspaceUid } from '@/providers/WorkspaceProvider';
+import { CatalogImport } from '@/components/catalog/CatalogImport';
 import {
   addShoppingCategory,
   backfillShoppingCatalogFromLists,
@@ -22,8 +23,6 @@ import {
   deleteShoppingCatalogItem,
   type ShoppingCatalogItem,
   type ShoppingCategory,
-  importShoppingCatalogCsv,
-  shoppingCatalogCsvHeader,
   updateShoppingCatalogItem,
   upsertShoppingCatalogItem,
   watchShoppingCatalog,
@@ -79,7 +78,6 @@ export default function ShoppingItemsScreen() {
 
   const [draft, setDraft] = useState<CatalogDraft>({ name: '', category: '', tagsInput: '', assignedPlanItemId: '' });
   const [categoryDraft, setCategoryDraft] = useState('');
-  const [csvText, setCsvText] = useState(`${shoppingCatalogCsvHeader}\n`);
 
   const [search, setSearch] = useState('');
   const [sortMode, setSortMode] = useState<'NAME' | 'CATEGORY'>('NAME');
@@ -88,7 +86,6 @@ export default function ShoppingItemsScreen() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [screenError, setScreenError] = useState('');
   const [syncing, setSyncing] = useState(false);
-  const [importing, setImporting] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [bulkScope, setBulkScope] = useState<BulkScope>('SELECTED');
   const [bulkSourceValue, setBulkSourceValue] = useState('');
@@ -107,7 +104,6 @@ export default function ShoppingItemsScreen() {
   const [manageOpen, setManageOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
-  const [csvPreview, setCsvPreview] = useState<string[] | null>(null);
   const [allObservations, setAllObservations] = useState<PriceObservation[]>([]);
   useSheetEffects(manageOpen, () => setManageOpen(false));
   useSheetEffects(addOpen, () => setAddOpen(false));
@@ -474,21 +470,6 @@ export default function ShoppingItemsScreen() {
     }
   }
 
-  async function importCsv() {
-    if (!uid) return;
-    setImporting(true);
-    try {
-      const count = await importShoppingCatalogCsv(uid, csvText);
-      setCsvText(`${shoppingCatalogCsvHeader}\n`);
-      Alert.alert('Import complete', `${count} catalog items imported.`);
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : String(e);
-      setScreenError(message || 'CSV import failed.');
-    } finally {
-      setImporting(false);
-    }
-  }
-
   async function exportCsv() {
     if (exporting) return;
     setExporting(true);
@@ -584,11 +565,6 @@ export default function ShoppingItemsScreen() {
     return { text: 'No comparable price', muted: true };
   }
 
-  function previewCsv() {
-    const lines = csvText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-    const body = lines[0] && normalize(lines[0]) === normalize(shoppingCatalogCsvHeader) ? lines.slice(1) : lines;
-    setCsvPreview(body.map((l) => l.split(',')[0]?.trim() || '').filter(Boolean));
-  }
 
   const detail = selectedItem?.id ? edits[selectedItem.id] : undefined;
 
@@ -911,45 +887,7 @@ export default function ShoppingItemsScreen() {
 
           <View className="gap-3">
             <Text role="heading" aria-level={3} className="text-base font-semibold text-foreground dark:text-zinc-50">Import from CSV</Text>
-            <Text className="text-sm text-muted-foreground dark:text-zinc-400">{`Columns: ${shoppingCatalogCsvHeader}. Quantity and price are not imported.`}</Text>
-            <AppInput
-              value={csvText}
-              onChangeText={(value) => {
-                setCsvText(value);
-                setCsvPreview(null);
-              }}
-              multiline
-              numberOfLines={6}
-              accessibilityLabel="CSV text"
-              className="h-36 items-start py-2 text-base"
-              autoCapitalize="none"
-            />
-            {csvPreview ? (
-              <View testID="csv-preview" className="gap-1 rounded-xl border border-border bg-card p-3 dark:border-zinc-800 dark:bg-zinc-900">
-                <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{`${csvPreview.length} row${csvPreview.length === 1 ? '' : 's'} will be imported`}</Text>
-                <Text className="text-sm text-muted-foreground dark:text-zinc-400" numberOfLines={3}>{csvPreview.slice(0, 8).join(', ')}{csvPreview.length > 8 ? ', …' : ''}</Text>
-              </View>
-            ) : null}
-            <View className="flex-row flex-wrap gap-2">
-              <AppButton label="Preview" variant="outline" size="touch" onPress={previewCsv} />
-              <AppButton
-                label={importing ? 'Importing…' : `Import ${csvPreview?.length ?? 0} row${csvPreview?.length === 1 ? '' : 's'}`}
-                size="touch"
-                disabled={importing || !csvPreview?.length}
-                onPress={() => void importCsv().then(() => setCsvPreview(null))}
-              />
-            </View>
-            <AppButton
-              label="Import from a file"
-              variant="ghost"
-              size="touch"
-              className="self-start px-0"
-              testID="catalog-import-settings-link"
-              onPress={() => {
-                setManageOpen(false);
-                router.push('/settings?page=import&kind=catalog');
-              }}
-            />
+            <CatalogImport uid={uid} />
           </View>
 
           <View className="gap-3">

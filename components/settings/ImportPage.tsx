@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { Platform, Text, View } from 'react-native';
-import { useRouter } from 'expo-router';
 import { FormField } from '@/components/patterns/FormLayout';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppInput } from '@/components/ui/AppInput';
 import { importRecurringCsv, parseRecurringCsv, recurringCsvHeader, type Recurring } from '@/lib/repo/recurring';
 import { Notice, RadioRow, SettingsPage, SettingsSection } from './SettingsParts';
+import { CatalogImport } from '@/components/catalog/CatalogImport';
 
 type Kind = 'regular' | 'catalog';
 type Row = Omit<Recurring, 'id'>;
@@ -15,10 +15,9 @@ const GROUP: Record<string, string> = { NEED: 'Needs', WANT: 'Wants', SAVINGS: '
 /**
  * Import from a file (09). Regular costs: paste or choose a CSV, Preview parses it with the same parser
  * (parseRecurringCsv), and only "Import N rows" writes, through the same importRecurringCsv as before.
- * Catalog items keep their importer (with its own preview) under Catalog › Manage.
+ * Catalog items use components/catalog/CatalogImport, the same block Catalog › Manage shows.
  */
 export function ImportPage({ uid, initialKind, onBack }: { uid: string | null; initialKind?: Kind; onBack: () => void }) {
-  const router = useRouter();
   const [kind, setKind] = useState<Kind | null>(initialKind ?? null);
   const [csvText, setCsvText] = useState(recurringCsvHeader);
   const [preview, setPreview] = useState<Row[] | null>(null);
@@ -85,12 +84,7 @@ export function ImportPage({ uid, initialKind, onBack }: { uid: string | null; i
         <RadioRow label="Catalog items" sub="Shopping items and their categories" checked={kind === 'catalog'} onPress={() => setKind('catalog')} />
       </SettingsSection>
 
-      {kind === 'catalog' ? (
-        <View className="gap-3">
-          <Text className="text-sm text-muted-foreground dark:text-zinc-400">Catalog files are checked and imported from Catalog › Manage, which shows the same preview first.</Text>
-          <AppButton label="Open Catalog" variant="outline" size="touch" className="self-start" onPress={() => router.push('/shopping-items')} />
-        </View>
-      ) : null}
+      {kind === 'catalog' ? <CatalogImport uid={uid} /> : null}
 
       {kind === 'regular' ? (
         <View className="gap-4">
