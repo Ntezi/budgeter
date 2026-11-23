@@ -523,8 +523,8 @@ export default function RecurringScreen() {
                   )
               );
               return (
+                <View key={row.id}>
                 <View
-                  key={row.id}
                   className={`flex-row items-center border-b py-2 dark:border-zinc-800 ${
                     isDirty
                       ? 'border-primary/40 bg-primary/5 dark:bg-zinc-800/70'
@@ -621,6 +621,12 @@ export default function RecurringScreen() {
                       </>
                     )}
                   </View>
+                </View>
+                {isEditing && uid && row.id ? (
+                  <View className="w-[360px] border-b border-border py-2 dark:border-zinc-800">
+                    <DefaultAccountField uid={uid} collectionName="recurring" sourceId={row.id} value={row.defaultAccountId} />
+                  </View>
+                ) : null}
                 </View>
               );
             })}

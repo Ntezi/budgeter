@@ -421,8 +421,8 @@ export default function ExpensesScreen() {
               const dirty = edit.dirty;
               const actionRow = effectiveRow(row);
               return (
+              <View key={row.id}>
               <View
-                key={row.id}
                 className={`flex-row items-center border-b py-2 dark:border-zinc-800 ${
                   dirty
                     ? 'border-primary/40 bg-primary/5 dark:bg-zinc-800/70'
@@ -490,6 +490,12 @@ export default function ExpensesScreen() {
                     </>
                   )}
                 </View>
+              </View>
+              {isEditing && uid ? (
+                <View className="w-[360px] border-b border-border py-2 dark:border-zinc-800">
+                  <DefaultAccountField uid={uid} collectionName="expenses" sourceId={row.id} value={row.defaultAccountId} />
+                </View>
+              ) : null}
               </View>
             )})}
 
