@@ -79,6 +79,9 @@ test('AC-5 viewed month never changes the posting month', async ({ page }, info)
   await page.goBack();
   await page.reload();
   await expect(page).toHaveURL(new RegExp(`month=${CUR}`));
+  // BUDG-6 regression: the reload restores the Transactions view, never the first shell route.
+  await expect(page.getByText(`Viewing ${monthTitle(CUR)}.`, { exact: false })).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe('/transactions');
   await page.goto(`/transactions?month=${PREV}`);
   await expect(page.getByText(`Viewing ${monthTitle(PREV)}.`, { exact: false })).toBeVisible();
   const prevTx = (await listIds('periods', PREV, 'transactions')).length;

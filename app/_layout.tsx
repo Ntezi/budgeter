@@ -7,6 +7,7 @@ import { AuthProvider, useAuth } from '@/providers/AuthProvider';
 import { ThemeProvider, useThemeMode } from '@/providers/ThemeProvider';
 import { WorkspaceProvider, useWorkspace } from '@/providers/WorkspaceProvider';
 import { getOnboardingComplete } from '@/lib/onboarding';
+import { decideGate } from '@/lib/rules/appGate';
 
 // The navigator mounts only after auth/workspace load, so on web a refresh or deep link
 // (e.g. /transactions?month=YYYY-MM) would otherwise fall back to "/". Remember it once.
@@ -54,26 +55,16 @@ function AppGate() {
   useEffect(() => {
     if (!authReady || !themeReady || !workspaceReady || !checkedOnboarding) return;
 
-    const isOnboarding = pathname.startsWith('/onboarding');
-    const isAuth = pathname.startsWith('/auth');
-
-    if (!onboardingComplete && !isOnboarding) {
-      router.replace('/onboarding');
-      return;
-    }
-
-    if (onboardingComplete && !user && !isAuth) {
-      // Keep the deep link (e.g. /transactions?month=YYYY-MM) so refresh restores the view after sign-in.
-      if (!isOnboarding && pathname !== '/') pendingReturnPath = currentLocation(pathname);
-      router.replace('/auth');
-      return;
-    }
-
-    if (onboardingComplete && user && (isOnboarding || isAuth || pathname === '/')) {
-      const target = pendingReturnPath || firstShellRoute;
-      pendingReturnPath = null;
-      router.replace(target as any);
-    }
+    const decision = decideGate({
+      onboardingComplete,
+      signedIn: !!user,
+      pathname,
+      location: currentLocation(pathname),
+      pending: pendingReturnPath,
+      firstShellRoute,
+    });
+    pendingReturnPath = decision.pending;
+    if (decision.replace) router.replace(decision.replace as any);
   }, [authReady, checkedOnboarding, firstShellRoute, onboardingComplete, pathname, router, themeReady, user, workspaceReady]);
 
   const loading = useMemo(
