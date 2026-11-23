@@ -15,7 +15,6 @@ import { fetchAccountsReport, fetchPeriodReport, type AccountReport, type Period
 import { watchExpenses, type ExpenseItem } from '@/lib/repo/expenses';
 import { buildWorkbook, exportWorkbook } from '@/lib/export';
 import { fmtMoney } from '@/lib/format';
-import { Colors } from '@/lib/budget';
 import { walletTagLabel } from '@/lib/domain';
 import { useThemeMode } from '@/providers/ThemeProvider';
 import { transactionSignedBudgetAmount } from '@/lib/accounting';
@@ -32,7 +31,6 @@ import {
 } from '@/lib/repo/shopping';
 import { watchAccounts } from '@/lib/repo/accounts';
 
-const CHART_COLORS = [Colors.needs, Colors.wants, Colors.sd];
 
 type PeriodBehaviorInsight = {
   burnRatePct: number;
@@ -82,21 +80,8 @@ function toneClass(tone: BehaviorSignal['tone']) {
   return 'text-foreground dark:text-zinc-50';
 }
 
-function signedMoney(value: number) {
-  if (!Number.isFinite(value) || value === 0) return fmtMoney(0);
-  return `${value > 0 ? '+' : '-'}${fmtMoney(Math.abs(value))}`;
-}
 
-function signedPct(value: number) {
-  if (!Number.isFinite(value) || value === 0) return '0.0%';
-  return `${value > 0 ? '+' : '-'}${Math.abs(value).toFixed(1)}%`;
-}
 
-function trendValueClass(value: number) {
-  if (value > 0) return 'text-red-700 dark:text-red-300';
-  if (value < 0) return 'text-emerald-700 dark:text-emerald-300';
-  return 'text-muted-foreground';
-}
 
 function analyzePeriodBehavior(report: PeriodReport): PeriodBehaviorInsight {
   const spentTotal = Math.max(0, Number(report.totals.transactions.total || 0));
@@ -476,7 +461,6 @@ export default function ReportsScreen() {
   const [accountReport, setAccountReport] = useState<AccountReport | null>(null);
   const [accountLoading, setAccountLoading] = useState(false);
   const [accountExporting, setAccountExporting] = useState(false);
-  const [loadingLatest, setLoadingLatest] = useState(false);
   const [accountsVersion, setAccountsVersion] = useState(0);
 
   const [shoppingLists, setShoppingLists] = useState<ShoppingList[]>([]);
@@ -581,10 +565,6 @@ export default function ReportsScreen() {
     }));
   }, [priceHistory]);
 
-  const selectedCatalogItem = useMemo(
-    () => catalog.find((item) => item.id === selectedItemId),
-    [catalog, selectedItemId]
-  );
 
   const priceTrend = useMemo(() => {
     if (!priceHistory.length) return null;
@@ -617,14 +597,6 @@ export default function ReportsScreen() {
     };
   }, [priceHistory]);
 
-  const priceTrendRows = useMemo(() => {
-    return priceHistory
-      .map((row, index) => ({
-        ...row,
-        change: index > 0 ? row.price - priceHistory[index - 1].price : 0,
-      }))
-      .reverse();
-  }, [priceHistory]);
 
   const loadReport = useCallback(
     async (pid: string, force?: boolean) => {
@@ -685,26 +657,7 @@ export default function ReportsScreen() {
     );
   }, [loadedReports]);
 
-  const trendRows = useMemo(
-    () =>
-      loadedReports.map((report) => ({
-        periodId: report.periodId,
-        title: report.period?.title || periodTitleFromId(report.periodId),
-        income: report.totals.incomeTotal || 0,
-        spent: report.totals.transactions.total || 0,
-        remaining: (report.totals.incomeTotal || 0) - (report.totals.transactions.total || 0),
-      })),
-    [loadedReports]
-  );
 
-  const categoryShare = useMemo(() => {
-    const total = Math.max(portfolioTotals.spent, 1);
-    return [
-      { label: 'Needs', amount: portfolioTotals.needs, pct: (portfolioTotals.needs / total) * 100, color: 'bg-needs' },
-      { label: 'Wants', amount: portfolioTotals.wants, pct: (portfolioTotals.wants / total) * 100, color: 'bg-wants' },
-      { label: 'Savings-Debt', amount: portfolioTotals.savings, pct: (portfolioTotals.savings / total) * 100, color: 'bg-savings' },
-    ];
-  }, [portfolioTotals]);
 
   const behaviorSignals = useMemo<BehaviorSignal[]>(() => {
     const signals: BehaviorSignal[] = [];
@@ -833,16 +786,6 @@ export default function ReportsScreen() {
     }
   }
 
-  async function loadLatestReports() {
-    if (!periods.length || loadingLatest) return;
-    setLoadingLatest(true);
-    try {
-      const latest = periods.slice(0, 6).map((period) => period.id);
-      await Promise.all(latest.map((pid) => loadReport(pid, true)));
-    } finally {
-      setLoadingLatest(false);
-    }
-  }
 
   // ---- BUDG-8 S14 layout (08-reports-export.md); the calculations above are unchanged ----
   const monthParam = typeof params.month === 'string' && /^\d{4}-\d{2}$/.test(params.month) ? params.month : '';

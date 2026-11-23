@@ -40,7 +40,11 @@ export default function BudgetsScreen() {
   const [pending, setPending] = useState(false);
   const [createError, setCreateError] = useState('');
   const pendingRef = useRef(false);
-  const choices = useMemo(() => newBudgetChoices(new Date(), periods), [periods]);
+  // BUDG-8 03: the sheet lists this month first, then next month, then missing earlier months (same rows).
+  const choices = useMemo(() => {
+    const rank = { CURRENT: 0, NEXT: 1, PAST: 2 } as Record<string, number>;
+    return [...newBudgetChoices(new Date(), periods)].sort((a, b) => (rank[a.relation] ?? 3) - (rank[b.relation] ?? 3));
+  }, [periods]);
   const chosen: MonthChoice | undefined = choices.find((row) => row.id === chosenId);
 
   function openPicker() {
