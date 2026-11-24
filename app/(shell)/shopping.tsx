@@ -63,6 +63,7 @@ import {
   type SharedList,
 } from '@/lib/repo/sharedLists';
 import { SharedListView } from '@/components/SharedListView';
+import { useCatalogCopySync, useChefPendingEntries } from '@/components/catalog/catalogSync';
 import { ReceiptModal, lineDraftsFromItems } from '@/components/shopping/ReceiptModal';
 import { useWorkspace, useWorkspaceUid } from '@/providers/WorkspaceProvider';
 import { AppSheet, useSheet } from '@/components/patterns/AppSheet';
@@ -163,6 +164,7 @@ export default function ShoppingScreen() {
   const [selectedListId, setSelectedListId] = useState('');
   const [privateItems, setItems] = useState<ShoppingListItem[]>([]);
   const [catalogRows, setCatalogRows] = useState<ShoppingCatalogItem[]>([]);
+  const [catalogLoaded, setCatalogLoaded] = useState(false); // BUDG-43: no chef-item matching before the catalog is in
 
   const [createListOpen, setCreateListOpen] = useState(false);
   const [listDraftName, setListDraftName] = useState('');
@@ -239,6 +241,7 @@ export default function ShoppingScreen() {
   const foldTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const addPendingRef = useRef(false); // one Add to list save at a time (a second tap added the item twice)
   const [addSaving, setAddSaving] = useState(false);
+  const [shareChef, setShareChef] = useState(''); // BUDG-43: chef uid while the share is ACTIVE
   const [shareLeft, setShareLeft] = useState(false); // the chef left this list (share REVOKED, list still marked)
   const recordKeys = useRef<Record<string, string>>({}); // H-3: one key per chef item per open form
   useEffect(() => () => {
@@ -320,7 +323,10 @@ export default function ShoppingScreen() {
 
   useEffect(() => {
     if (!uid) return;
-    return watchShoppingCatalog(uid, setCatalogRows);
+    return watchShoppingCatalog(uid, (rows) => {
+      setCatalogRows(rows);
+      setCatalogLoaded(true);
+    });
   }, [uid]);
 
   useEffect(() => {
@@ -361,8 +367,19 @@ export default function ShoppingScreen() {
 
   useEffect(() => {
     setShareLeft(false);
+    setShareChef('');
     if (!shareId) return;
-    return watchShare(shareId, (row) => setShareLeft(householdShareState(shareId, row?.status) === 'left'), () => setShareLeft(false));
+    return watchShare(
+      shareId,
+      (row) => {
+        setShareLeft(householdShareState(shareId, row?.status) === 'left');
+        setShareChef(row?.status === 'ACTIVE' ? row.chefUid : ''); // BUDG-43
+      },
+      () => {
+        setShareLeft(false);
+        setShareChef('');
+      }
+    );
   }, [shareId]);
 
   // Household view of a shared list: private twins (price, plan, links) merged with
@@ -399,6 +416,16 @@ export default function ShoppingScreen() {
     });
     return merged;
   }, [privateItems, sharedItems, shareId]);
+
+  // BUDG-43 AC-2 / AC-4: household client only (uid === myUid or a member; never the chef, who has no list here).
+  useChefPendingEntries(
+    uid || '',
+    shareId && shareChef ? { shareId, chefUid: shareChef, listId: selectedListId, listName: selectedList?.name, active: true } : null,
+    sharedItems as { id: string; name: string; unit?: string; category?: string; createdBy?: string }[],
+    catalogRows,
+    catalogLoaded
+  );
+  useCatalogCopySync(Boolean(uid && shareChef), catalogRows, shareId ? [shareId] : [], catalogLoaded);
 
   useEffect(() => {
     if (!myUid) return;
@@ -715,7 +742,11 @@ export default function ShoppingScreen() {
           await addShoppingCatalogAlias(uid, catalogItemId, name);
         }
       } else if (write.catalog === 'create') {
-        catalogItemId = await createShoppingCatalogItem(uid, { name, category: addDraft.category, unit: addDraft.unit || undefined });
+        catalogItemId = await createShoppingCatalogItem(uid, {
+          name, category: addDraft.category, unit: addDraft.unit || undefined,
+          // BUDG-43 AC-1: a new item from a list is kept in the catalog "to approve".
+          pending: { addedFrom: 'shopping-list', addedBy: myUid || uid, sourceListId: selectedListId, sourceListName: selectedList?.name },
+        });
       }
       const plan = resolvePlanForItemName(itemName, catalog);
       const fields = {

@@ -2,6 +2,7 @@
 // tests can run them. C-10: the private list stays the source of truth; sharing only
 // adds docs under sharedLists and two fields on the list doc; nothing is moved or deleted.
 import { collection, deleteField, doc, getDocs, serverTimestamp, setDoc, updateDoc, writeBatch, type Firestore } from 'firebase/firestore';
+import { deleteCatalogCopyIn, writeCatalogCopyIn } from './catalogPendingOps';
 import { SHARED_ITEM_FIELDS, toSharedItemFields, type SharedItem, type SharedList } from './sharedListsCore';
 
 /** R-2: a Firestore batch holds at most 500 writes; 400 leaves room and keeps each commit small. */
@@ -55,6 +56,8 @@ export async function shareListWithChefIn(
       });
       await batch.commit();
     }
+    // Step 2b (BUDG-43 AC-4): the price-free copy of the owner's catalog (name, unit, category) for the chef's search.
+    await writeCatalogCopyIn(db, ownerUid, shareRef.id);
     // Step 3: the list is marked shared last, only once every item landed.
     await updateDoc(doc(db, 'users', ownerUid, 'shoppingLists', list.id), { shareId: shareRef.id, sharedWithLabel: label });
   } catch (e) {
@@ -109,6 +112,8 @@ export async function revokeShareIn(db: Firestore, ownerUid: string, listId: str
     await batch.commit();
   }
   await updateDoc(doc(db, 'users', ownerUid, 'shoppingLists', listId), { shareId: deleteField(), sharedWithLabel: deleteField() });
+  // BUDG-43: the chef's catalog copy goes with the share (already unreadable to the chef once REVOKED).
+  await deleteCatalogCopyIn(db, shareId);
 }
 
 /** BUDG-6 H-1: the chef ends a share addressed to them (rules allow only ACTIVE -> REVOKED with revokedAt). */

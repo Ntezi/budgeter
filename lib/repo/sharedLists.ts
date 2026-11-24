@@ -111,3 +111,20 @@ export async function deleteSharedItem(shareId: string, itemId: string) {
 export function watchOwnListCount(myUid: string, cb: (count: number) => void) {
   return onSnapshot(query(collection(db, 'users', myUid, 'shoppingLists'), limit(1)), (snap) => cb(snap.size), () => cb(0));
 }
+
+/** BUDG-43 AC-4: the price-free copy of the owner's catalog (name, unit, category only), read by the active chef. */
+export type CatalogCopyRow = { id: string; name: string; unit: string; category: string };
+export function watchCatalogCopy(shareId: string, cb: (rows: CatalogCopyRow[]) => void, onError: (e: FirestoreError) => void) {
+  return onSnapshot(
+    collection(db, 'sharedLists', shareId, 'catalog'),
+    (snap) => {
+      const rows = snap.docs.map((d) => {
+        const x = d.data() as Record<string, unknown>;
+        return { id: d.id, name: String(x.name || ''), unit: String(x.unit || ''), category: String(x.category || '') };
+      });
+      rows.sort((a, b) => a.name.localeCompare(b.name));
+      cb(rows.filter((r) => r.name));
+    },
+    onError
+  );
+}

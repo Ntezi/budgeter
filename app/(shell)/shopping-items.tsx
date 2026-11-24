@@ -17,6 +17,9 @@ import { useSheetEffects } from '@/components/shopping/useSheetEffects';
 import { cn } from '@/lib/cn';
 import { useWorkspaceUid } from '@/providers/WorkspaceProvider';
 import { CatalogImport } from '@/components/catalog/CatalogImport';
+import { PendingBadge, PendingSection } from '@/components/catalog/PendingSection';
+import { useCatalogCopySync } from '@/components/catalog/catalogSync';
+import { watchShoppingLists } from '@/lib/repo/shopping';
 import {
   addShoppingCategory,
   backfillShoppingCatalogFromLists,
@@ -102,6 +105,13 @@ export default function ShoppingItemsScreen() {
   const [receiptPricesTick, setReceiptPricesTick] = useState(0);
   // BUDG-8 S12 view state only.
   const [loaded, setLoaded] = useState(false);
+  // BUDG-43 AC-4: shared lists whose chef copy follows catalog adds, renames and deletes made here.
+  const [sharedListIds, setSharedListIds] = useState<string[]>([]);
+  useEffect(() => {
+    if (!uid) return;
+    return watchShoppingLists(uid, (lists) => setSharedListIds(lists.map((l) => l.shareId || '').filter(Boolean)));
+  }, [uid]);
+  useCatalogCopySync(Boolean(uid), rows, sharedListIds, loaded);
   const [categoryFilter, setCategoryFilter] = useState('ALL');
   const [manageOpen, setManageOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
@@ -569,6 +579,8 @@ export default function ShoppingItemsScreen() {
 
 
   const detail = selectedItem?.id ? edits[selectedItem.id] : undefined;
+  const pendingRows = rows.filter((row) => row.pending === true && row.id);
+  const approvedRows = rows.filter((row) => row.pending !== true);
 
   return (
     <View className="min-h-0 flex-1 bg-background dark:bg-zinc-950">
@@ -576,7 +588,12 @@ export default function ShoppingItemsScreen() {
         <PageHeader
           title="Catalog"
           subtitle={`${rows.length} item${rows.length === 1 ? '' : 's'} you buy · ${mappedCount} linked to a budget line`}
-          right={<AppButton label="Manage" variant="ghost" size="touch" testID="catalog-manage" onPress={() => setManageOpen(true)} />}
+          right={
+            <View className="flex-row items-center gap-2">
+              <PendingBadge count={pendingRows.length} />
+              <AppButton label="Manage" variant="ghost" size="touch" testID="catalog-manage" onPress={() => setManageOpen(true)} />
+            </View>
+          }
           switcher={
             <AppSegmented
               value={sortMode}
@@ -592,6 +609,7 @@ export default function ShoppingItemsScreen() {
           action={<PrimaryAction label="Add item" onPress={() => setAddOpen(true)} />}
         />
         {screenError ? <ErrorState message={screenError} onRetry={() => setScreenError('')} /> : null}
+        {uid ? <PendingSection uid={uid} pending={pendingRows} approved={approvedRows} onError={setScreenError} /> : null}
 
         <View className="gap-3">
           <View className="flex-row flex-wrap items-center gap-2">

@@ -27,15 +27,20 @@ import {
   updateSharedItem,
   watchShare,
   watchSharedItems,
+  watchCatalogCopy,
+  type CatalogCopyRow,
   type SharedItem,
   type SharedList,
 } from '@/lib/repo/sharedLists';
+import { searchCatalog } from '@/lib/rules/catalogMatch';
 
 type Draft = { id: string; name: string; quantity: string; unit: string; category: string; note: string };
 
 export function SharedListView({ shareId, myUid, onBack, showBack = true }: { shareId: string; myUid: string; onBack: () => void; showBack?: boolean }) {
   const [share, setShare] = useState<SharedList | null>(null);
   const [items, setItems] = useState<SharedItem[]>([]);
+  // BUDG-43 AC-4: the owner's catalog as names, units and categories only (sharedLists/{shareId}/catalog).
+  const [catalog, setCatalog] = useState<CatalogCopyRow[]>([]);
   const [ended, setEnded] = useState(false);
   const [newName, setNewName] = useState('');
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -78,9 +83,13 @@ export function SharedListView({ shareId, myUid, onBack, showBack = true }: { sh
 
   useEffect(() => {
     let stopItems: (() => void) | null = null;
+    let stopCatalog: (() => void) | null = null;
     const end = () => {
       stopItems?.();
       stopItems = null;
+      stopCatalog?.();
+      stopCatalog = null;
+      setCatalog([]);
       setItems([]);
       setEnded(true);
     };
@@ -90,12 +99,15 @@ export function SharedListView({ shareId, myUid, onBack, showBack = true }: { sh
         if (!row || row.status !== 'ACTIVE') return end();
         setShare(row);
         if (!stopItems) stopItems = watchSharedItems(shareId, setItems, end);
+        // A copy that cannot be read (older share without one) only means no suggestions.
+        if (!stopCatalog) stopCatalog = watchCatalogCopy(shareId, setCatalog, () => setCatalog([]));
       },
       end
     );
     return () => {
       stopShare();
       stopItems?.();
+      stopCatalog?.();
     };
   }, [shareId]);
 
@@ -117,9 +129,20 @@ export function SharedListView({ shareId, myUid, onBack, showBack = true }: { sh
   async function addQuick() {
     const name = newName.trim();
     if (!name) return;
-    await run(() => addSharedItem(shareId, myUid, { name, quantity: 1, status: 'TO_BUY' }));
+    // A typed name that is the owner's catalog item takes its unit and category too.
+    const hit = catalog.find((row) => row.name.trim().toLowerCase() === name.toLowerCase());
+    await run(() => addSharedItem(shareId, myUid, { name: hit?.name || name, quantity: 1, unit: hit?.unit || undefined, category: hit?.category || undefined, status: 'TO_BUY' }));
     setNewName('');
   }
+
+  async function addPicked(id: string) {
+    const row = catalog.find((r) => r.id === id);
+    if (!row) return;
+    await run(() => addSharedItem(shareId, myUid, { name: row.name, quantity: 1, unit: row.unit || undefined, category: row.category || undefined, status: 'TO_BUY' }));
+    setNewName('');
+  }
+  const typedName = newName.trim().toLowerCase();
+  const chefSuggestions = typedName ? searchCatalog(newName, catalog, 8).map((row) => ({ id: row.id, name: row.name })) : [];
 
   async function saveDraft() {
     if (!draft) return;
@@ -196,7 +219,15 @@ export function SharedListView({ shareId, myUid, onBack, showBack = true }: { sh
             onCancel={() => setSelectMode(false)}
           />
         ) : (
-          <AddItemBar value={newName} onChangeText={setNewName} onSubmit={() => void addQuick()} error={error} />
+          <AddItemBar
+            value={newName}
+            onChangeText={setNewName}
+            onSubmit={() => void addQuick()}
+            suggestions={catalog.length ? chefSuggestions : undefined}
+            onPick={(id) => void addPicked(id)}
+            offerNew={!chefSuggestions.some((s) => s.name.trim().toLowerCase() === typedName)}
+            error={error}
+          />
         )}
         {!items.length ? <EmptyState icon="playlist-plus" message="Add the first item above." testID="list-empty" /> : null}
         {items.length && !toBuy.length ? (

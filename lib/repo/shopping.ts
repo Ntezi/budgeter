@@ -17,6 +17,7 @@ import type { Group } from './periods';
 import { docMatchesActiveScope, withWorkspaceWrite } from './scope';
 import { toSharedItemFields, toSharedPatch } from './sharedListsCore';
 
+import { pendingFields, type PendingFields, type PendingInput } from '@/lib/rules/catalogPending';
 import type { CloseShoppingOptions, ShoppingImportBatch, ShoppingItemMatchResult } from '@/lib/shopping/import/shoppingImportTypes';
 
 /** BUDG-4 design: a household write to a shared list goes to the private item and its chef twin in one writeBatch. */
@@ -78,7 +79,8 @@ export type ShoppingListItem = {
   updatedAt?: unknown;
 };
 
-export type ShoppingCatalogItem = {
+/** BUDG-43: PendingFields are additive (pending, addedFrom, addedBy, addedAt, source*); absent = approved as before. */
+export type ShoppingCatalogItem = PendingFields & {
   id?: string;
   name: string;
   /** BUDG-4: new items get random ids; legacy ids derive from the name. */
@@ -865,7 +867,7 @@ export async function backfillShoppingCatalogFromLists(uid: string) {
 /** BUDG-4 AC-2: save a new item to the permanent catalog with its own id (never merges by name). */
 export async function createShoppingCatalogItem(
   uid: string,
-  input: { name: string; category?: string; unit?: string; packSize?: number }
+  input: { name: string; category?: string; unit?: string; packSize?: number; /** BUDG-43 AC-1: kept "to approve" */ pending?: PendingInput }
 ) {
   const name = String(input.name || '').trim();
   if (!name) throw new Error('Shopping item name is required.');
@@ -877,6 +879,7 @@ export async function createShoppingCatalogItem(
     tags: [],
     aliases: [],
     variant: input.unit ? compactFields({ unit: input.unit, packSize: input.packSize }) : undefined,
+    ...(input.pending ? pendingFields(input.pending, serverTimestamp()) : {}),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   })) as any);
