@@ -17,7 +17,7 @@ import { displayListName } from '@/lib/repo/sharedListsCore';
 import { leaveShareIn } from '@/lib/repo/sharedListsOps';
 import { useSheetEffects } from '@/components/shopping/useSheetEffects';
 import { AppSheet, useSheet } from '@/components/patterns/AppSheet';
-import { RemoveConfirmDialog, SelectBar, UndoNotice } from '@/components/shopping/RemoveControls';
+import { RemoveConfirmDialog, SelectBar, UndoNotice, useSelectModeEffects } from '@/components/shopping/RemoveControls';
 import { removeShoppingItemsIn, restoreShoppingItemsIn, type RemovedSnapshot } from '@/lib/repo/shoppingRemoveOps';
 import { CHEF_REMOVE_REASON, chefCanRemove, pruneSelected, toggleSelectAll, toggleSelected } from '@/lib/rules/shoppingRemoval';
 import { cn } from '@/lib/cn';
@@ -51,7 +51,7 @@ export function SharedListView({ shareId, myUid, onBack, showBack = true }: { sh
   const [undo, setUndo] = useState<null | { key: number; name: string; snapshots: RemovedSnapshot[] }>(null);
   const removeAskRef = useRef(false);
   removeAskRef.current = Boolean(removeAsk);
-  useSheetEffects(selectMode, () => {
+  useSelectModeEffects(selectMode, () => {
     if (!removeAskRef.current) setSelectMode(false);
   });
   const ownIds = items.filter((i) => i.id && chefCanRemove(i, myUid)).map((i) => i.id as string);

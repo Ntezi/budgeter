@@ -93,7 +93,7 @@ for (const theme of THEMES) {
       await expect(page.getByTestId('record-expense-sheet')).toHaveCount(0);
 
       // Item sheet from a row tap.
-      await page.getByTestId('shopping-item').first().getByRole('button').last().click();
+      await page.getByTestId('shopping-item').first().getByTestId('item-open').click(); // BUDG-42: the row also holds remove controls
       await expect(page.getByLabel('Item name')).toBeVisible();
       await snap(page, `S10-item-sheet-${key}`);
       await page.keyboard.press('Escape');

@@ -1,10 +1,50 @@
 // BUDG-42: the pieces shared by the household list and the chef view for removing items fast.
 import React, { useEffect, useRef } from 'react';
-import { Text, View } from 'react-native';
+import { Platform, Text, View } from 'react-native';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppModal } from '@/components/ui/AppModal';
 import { useSheetEffects } from '@/components/shopping/useSheetEffects';
 import { REMOVE_CONFIRM_BODY, removeConfirmTitle } from '@/lib/rules/shoppingRemoval';
+
+const WEB = Platform.OS === 'web' && typeof window !== 'undefined';
+let ownBackPending = false; // the popstate of our own history.back() must not close a select mode opened right after
+
+/**
+ * Select mode on web: Escape and browser Back leave it (items kept). Like useSheetEffects, but the late
+ * popstate of a select mode that just ended (Cancel, then a long-press at once) is ignored.
+ */
+export function useSelectModeEffects(active: boolean, leave: () => void) {
+  const leaveRef = useRef(leave);
+  leaveRef.current = leave;
+  useEffect(() => {
+    if (!WEB || !active) return;
+    window.history.pushState(window.history.state, '', window.location.href);
+    let pushed = true;
+    const onPop = () => {
+      if (ownBackPending) {
+        ownBackPending = false;
+        return;
+      }
+      if (!pushed) return;
+      pushed = false;
+      leaveRef.current();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') leaveRef.current();
+    };
+    window.addEventListener('popstate', onPop);
+    window.addEventListener('keydown', onKey, true);
+    return () => {
+      window.removeEventListener('popstate', onPop);
+      window.removeEventListener('keydown', onKey, true);
+      if (pushed) {
+        ownBackPending = true;
+        window.history.back();
+        setTimeout(() => (ownBackPending = false), 600);
+      }
+    };
+  }, [active]);
+}
 
 /** Replaces the add field while selecting: "n selected" · Select all · Remove (n) · Cancel. */
 export function SelectBar({

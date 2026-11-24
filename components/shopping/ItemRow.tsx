@@ -86,6 +86,37 @@ export function ItemRow(props: Props) {
     fn();
   };
 
+  // Long-press on web: pointer timers (the responder-based Pressable long press can miss after a re-render).
+  const lp = useRef<{ t: ReturnType<typeof setTimeout> | null; x: number; y: number }>({ t: null, x: 0, y: 0 });
+  const lpCancel = () => {
+    if (lp.current.t) clearTimeout(lp.current.t);
+    lp.current.t = null;
+  };
+  const webLongPress =
+    Platform.OS === 'web' && onLongPress && !dense
+      ? ({
+          onPointerDown: (e: { clientX: number; clientY: number; button?: number }) => {
+            if (e.button) return;
+            lpCancel();
+            lp.current = {
+              x: e.clientX,
+              y: e.clientY,
+              t: setTimeout(() => {
+                lp.current.t = null;
+                dragged.current = Date.now() + 400; // swallow the click that follows the release
+                onLongPress();
+              }, 500),
+            };
+          },
+          onPointerMove: (e: { clientX: number; clientY: number }) => {
+            if (Math.abs(e.clientX - lp.current.x) > 10 || Math.abs(e.clientY - lp.current.y) > 10) lpCancel();
+          },
+          onPointerUp: lpCancel,
+          onPointerCancel: lpCancel,
+          onContextMenu: (e: { preventDefault: () => void }) => e.preventDefault(),
+        } as object)
+      : {};
+
   const blocked = !onRemove && Boolean(removeBlockedReason);
   const showTrash = Boolean(onRemove) && dense && !selectMode;
   const webHover = Platform.OS === 'web' ? ({ onMouseEnter: () => setHover(true), onMouseLeave: () => setHover(false) } as object) : {};
@@ -150,6 +181,7 @@ export function ItemRow(props: Props) {
       ) : null}
       <Animated.View
         {...(swipeOn ? pan.panHandlers : {})}
+        {...webLongPress}
         style={[{ transform: [{ translateX: x }] }, Platform.OS === 'web' && swipeOn ? ({ touchAction: 'pan-y' } as object) : null]}
         className="min-h-11 lg:min-h-9 flex-row items-center gap-1 bg-card pl-2 pr-4 dark:bg-zinc-900"
       >
@@ -171,9 +203,10 @@ export function ItemRow(props: Props) {
         </Pressable>
         <Pressable
           accessibilityRole="button"
+          testID="item-open"
           accessibilityHint="Opens the item"
           onPress={guard(onPress)}
-          onLongPress={onLongPress && !dense ? onLongPress : undefined}
+          onLongPress={onLongPress && !dense && Platform.OS !== 'web' ? onLongPress : undefined}
           delayLongPress={500}
           className="min-h-11 lg:min-h-9 min-w-0 flex-1 flex-row items-center gap-3 py-2"
         >
