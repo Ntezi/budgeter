@@ -57,6 +57,16 @@ test('AC-5 one menu: bottom area gone, grouped entries, sheets open from it and 
   const options = page.getByLabel('List options');
   await expectSheetClosesFromAnywhere(page, 'record-expense-sheet', options, () => listAction(page, 'Record expense'));
   await expectSheetClosesFromAnywhere(page, 'receipt-sheet', options, () => listAction(page, 'Add receipt'));
+  // Every sheet or dialog opened from List options returns focus to List options (review round 1, finding 2).
+  await expectSheetClosesFromAnywhere(page, 'catalog-import', options, () => listAction(page, 'Add from catalog'));
+  await expectSheetClosesFromAnywhere(page, 'smart-import', options, () => listAction(page, 'Paste from WhatsApp'));
+  await expectSheetClosesFromAnywhere(page, 'smart-import', options, () => listAction(page, 'Reconcile purchases'));
+  await expectSheetClosesFromAnywhere(page, 'remove-confirm', options, () => listAction(page, 'Remove all items'));
+  await expectSheetClosesFromAnywhere(page, 'remove-confirm', options, () => listAction(page, 'Remove got items (2)'));
+  expect(await items()).toHaveLength(3);
+  // Unshared list: Share with chef is in the menu and its sheet returns focus too.
+  await openList(page, 'Weekend party');
+  await expectSheetClosesFromAnywhere(page, 'share-sheet', page.getByLabel('List options'), () => listAction(page, 'Share with chef'));
   // Keyboard: the menu opens from the focused control.
   await options.focus();
   await page.keyboard.press('Enter');
@@ -187,6 +197,11 @@ test('AC-3 Remove got items then Remove all items, each confirmed with list and 
   await expect(page.getByRole('dialog', { name: 'Remove 2 items from Weekly groceries?' })).toBeVisible();
   await page.getByTestId('confirm-remove').click();
   await expect.poll(items).toEqual(['item-tomatoes']);
+  // Nothing ticked now: Record expense is offered only with Got-it items, as the old footer was.
+  await page.getByLabel('List options').click();
+  await expect(page.getByTestId('list-options').getByRole('button', { name: 'Record expense', exact: true })).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('list-options')).toHaveCount(0);
   await listAction(page, 'Remove all items');
   await expect(page.getByRole('dialog', { name: 'Remove 1 item from Weekly groceries?' })).toBeVisible();
   await shot(page, info, 'AC-3-remove-all-confirm');

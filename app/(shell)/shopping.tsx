@@ -254,7 +254,7 @@ export default function ShoppingScreen() {
   // BUDG-42: select mode, bulk removal, swipe/trash Undo
   const [selectMode, setSelectMode] = useState(false);
   const [pickedIds, setPickedIds] = useState<string[]>([]);
-  const [removeAsk, setRemoveAsk] = useState<null | { ids: string[] }>(null);
+  const [removeAsk, setRemoveAsk] = useState<null | { kind: 'all' | 'got' | 'selected'; ids: string[] }>(null);
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState('');
   const [undo, setUndo] = useState<null | { key: number; name: string; snapshots: RemovedSnapshot[] }>(null);
@@ -262,15 +262,18 @@ export default function ShoppingScreen() {
   const removeAskRef = useRef(false);
   removeAskRef.current = Boolean(removeAsk);
   useSelectModeEffects(selectMode, () => {
-    if (!removeAskRef.current) setSelectMode(false);
+    if (removeAskRef.current) return false;
+    setSelectMode(false);
   });
   useSheetEffects(addOpen, () => setAddOpen(false));
   useSheetEffects(editItemOpen, () => setEditItemOpen(false));
   useSheetEffects(completing, () => setCompleting(false), optionsOpener);
-  useSheetEffects(shareOpen, () => setShareOpen(false));
+  useSheetEffects(shareOpen, () => setShareOpen(false), optionsOpener);
   useSheetEffects(receiptOpen, () => setReceiptOpen(false), optionsOpener);
   useSheetEffects(createListOpen, () => setCreateListOpen(false));
   useSheetEffects(importOpen, () => setImportOpen(false), optionsOpener);
+  useSheetEffects(smartImportOpen, () => setSmartImportOpen(false), optionsOpener);
+  useSheetEffects(Boolean(deleteListDraft), () => setDeleteListDraft(null), optionsOpener);
 
   useEffect(() => {
     if (!uid) return;
@@ -632,7 +635,8 @@ export default function ShoppingScreen() {
     setSelectMode(false);
     setPickedIds([]);
     setUndo(null);
-  }, [selectedListId]);
+    setRemoveAsk(null);
+  }, [selectedListId, uid]);
   const removableKey = displayItems.map((it) => it.id || '').join('|');
   useEffect(() => {
     setPickedIds((prev) => pruneSelected(prev, removableKey ? removableKey.split('|') : []));
@@ -873,7 +877,8 @@ export default function ShoppingScreen() {
   async function confirmRemove() {
     if (!removeAsk || removing) return;
     const byId = new Map(items.map((it) => [it.id || '', it]));
-    const targets = removeAsk.ids.map((id) => byId.get(id)).filter((it): it is ShoppingListItem => Boolean(it?.id)).map(targetFor);
+    // Remove all / Remove got items act on the list as it is now, not when the dialog opened.
+    const targets = removeIdsFor(removeAsk).map((id) => byId.get(id)).filter((it): it is ShoppingListItem => Boolean(it?.id)).map(targetFor);
     setRemoving(true);
     setRemoveError('');
     try {
@@ -886,6 +891,14 @@ export default function ShoppingScreen() {
     } finally {
       setRemoving(false);
     }
+  }
+
+  function removeIdsFor(ask: { kind: 'all' | 'got' | 'selected'; ids: string[] }) {
+    const live = displayItems.filter((it) => it.id);
+    if (ask.kind === 'all') return live.map((it) => it.id as string);
+    if (ask.kind === 'got') return live.filter((it) => it.bought).map((it) => it.id as string);
+    const keep = new Set(live.map((it) => it.id as string));
+    return ask.ids.filter((id) => keep.has(id));
   }
 
   function enterSelect(firstId?: string) {
@@ -1530,7 +1543,7 @@ export default function ShoppingScreen() {
               onSelectAll={() => setPickedIds((prev) => toggleSelectAll(prev, displayItems.map((it) => it.id || '').filter(Boolean)))}
               onRemove={() => {
                 setRemoveError('');
-                setRemoveAsk({ ids: pickedIds });
+                setRemoveAsk({ kind: 'selected', ids: pickedIds });
               }}
               onCancel={() => setSelectMode(false)}
             />
@@ -1587,14 +1600,14 @@ export default function ShoppingScreen() {
   const moreGroups: MenuAction[][] = selectedList
     ? [
         [
-          { label: 'Record expense', run: () => { setRecordError(''); startCompletion(); }, disabled: isShoppingListEmpty },
+          { label: 'Record expense', run: () => { setRecordError(''); startCompletion(); }, disabled: gotIds.length === 0 }, // as the old footer: only with Got-it items
           { label: 'Add receipt', run: () => { setReceiptNotice(''); setReceiptOpen(true); }, disabled: isShoppingListEmpty },
           { label: 'Add from catalog', run: () => setImportOpen(true) },
         ],
         [
           { label: 'Select items', run: () => enterSelect(), disabled: isShoppingListEmpty },
-          ...(gotIds.length ? [{ label: `Remove got items (${gotIds.length})`, run: () => { setRemoveError(''); setRemoveAsk({ ids: gotIds }); }, danger: true }] : []),
-          { label: 'Remove all items', run: () => { setRemoveError(''); setRemoveAsk({ ids: allIds }); }, disabled: isShoppingListEmpty, danger: true },
+          ...(gotIds.length ? [{ label: `Remove got items (${gotIds.length})`, run: () => { setRemoveError(''); setRemoveAsk({ kind: 'got', ids: gotIds }); }, danger: true }] : []),
+          { label: 'Remove all items', run: () => { setRemoveError(''); setRemoveAsk({ kind: 'all', ids: allIds }); }, disabled: isShoppingListEmpty, danger: true },
         ],
         [
           ...(!selectedList.shareId ? [{ label: 'Share with chef', run: () => { setShareError(''); setShareOpen(true); } }] : []),
@@ -1759,8 +1772,9 @@ export default function ShoppingScreen() {
 
       <RemoveConfirmDialog
         open={Boolean(removeAsk)}
-        count={removeAsk?.ids.length || 0}
+        count={removeAsk ? removeIdsFor(removeAsk).length : 0}
         listName={selectedList?.name || ''}
+        opener={removeAsk?.kind === 'selected' ? undefined : optionsOpener}
         busy={removing}
         error={removeError}
         onClose={() => setRemoveAsk(null)}
@@ -1811,6 +1825,7 @@ export default function ShoppingScreen() {
       <AppSheet
         open={importOpen}
         onClose={() => setImportOpen(false)}
+        testID="catalog-import"
         title="Add from catalog"
         footer={
           <>
@@ -1849,6 +1864,7 @@ export default function ShoppingScreen() {
         open={smartImportOpen}
         onClose={() => setSmartImportOpen(false)}
         title={smartImportMode === 'purchase' ? 'Reconcile Purchases' : 'Import from WhatsApp'}
+        testID="smart-import"
         contentClassName="max-w-3xl"
       >
         <View className="gap-3">
