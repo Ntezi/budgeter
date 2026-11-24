@@ -124,38 +124,34 @@ test('AC-1 select mode: pick, confirm once, batched remove; Escape and Cancel ke
   guard.assertOnlyLoopback();
 });
 
-test('AC-2 swipe (touch widths) or hover trash (1440) removes one row with Undo', async ({ page }, info) => {
+test('AC-2 trash at the end of every row: same line as the price, one click removes, Undo restores', async ({ page }, info) => {
   reseed();
   const guard = await signIn(page, info);
   await openList(page, 'Weekly groceries');
   const original = (await listIds('shoppingLists', 'list-weekly', 'items')).find((d) => d.id === 'item-tomatoes')!.fields;
   const tomatoes = row(page, 'Tomatoes');
   await expect(tomatoes).toBeVisible();
-  if (wide(page)) {
-    await expect(page.getByTestId('swipe-delete')).toHaveCount(0);
-    await tomatoes.hover();
-    const trash = tomatoes.getByTestId('row-remove');
-    await expect(trash).toHaveCSS('opacity', '1');
-    await shot(page, info, 'AC-2-hover-trash');
-    await trash.click();
-  } else {
-    const box = (await tomatoes.boundingBox())!;
-    const y = box.y + box.height / 2;
-    // A mostly vertical drag does nothing.
-    await page.mouse.move(box.x + box.width - 30, y);
-    await page.mouse.down();
-    await page.mouse.move(box.x + box.width - 50, y + 60, { steps: 8 });
-    await page.mouse.up();
-    expect(await items()).toContain('item-tomatoes');
-    // A short drag reveals Delete; a tap on it removes the row.
-    await page.mouse.move(box.x + box.width - 30, y);
-    await page.mouse.down();
-    await page.mouse.move(box.x + box.width - 110, y, { steps: 8 });
-    await page.mouse.up();
-    await expect(tomatoes.getByTestId('swipe-delete')).toBeInViewport();
-    await shot(page, info, 'AC-2-swipe-revealed');
-    await tomatoes.getByTestId('swipe-delete').click();
+  await expect(page.getByTestId('swipe-delete')).toHaveCount(0);
+  // Visible at once (not hover-only), at the far right, on the same line as the amount.
+  const trash = tomatoes.getByRole('button', { name: 'Remove Tomatoes' });
+  await expect(trash).toBeVisible();
+  await expect(trash).toHaveCSS('opacity', '1');
+  for (const r of await page.getByTestId('shopping-item').all()) {
+    const rb = (await r.boundingBox())!;
+    const tb = (await r.getByTestId('row-remove').boundingBox())!;
+    const open = (await r.getByTestId('item-open').boundingBox())!;
+    expect(Math.abs(tb.y + tb.height / 2 - (rb.y + rb.height / 2)), 'trash vertically centred in the row').toBeLessThan(3);
+    expect(tb.x, 'trash after the price').toBeGreaterThanOrEqual(open.x + open.width - 1);
+    expect(tb.x + tb.width, 'trash inside the row').toBeLessThanOrEqual(rb.x + rb.width + 1);
+    expect(tb.height).toBe(wide(page) ? 36 : 44);
   }
+  // No red anywhere on a row.
+  const red = await page.getByTestId('shopping-item').evaluateAll((els) => els.some((e) => Array.from(e.querySelectorAll('*')).concat(e).some((n) => getComputedStyle(n).backgroundColor === 'rgb(212, 24, 61)')));
+  expect(red).toBe(false);
+  await shot(page, info, 'rows-v2-open-list');
+  // One click removes at once: no dialog.
+  await trash.click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.getByTestId('undo-notice')).toContainText('Removed Tomatoes');
   await expect.poll(items).not.toContain('item-tomatoes');
   await expect.poll(mirrors).not.toContain('item-tomatoes');
@@ -164,18 +160,13 @@ test('AC-2 swipe (touch widths) or hover trash (1440) removes one row with Undo'
   const restored = (await listIds('shoppingLists', 'list-weekly', 'items')).find((d) => d.id === 'item-tomatoes')!.fields;
   expect(restored).toEqual(original);
   await expect.poll(mirrors).toContain('item-tomatoes');
-  if (!wide(page)) {
-    // A full swipe (past 40%) removes at once.
-    const juiceBox = (await row(page, 'Rice 1 kg').boundingBox())!;
-    const y = juiceBox.y + juiceBox.height / 2;
-    await page.mouse.move(juiceBox.x + juiceBox.width - 20, y);
-    await page.mouse.down();
-    await page.mouse.move(juiceBox.x + juiceBox.width * 0.3, y, { steps: 12 });
-    await page.mouse.up();
-    await expect(page.getByTestId('undo-notice')).toContainText('Removed Rice 1 kg');
-    await expect.poll(items).not.toContain('item-rice-small');
-  }
-  // Tap-to-tick still works after.
+  // Tab order per row: Got-it toggle, row, remove.
+  await page.getByRole('checkbox', { name: 'To buy: Tomatoes' }).focus();
+  await page.keyboard.press('Tab');
+  await expect(row(page, 'Tomatoes').getByTestId('item-open')).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(row(page, 'Tomatoes').getByTestId('row-remove')).toBeFocused();
+  // Tap-to-tick still works.
   await page.getByRole('checkbox', { name: 'To buy: Tomatoes' }).click();
   await expect(page.getByRole('checkbox', { name: 'Got it: Tomatoes' })).toBeVisible();
   guard.assertOnlyLoopback();
@@ -224,6 +215,9 @@ test('AC-6 chef: removes only own items, household items disabled with a reason,
   await page.getByPlaceholder('Add item...').fill('Lemons');
   await page.getByText('Add', { exact: true }).click();
   await expect(row(page, 'Lemons')).toBeVisible();
+  // The end-of-row trash shows only on the chef's own item.
+  await expect(row(page, 'Lemons').getByRole('button', { name: 'Remove Lemons' })).toBeVisible();
+  await expect(page.getByTestId('row-remove')).toHaveCount(1);
   await page.getByLabel('List options').click();
   const sheet = page.getByTestId('list-options');
   await expect(sheet.getByText('Remove all items', { exact: true })).toHaveCount(0);
@@ -239,8 +233,6 @@ test('AC-6 chef: removes only own items, household items disabled with a reason,
   await page.getByTestId('confirm-remove').click();
   await expect(row(page, 'Lemons')).toHaveCount(0);
   await expect.poll(mirrors).toEqual(['item-rice', 'item-rice-small', 'item-tomatoes']);
-  // From 1024 px the trash shows only on own rows; below, household rows have no swipe Delete.
-  await expect(page.getByTestId('row-remove')).toHaveCount(0);
-  await expect(page.getByTestId('swipe-delete')).toHaveCount(0);
+  await expect(page.getByTestId('row-remove')).toHaveCount(0); // household rows: no remove button for the chef
   guard.assertOnlyLoopback();
 });

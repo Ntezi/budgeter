@@ -1,4 +1,4 @@
-// BUDG-42: pure rules for removing shopping items fast (select mode, swipe, remove all). No Firebase import.
+// BUDG-42: pure rules for removing shopping items fast (select mode, row trash, remove all). No Firebase import.
 
 /** A Firestore batch holds at most 500 writes; 400 leaves room (same limit as sharedListsOps SHARE_CHUNK). */
 export const REMOVE_CHUNK = 400;
@@ -22,32 +22,6 @@ export function removalWrites(targets: RemoveTarget[]): { id: string; where: 'pr
     if (t.shared) out.push({ id: t.id, where: 'shared' });
   }
   return out;
-}
-
-// ---- swipe ----
-/** Width of the red Delete area a swipe reveals. */
-export const SWIPE_DELETE_WIDTH = 88;
-/** Release past this share of the row width deletes the row. */
-export const SWIPE_DELETE_RATIO = 0.4;
-/** Below this many px of movement nothing is a swipe (taps stay taps). */
-export const SWIPE_SLOP = 12;
-
-/** A gesture is a swipe only when it is clearly horizontal; vertical scrolling always wins. */
-export function isHorizontalSwipe(dx: number, dy: number): boolean {
-  return Math.abs(dx) > SWIPE_SLOP && Math.abs(dx) > 2 * Math.abs(dy);
-}
-
-/** What a released swipe does. dx < 0 is a drag to the left. */
-export function swipeOutcome(dx: number, rowWidth: number): 'delete' | 'reveal' | 'close' {
-  const left = -dx;
-  if (rowWidth > 0 && left >= rowWidth * SWIPE_DELETE_RATIO) return 'delete';
-  if (left >= SWIPE_DELETE_WIDTH / 2) return 'reveal';
-  return 'close';
-}
-
-/** Row offset while dragging: never to the right, never past the row. */
-export function clampSwipe(dx: number, rowWidth: number): number {
-  return Math.max(-Math.max(rowWidth, SWIPE_DELETE_WIDTH), Math.min(0, dx));
 }
 
 // ---- selection ----
