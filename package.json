@@ -10,7 +10,14 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "test:shopping-import": "node ./scripts/run-shopping-import-tests.js",
-    "reminders:send": "node ./scripts/send-daily-balance-reminders.js"
+    "reminders:send": "node ./scripts/send-daily-balance-reminders.js",
+    "web:emulators": "node ./scripts/emulators/dev.mjs",
+    "emulators:up": "node ./scripts/emulators/dev.mjs --no-web",
+    "emulators:seed": "node ./scripts/emulators/seed.mjs",
+    "emulators:down": "node ./scripts/emulators/dev.mjs --down",
+    "test": "node --require ./scripts/ts-register.cjs --test tests/unit/*.test.ts",
+    "test:emulator": "node --require ./scripts/ts-register.cjs --test --test-concurrency=1 tests/emulator/*.test.ts",
+    "e2e": "playwright test"
   },
   "dependencies": {
     "@expo/vector-icons": "^14.1.0",
@@ -58,6 +65,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
+    "@playwright/test": "1.56.1",
     "@types/react": "~19.0.10",
     "eslint": "^9.25.0",
     "eslint-config-expo": "~9.2.0",

@@ -96,3 +96,22 @@ export async function clearAccountPeriodCurrentManual(uid: string, accountId: st
   if (!safeAccountId || !safePeriodId) return;
   return deleteDoc(overrideDocRef(uid, safeAccountId, safePeriodId));
 }
+
+/** H-2: the exact write setAccountPeriodCurrentManual makes, for use inside a transaction. */
+export function currentManualWrite(uid: string, input: { accountId: string; periodId: string; currentManual: number; updatedBy?: string }) {
+  const accountId = normalizeId(input.accountId);
+  const periodId = normalizeId(input.periodId);
+  if (!accountId) throw new Error('Account is required.');
+  if (!periodId) throw new Error('Period is required.');
+  return {
+    ref: overrideDocRef(uid, accountId, periodId),
+    data: withWorkspaceWrite({
+      accountId,
+      periodId,
+      currentManual: toNumber(input.currentManual),
+      updatedBy: normalizeId(input.updatedBy || uid),
+      updatedAt: serverTimestamp(),
+    }) as Record<string, unknown>,
+    merge: true,
+  };
+}

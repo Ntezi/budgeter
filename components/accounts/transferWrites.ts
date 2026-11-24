@@ -1,0 +1,37 @@
+// BUDG-8 S8: the writes of accounts.tsx saveTransfers(), moved unchanged (same calls, same order, same
+// fields) so the Accounts screen and the Add sheet share them. Validation messages live in the caller.
+import { currentManualWrite } from '@/lib/repo/accountPeriodOverrides';
+import { addTransfersOnce } from '@/lib/repo/transactions';
+import { transferRequests } from './transferRequests';
+
+export { transferDate } from './transferRequests';
+
+type Vm = { accountId: string; accountName: string; cash: { current: number } };
+
+export async function moveMoney(input: {
+  uid: string;
+  periodId: string;
+  source: Vm;
+  rows: { accountId: string; parsedAmount: number }[];
+  destinationById: (id: string) => Vm | null | undefined;
+  updatedBy: string;
+  /** H-2: made once per open form; transfer ids are formKey + row index, so a retry or second tab writes once. */
+  formKey: string;
+  /** Clock for the transfer date (tests); default now. */
+  now?: Date;
+}) {
+  const { uid, periodId: selectedPid, source: transferSourceVm, rows: selectedRows, updatedBy } = input;
+  const total = selectedRows.reduce((sum, row) => sum + row.parsedAmount, 0);
+  // Same documents and the same balance overrides (from the figures the screen showed) as before; now in one
+  // transaction that checks the month is not DECIDED and that this form's transfers do not exist yet.
+  const transfers = transferRequests({ formKey: input.formKey, source: transferSourceVm, rows: selectedRows, now: input.now });
+  const overrides = [
+    currentManualWrite(uid, { accountId: transferSourceVm.accountId, periodId: selectedPid, currentManual: transferSourceVm.cash.current - total, updatedBy }),
+    ...selectedRows.flatMap((row) => {
+      const destinationVm = input.destinationById(row.accountId);
+      if (!destinationVm) return [];
+      return [currentManualWrite(uid, { accountId: row.accountId, periodId: selectedPid, currentManual: destinationVm.cash.current + row.parsedAmount, updatedBy })];
+    }),
+  ];
+  return addTransfersOnce(uid, selectedPid, transfers, overrides);
+}

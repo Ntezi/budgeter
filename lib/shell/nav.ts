@@ -1,0 +1,164 @@
+// Navigation shell model (BUDG-8 00 "Information architecture", "Shell"). Data only, so later
+// packages slot in by adding an entry here, never by editing the shell components:
+//   Year plan   -> { id: 'year-plan', label: 'Year plan', href: '/budgets/year', icon: 'calendar-range', group: 'more', area: 'plan' }
+//   Receipts    -> { id: 'receipts', label: 'Receipts', href: '/receipts', icon: 'receipt', group: 'more', area: 'shopping' }
+//   Chef view   -> routes outside (shell) stay outside; a shell entry uses `audience: 'chef'`.
+// Routes are unchanged; only labels are new (glossary in 00).
+
+export type LayoutMode = 'phone' | 'tablet' | 'desktop';
+export type NavGroup = 'primary' | 'more';
+export type Audience = 'household' | 'chef';
+
+export type NavItem = {
+  id: string;
+  label: string;
+  href: string;
+  icon: string; // MaterialCommunityIcons name
+  group: NavGroup;
+  /** Primary area this entry belongs to (highlights that area in the bottom bar / rail). */
+  area?: string;
+  /** Other route prefixes that belong to this entry. */
+  match?: string[];
+  audience?: Audience[];
+};
+
+const H: Audience[] = ['household'];
+
+export const NAV_ITEMS: NavItem[] = [
+  { id: 'home', label: 'Home', href: '/dashboard', icon: 'home-outline', group: 'primary', audience: H },
+  { id: 'plan', label: 'Plan', href: '/budgets', icon: 'calendar-month-outline', group: 'primary', audience: H },
+  { id: 'shopping', label: 'Shopping', href: '/shopping', icon: 'cart-outline', group: 'primary', audience: H },
+  { id: 'accounts', label: 'Accounts', href: '/accounts', icon: 'bank-outline', group: 'primary', match: ['/transactions'], audience: H },
+  // BUDG-2 year plan: Plan's Year view (route unchanged, ?view=year).
+  { id: 'year-plan', label: 'Year plan', href: '/budgets?view=year', icon: 'calendar-range', group: 'more', area: 'plan', audience: H },
+  { id: 'reports', label: 'Reports', href: '/reports', icon: 'chart-bar', group: 'more', audience: H },
+  { id: 'regular', label: 'Regular costs', href: '/expenses', icon: 'repeat', group: 'more', match: ['/recurring'], audience: H },
+  { id: 'catalog', label: 'Catalog', href: '/shopping-items', icon: 'format-list-bulleted-square', group: 'more', area: 'shopping', audience: H },
+  { id: 'settings', label: 'Settings', href: '/settings', icon: 'cog-outline', group: 'more', audience: H },
+  // BUDG-4 chef: the shared list only (Shopping screen, "Shared with you").
+  { id: 'shared', label: 'Shared with you', href: '/shopping', icon: 'chef-hat', group: 'primary', audience: ['chef'] },
+];
+
+/** First screen after sign-in (spec 00: Home for the household at every width; the chef's shared list). */
+export function firstRouteFor(audience: Audience): string {
+  return audience === 'chef' ? CHEF_ROUTE : '/dashboard';
+}
+export const CHEF_ROUTE = '/shopping';
+
+/**
+ * BUDG-6 (decided here, to confirm with the solution-architect): accounts are not typed, so a
+ * signed-in user is a chef when someone shares an ACTIVE list with them and they have no
+ * household of their own (no month in their own workspace) and no household membership.
+ * Anything else is a household user. Unknown (still loading) is null: show no navigation.
+ */
+export function audienceFor(
+  s: { sharedWithMe: number | null; ownMonths: number | null; memberships: number | null; ownLists?: number | null },
+  /** BUDG-8: this session already showed the chef shell. A chef whose last share ends stays a chef
+   *  (and sees "Access ended") until they get a household of their own. */
+  wasChef = false,
+  /** BUDG-6 H-1: the user chose "Start my own budget" in the chef view; they keep the household shell
+   *  (with shared lists under Shopping) even before their first month exists. */
+  ownBudgetChosen = false
+): Audience | null {
+  if (ownBudgetChosen) return 'household';
+  if (s.sharedWithMe == null || s.ownMonths == null || s.memberships == null) return null;
+  if (s.ownLists === null) return null; // still loading (undefined = not watched)
+  // H-1: own shopping lists are household data too, so a share never hides a user's own lists.
+  const noHousehold = s.ownMonths === 0 && s.memberships === 0 && !(s.ownLists && s.ownLists > 0);
+  return noHousehold && (s.sharedWithMe > 0 || wasChef) ? 'chef' : 'household';
+}
+
+/** A chef may only be on the shared-list screen. */
+export function chefMayOpen(pathname: string): boolean {
+  return pathname === CHEF_ROUTE;
+}
+
+export type ShellView = 'loading' | 'household' | 'chef' | 'chef-redirect';
+
+/**
+ * BUDG-6 access boundary in the UI: what the (shell) layout may render. A chef on any route other than
+ * the shared list gets nothing rendered (no household screen, no navigation) and is sent to CHEF_ROUTE;
+ * this holds on first load, reload, Back and a pasted deep link because it is decided from the pathname
+ * on every render, not once.
+ */
+export function shellViewFor(audience: Audience | null, pathname: string): ShellView {
+  if (audience == null) return 'loading';
+  if (audience === 'household') return 'household';
+  return chefMayOpen(pathname) ? 'chef' : 'chef-redirect';
+}
+
+/** Routes whose screen reads ?month= today; add /accounts, /reports, /budgets/[pid] when S5/S8/S14 do. */
+export const MONTH_CHIP_ROUTES = ['/dashboard', '/transactions', '/budgets', '/reports'];
+
+export const BREAKPOINT_RAIL = 768;
+export const BREAKPOINT_SIDEBAR = 1024;
+
+export function layoutFor(width: number): LayoutMode {
+  if (width >= BREAKPOINT_SIDEBAR) return 'desktop';
+  if (width >= BREAKPOINT_RAIL) return 'tablet';
+  return 'phone';
+}
+
+const under = (pathname: string, prefix: string) => pathname === prefix || pathname.startsWith(`${prefix}/`);
+
+export function visibleItems(audience: Audience = 'household', items: NavItem[] = NAV_ITEMS): NavItem[] {
+  return items.filter((it) => !it.audience || it.audience.includes(audience));
+}
+
+export type RouteParams = Record<string, string | string[] | undefined>;
+
+/** An href with a query (`/budgets?view=year`) matches its exact path when every query value is in params. */
+function queryMatch(pathname: string, href: string, params: RouteParams): number {
+  const [path, query] = href.split('?');
+  if (!query || pathname !== path) return -1;
+  const want = new URLSearchParams(query);
+  for (const [k, v] of want) {
+    const have = params[k];
+    if ((Array.isArray(have) ? have[0] : have) !== v) return -1;
+  }
+  return href.length;
+}
+
+/** The entry for a route: longest matching prefix wins; an href with a matching query beats its bare path. */
+export function activeItem(pathname: string, items: NavItem[] = NAV_ITEMS, params: RouteParams = {}): NavItem | undefined {
+  let best: { item: NavItem; len: number } | undefined;
+  for (const item of items) {
+    for (const prefix of [item.href, ...(item.match ?? [])]) {
+      const len = prefix.includes('?') ? queryMatch(pathname, prefix, params) : under(pathname, prefix) ? prefix.length : -1;
+      if (len >= 0 && (!best || len > best.len)) best = { item, len };
+    }
+  }
+  return best?.item;
+}
+
+/** The primary area to highlight in the bottom bar / rail / sidebar. */
+export function activeAreaId(pathname: string, items: NavItem[] = NAV_ITEMS, params: RouteParams = {}): string | undefined {
+  const item = activeItem(pathname, items, params);
+  if (!item) return undefined;
+  return item.group === 'primary' ? item.id : item.area ?? item.id;
+}
+
+export function showsMonthChip(pathname: string): boolean {
+  return MONTH_CHIP_ROUTES.some((r) => pathname === r);
+}
+
+/** Taps from any screen to reach an entry: phone primary 1, phone More entries 2 (More, entry); tablet/desktop 1 except tablet More entries 2. */
+export function tapsTo(id: string, mode: LayoutMode, items: NavItem[] = NAV_ITEMS): number {
+  const item = items.find((it) => it.id === id);
+  if (!item) throw new Error(`Unknown nav item ${id}`);
+  if (item.group === 'primary' || mode === 'desktop') return 1;
+  return 2;
+}
+
+/**
+ * BUDG-8 D-2/C-1: the page title the shell shows in the phone top bar (PageHeader shows the same
+ * text as the h1 from 768 px). Activity lives under the Accounts area but has its own title.
+ */
+export function pageTitleFor(pathname: string, params: RouteParams = {}, items: NavItem[] = NAV_ITEMS): string {
+  if (pathname === '/transactions' || pathname.startsWith('/transactions/')) return 'Activity';
+  if (pathname === '/budgets' || pathname.startsWith('/budgets/')) {
+    const view = params.view;
+    return (Array.isArray(view) ? view[0] : view) === 'year' && pathname === '/budgets' ? 'Year plan' : 'Plan';
+  }
+  return activeItem(pathname, items, params)?.label ?? '';
+}

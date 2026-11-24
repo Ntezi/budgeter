@@ -167,6 +167,9 @@ export function computeAccountPeriodMetrics(input: {
 
   const unfunded = Math.max(0, allocated - funded);
   const currentAuto = funded - spentFrom;
+  // Rule of the live app, kept on Marius's decision (2026-11-24): an account with no hand-set balance for the
+  // month reads as 0 (Number(null) is 0), not as the calculated balance. Showing the calculated balance instead
+  // (funded minus spent, no opening balance) would change money figures; that is a separate, later decision.
   const currentManual = Number.isFinite(Number(input.currentManual)) ? Number(input.currentManual) : null;
   const currentDisplayed = currentManual ?? currentAuto;
   const unallocated = currentDisplayed - currentAuto;
@@ -185,7 +188,8 @@ export function computeAccountPeriodMetrics(input: {
   };
 }
 
-function buildAccountViewModels(params: UseAccountViewModelsParams): AccountViewModel[] {
+/** Pure builder behind useAccountViewModels (exported so tests can compute the expected figures from documents). */
+export function buildAccountViewModels(params: UseAccountViewModelsParams): AccountViewModel[] {
   const {
     accounts,
     periodId,

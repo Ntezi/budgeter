@@ -159,3 +159,34 @@ Potential future indexes:
 2. `users/{uid}/periods/{pid}/allocations` on `createdAt`.
 3. `users/{uid}/allocationDefaults` on `createdAt`.
 4. `users/{uid}/accounts` on `createdAt`.
+
+## Default funding accounts (BUDG-3)
+
+Draft, branch `atelier/BUDG-3-default-accounts`. No migration: old lines and sources simply lack the fields.
+
+- `users/{owner}/expenses/{id}` and `users/{owner}/recurring/{id}` gain `defaultAccountId?: string` (an `accounts/{id}` doc id) and `defaultAccountUpdatedAt?: timestamp`. Links are Firestore doc ids under the workspace owner, never display names, so renaming a category or account keeps the link.
+- `periods/{pid}/planItems/{id}` gains `sourceType?: 'EXPENSE_ITEM' | 'RECURRING' | 'YEAR_ITEM'`, `sourceId?`, `accountChoice?: 'DEFAULT' | 'EXPLICIT' | 'REPAIR'`, `repairReason?`, `suggestedAccountId?`.
+- Deterministic ids: a line added from an expense item is `exp_{expenseItemId}` (one per month; the month is in the path); template lines keep `recbudget_plan_{templateId}_{pid}`. Ids are built from server ids only (`[A-Za-z0-9_-]`).
+- Eligible account: exists, not archived, `currencyCode` absent or equal to the app currency. Otherwise the UI asks the user to choose (repair); it never switches silently.
+- Money: applying an account to a line (Add with the pre-filled account, a change on a line, or Review → Apply all) writes the same `allocations/item_plan_{lineId}` the existing account selector writes; this earmarks the line amount in the account's computed balance, as before. Changing a source's default writes the source doc only. Template seeding writes `suggestedAccountId` and no allocation. No code path here creates a transaction or touches another month.
+- Locks: every line write runs in `runTransaction` that reads the period and requires `DRAFT`, so a concurrent `DECIDED` aborts it. **This is a client-transaction guarantee, not a rule guarantee (SEC-14):** `firestore.rules` grants every workspace member read/write on `users/{owner}/**`, and Firestore ORs matching allows, so no narrower `match` can restrict these fields while that wildcard exists. Residual risk R-1, for Marius.
+
+## Year plan (BUDG-2)
+
+Additive only (C-10): new collections and optional fields; no existing document is rewritten, moved or migrated.
+
+- `users/{owner}/yearItems/{itemId}` (random, stable id): `title` (≤ 80), `kind` `EVENT|EXPENSE`, `dueDate` `YYYY-MM-DD`, `budgetInPeriodId` `YYYY-MM` (defaults to the due month; may differ, e.g. a June renewal budgeted in May), `estimateMinor?` integer minor units (ADR-1; absent = date-only item), `currencyCode`, `group?` `NEED|WANT|SAVINGS_DEBT`, `sourceExpenseItemId?` (category link, BUDG-3), `fundingAccountId?`, `status` `ACTIVE|DONE|CANCELLED` (absent = ACTIVE), `note?`, `revision` (absent = 0), `linkedPeriodIds` (months that include it), timestamps.
+- `users/{owner}/yearOutline/{YYYY}`: `notes` (annual outline text).
+- Monthly link: plan line `periods/{pid}/planItems/year_{itemId}` with `sourceType: 'YEAR_ITEM'`, `sourceId`, `sourceRevision`; `amount` is `fromMinor(estimateMinor)` (major units, 2 decimals, like every existing line). Decision `periods/{pid}/yearDecisions/{itemId}` = `{ decision: 'INCLUDED' | 'SKIPPED', at }`.
+- The year plan never creates a period or a transaction. Lines are written only by an explicit "Add to this month" in an existing DRAFT month, in one `runTransaction` that reads the period (DRAFT) and the line (absent) first; edits reach DRAFT lines only through "Apply to drafts" after a preview; DECIDED months are never written.
+- Year totals count each item once: its linked monthly lines when it has any, else its estimate. Monthly totals and reports are unchanged.
+- SEC-14: these paths sit under the `users/{uid}/{document=**}` wildcard, so every household member may read and write them and a nested `match` cannot narrow that. DRAFT checks, deterministic ids and DECIDED immutability are client-transaction guarantees tested on the emulator (tests/emulator/yearPlan.test.ts), not rule guarantees (residual risk R-1).
+
+## BUDG-5 receipts and price observations (additive, C-10)
+New collections only; no existing document changes shape and nothing is migrated.
+- `users/{uid}/receipts/{receiptId}`: id is a UUID made when the receipt form opens (retries write the same doc). `status` DRAFT|CONFIRMED, `storeName?` (<= 120), `purchaseDate` YYYY-MM-DD, `currencyCode` (3 letters), `totalMinor` (integer minor units, signed sum of lines; returns subtract), `lines[]` (<= 200: `lineId`, `name` <= 120, `catalogItemId?`, `variant?{packSize,unit,brand}`, `quantity`, `unit` pc|g|kg|ml|l|pack, `lineTotalMinor`, `promo?`, `isReturn?`), `link?{periodId,txId,mode EXISTING|NEW}`, `sourceListId?`, `createdBy`, timestamps. No photo, payer, card, loyalty or address fields (SEC-17).
+- `users/{uid}/receiptLinks/{periodId}_{txId}`: `{receiptId, periodId, txId}`; one receipt per expense; written in the same transaction as the CONFIRMED receipt; create-only by client transaction (SEC-14: not a rule guarantee).
+- New expense from a receipt: `periods/{periodId}/transactions/rcpt_{receiptId}` in the month of `purchaseDate`, `amount` = `fromMinor(totalMinor)` (existing major-unit field, 2 decimals, ADR-1), plus optional `receiptId`. Linking to an existing expense never modifies it.
+- `users/{uid}/priceObservations/{receiptId}_{lineId}`: one per CONFIRMED line with a confirmed `catalogItemId`: `catalogItemId`, `variantKey` (brand, '' if none; pack size is data, not key), `currencyCode`, `observedOn`, `lineTotalMinor`, `baseUnit` g|ml|pc, `baseQty` (integer), `isReturn`, `promo`, `quantity`, `unit`, `packSize`, `storeName?`. Unit prices are never stored; they are compared by cross-multiplication.
+- Delete of a receipt removes its receiptLinks doc and its priceObservations in one batch; the expense stays (SEC-18).
+- Legacy `shoppingCatalog/{id}/priceHistory` (no currency, no unit) is shown as an estimate and never compared.

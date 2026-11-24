@@ -22,6 +22,9 @@ export type ExpenseItem = {
   active?: boolean;
   workspaceId?: string;
   modeScope?: 'MONTHLY_3_BUCKET' | 'EVENT' | 'CUSTOM' | 'ALL';
+  /** BUDG-3: future default funding account (accounts/{id} doc id). */
+  defaultAccountId?: string;
+  defaultAccountUpdatedAt?: unknown;
   createdAt?: unknown;
   updatedAt?: unknown;
 };

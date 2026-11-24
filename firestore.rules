@@ -4,21 +4,129 @@ service cloud.firestore {
     function isSignedIn() { return request.auth != null; }
     function isSelf(uid) { return isSignedIn() && request.auth.uid == uid; }
     function membershipDocId(ownerUid, memberUid) { return ownerUid + "_" + memberUid; }
+    // H-5 (BUDG-6): a membership counts only when the document's own fields bind it to this owner
+    // and this caller, so a {owner}_{me} doc forged before SEC-1 (ownerUid = me) grants nothing.
+    // exists() and get() read the same document once per request (no extra cost). No status check
+    // on purpose: legitimate older documents may lack it (C-10).
+    function membershipPath(ownerUid) {
+      return /databases/$(database)/documents/workspaceMembers/$(membershipDocId(ownerUid, request.auth.uid));
+    }
     function isWorkspaceMember(ownerUid) {
-      return isSignedIn() &&
-        exists(/databases/$(database)/documents/workspaceMembers/$(membershipDocId(ownerUid, request.auth.uid)));
+      return isSignedIn() && exists(membershipPath(ownerUid)) &&
+        get(membershipPath(ownerUid)).data.get('ownerUid', '') == ownerUid &&
+        get(membershipPath(ownerUid)).data.get('memberUid', '') == request.auth.uid;
     }
     function canAccessWorkspace(ownerUid) {
       return isSelf(ownerUid) || isWorkspaceMember(ownerUid);
     }
 
+    // SEC-1 (BUDG-4): the membership id is bound to its fields, keys are allowlisted
+    // and ownerUid/memberUid can never change, so nobody can forge {owner}_{me}.
+    function notAnonymous() { return request.auth.token.firebase.sign_in_provider != 'anonymous'; }
+    function memberKeys() {
+      return ['ownerUid', 'ownerEmail', 'ownerName', 'memberUid', 'memberEmail', 'memberName',
+              'role', 'status', 'createdAt', 'updatedAt'];
+    }
+
     match /workspaceMembers/{membershipId} {
-      allow create: if isSignedIn() &&
+      allow create: if isSignedIn() && notAnonymous() &&
+        request.resource.data.keys().hasOnly(memberKeys()) &&
         request.resource.data.ownerUid == request.auth.uid &&
-        request.resource.data.memberUid is string;
+        request.resource.data.memberUid is string &&
+        request.resource.data.memberUid.size() > 0 &&
+        request.resource.data.memberUid != request.auth.uid &&
+        membershipId == membershipDocId(request.resource.data.ownerUid, request.resource.data.memberUid) &&
+        request.resource.data.status == 'ACTIVE';
       allow read: if isSignedIn() &&
         (resource.data.ownerUid == request.auth.uid || resource.data.memberUid == request.auth.uid);
-      allow update, delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+      allow update: if isSignedIn() && resource.data.ownerUid == request.auth.uid &&
+        request.resource.data.keys().hasOnly(memberKeys()) &&
+        request.resource.data.ownerUid == resource.data.ownerUid &&
+        request.resource.data.memberUid == resource.data.memberUid;
+      allow delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+    }
+
+    // BUDG-4 / ADR-3: a chef (separate signed-in account) edits exactly one shared list.
+    // sharedLists/{shareId} holds no money field; its items hold only chef-visible fields.
+    // Prices, totals, plan and transaction links stay in users/{owner}/** (chef is never a member).
+    // No collection-group rule on items on purpose (SEC-11).
+    function isRealUser() { return isSignedIn() && notAnonymous(); }
+    function isHouseholdOf(ownerUid) { return isRealUser() && canAccessWorkspace(ownerUid); }
+    function isActiveChef(share) {
+      return isRealUser() && share.chefUid == request.auth.uid && share.status == 'ACTIVE';
+    }
+    function shareKeys() {
+      return ['ownerUid', 'listId', 'listName', 'chefUid', 'chefLabel', 'status', 'createdBy', 'createdAt', 'revokedAt'];
+    }
+    function itemKeys() {
+      return ['name', 'quantity', 'unit', 'category', 'note', 'status', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt'];
+    }
+    function itemEditableKeys() {
+      return ['name', 'quantity', 'unit', 'category', 'note', 'status', 'updatedBy', 'updatedAt'];
+    }
+    function optString(d, key, max) { return !(key in d) || (d[key] is string && d[key].size() <= max); }
+    function validSharedItem(d) {
+      return d.name is string && d.name.size() >= 1 && d.name.size() <= 120 &&
+        (!('quantity' in d) || (d.quantity is number && d.quantity >= 0 && d.quantity <= 9999)) &&
+        (!('unit' in d) || d.unit in ['', 'pc', 'g', 'kg', 'ml', 'l', 'pack']) &&
+        optString(d, 'category', 60) && optString(d, 'note', 500) &&
+        d.status in ['TO_BUY', 'GOT_IT'] &&
+        d.updatedBy == request.auth.uid && d.updatedAt == request.time;
+    }
+
+    match /sharedLists/{shareId} {
+      allow read: if isHouseholdOf(resource.data.ownerUid) || isActiveChef(resource.data);
+      allow create: if isHouseholdOf(request.resource.data.ownerUid) &&
+        request.resource.data.keys().hasOnly(shareKeys()) &&
+        request.resource.data.keys().hasAll(['ownerUid', 'listId', 'listName', 'chefUid', 'chefLabel', 'status', 'createdBy', 'createdAt']) &&
+        request.resource.data.status == 'ACTIVE' &&
+        request.resource.data.createdBy == request.auth.uid &&
+        request.resource.data.createdAt == request.time &&
+        request.resource.data.listId is string && request.resource.data.listId.size() > 0 &&
+        request.resource.data.listName is string && request.resource.data.listName.size() <= 120 &&
+        request.resource.data.chefLabel is string && request.resource.data.chefLabel.size() <= 60 &&
+        request.resource.data.chefUid is string && request.resource.data.chefUid.size() > 0 &&
+        request.resource.data.chefUid != request.resource.data.ownerUid &&
+        request.resource.data.chefUid != request.auth.uid &&
+        !exists(/databases/$(database)/documents/workspaceMembers/$(membershipDocId(request.resource.data.ownerUid, request.resource.data.chefUid))) &&
+        exists(/databases/$(database)/documents/users/$(request.resource.data.ownerUid)/shoppingLists/$(request.resource.data.listId));
+      // Only revoke (ACTIVE -> REVOKED) or a label change; ownerUid, listId, chefUid, createdBy immutable.
+      // H-1 (BUDG-6): the named chef can always end a share addressed to them (leave): ACTIVE -> REVOKED
+      // with revokedAt, nothing else. Household update rules below are unchanged.
+      allow update: if isRealUser() && resource.data.chefUid == request.auth.uid &&
+        resource.data.status == 'ACTIVE' && request.resource.data.status == 'REVOKED' &&
+        request.resource.data.revokedAt == request.time &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'revokedAt']);
+      allow update: if isHouseholdOf(resource.data.ownerUid) &&
+        request.resource.data.keys().hasOnly(shareKeys()) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'revokedAt', 'chefLabel']) &&
+        (request.resource.data.status == resource.data.status ||
+          (resource.data.status == 'ACTIVE' && request.resource.data.status == 'REVOKED' &&
+           request.resource.data.revokedAt == request.time)) &&
+        request.resource.data.chefLabel is string && request.resource.data.chefLabel.size() <= 60;
+      allow delete: if false;
+
+      match /items/{itemId} {
+        function share() { return get(/databases/$(database)/documents/sharedLists/$(shareId)).data; }
+        function canWrite() {
+          return (isHouseholdOf(share().ownerUid) && share().status == 'ACTIVE') || isActiveChef(share());
+        }
+        allow read: if isHouseholdOf(share().ownerUid) || isActiveChef(share());
+        // H-3: an item the chef creates has a plain id (the app's auto ids match); household mirrors keep
+        // the private item id as it is (existing lists may have name-derived ids, C-10).
+        allow create: if canWrite() &&
+          (isHouseholdOf(share().ownerUid) || itemId.matches('^[A-Za-z0-9_-]{1,120}$')) &&
+          request.resource.data.keys().hasOnly(itemKeys()) &&
+          request.resource.data.createdBy == request.auth.uid &&
+          request.resource.data.createdAt == request.time &&
+          validSharedItem(request.resource.data);
+        allow update: if canWrite() &&
+          request.resource.data.keys().hasOnly(itemKeys()) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(itemEditableKeys()) &&
+          validSharedItem(request.resource.data);
+        allow delete: if isHouseholdOf(share().ownerUid) ||
+          (isActiveChef(share()) && resource.data.createdBy == request.auth.uid);
+      }
     }
 
     function isOwner() { return isSignedIn() && request.auth.uid == resource.data.ownerId; }
@@ -60,5 +168,14 @@ service cloud.firestore {
       allow create: if creatingForSelf();
       allow read, update, delete: if isOwner();
     }
+
+    // BUDG-5 receipts (design-BUDG-5, SEC-14): these blocks mirror the users/{uid}/** wildcard on
+    // purpose. Firestore ORs every matching allow, so they cannot restrict anything while the
+    // wildcard exists (residual risk R-1); they pin the paths for the rules tests. Create-only
+    // receiptLinks, DRAFT-never-posts and the locked-month check are client-transaction guarantees,
+    // tested on the emulator (tests/emulator/receipts.test.ts), not rule guarantees.
+    match /users/{uid}/receipts/{receiptId} { allow read, write: if isHouseholdOf(uid); }
+    match /users/{uid}/receiptLinks/{linkId} { allow read, write: if isHouseholdOf(uid); }
+    match /users/{uid}/priceObservations/{observationId} { allow read, write: if isHouseholdOf(uid); }
   }
 }

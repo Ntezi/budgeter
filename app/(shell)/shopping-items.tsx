@@ -1,15 +1,22 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
+import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { AppCard } from '@/components/ui/AppCard';
+import { useRouter } from 'expo-router';
 import { AppInput } from '@/components/ui/AppInput';
 import { AppButton } from '@/components/ui/AppButton';
-import { AppBadge } from '@/components/ui/AppBadge';
 import { AppSegmented } from '@/components/ui/AppSegmented';
 import { DropdownField } from '@/components/ui/DropdownField';
 import { IconActionButton } from '@/components/ui/IconActionButton';
-import { AppModal } from '@/components/ui/AppModal';
+import { AppSheet } from '@/components/patterns/AppSheet';
+import { FormField } from '@/components/patterns/FormLayout';
+import { PageHeader } from '@/components/patterns/PageHeader';
+import { PrimaryAction } from '@/components/patterns/PrimaryAction';
+import { plainPriceWords, priceLine } from '@/lib/shopping/priceWords';
+import { EmptyState, ErrorState, LoadingState } from '@/components/patterns/States';
+import { useSheetEffects } from '@/components/shopping/useSheetEffects';
+import { cn } from '@/lib/cn';
 import { useWorkspaceUid } from '@/providers/WorkspaceProvider';
+import { CatalogImport } from '@/components/catalog/CatalogImport';
 import {
   addShoppingCategory,
   backfillShoppingCatalogFromLists,
@@ -18,8 +25,6 @@ import {
   deleteShoppingCatalogItem,
   type ShoppingCatalogItem,
   type ShoppingCategory,
-  importShoppingCatalogCsv,
-  shoppingCatalogCsvHeader,
   updateShoppingCatalogItem,
   upsertShoppingCatalogItem,
   watchShoppingCatalog,
@@ -31,6 +36,11 @@ import { exportTextFile } from '@/lib/export';
 import { periodIdFromDate, type PeriodDoc, watchPeriods } from '@/lib/repo/periods';
 import { type PlanItem, watchPlanTotals } from '@/lib/repo/plans';
 import { fmtMoney } from '@/lib/format';
+import { db } from '@/lib/firebase';
+import { fromMinor } from '@/lib/money';
+import { displayUnitPriceMinor, lastComparable, priceChipText, type PriceObservation } from '@/lib/rules/priceCompare';
+import { deleteReceiptIn, listPriceObservationsIn } from '@/lib/repo/receiptsOps';
+import { APP_CURRENCY } from '@/components/shopping/ReceiptModal';
 import { planGroupLabel } from '@/lib/groups';
 import { parseTagsInput, tagsToInput } from '@/lib/tags';
 
@@ -60,8 +70,7 @@ function normalize(input: string) {
 
 export default function ShoppingItemsScreen() {
   const uid = useWorkspaceUid();
-  const { width } = useWindowDimensions();
-  const isCompact = width < 768;
+  const router = useRouter();
 
   const [rows, setRows] = useState<ShoppingCatalogItem[]>([]);
   const [categories, setCategories] = useState<ShoppingCategory[]>([]);
@@ -71,7 +80,6 @@ export default function ShoppingItemsScreen() {
 
   const [draft, setDraft] = useState<CatalogDraft>({ name: '', category: '', tagsInput: '', assignedPlanItemId: '' });
   const [categoryDraft, setCategoryDraft] = useState('');
-  const [csvText, setCsvText] = useState(`${shoppingCatalogCsvHeader}\n`);
 
   const [search, setSearch] = useState('');
   const [sortMode, setSortMode] = useState<'NAME' | 'CATEGORY'>('NAME');
@@ -80,7 +88,6 @@ export default function ShoppingItemsScreen() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [screenError, setScreenError] = useState('');
   const [syncing, setSyncing] = useState(false);
-  const [importing, setImporting] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [bulkScope, setBulkScope] = useState<BulkScope>('SELECTED');
   const [bulkSourceValue, setBulkSourceValue] = useState('');
@@ -91,10 +98,52 @@ export default function ShoppingItemsScreen() {
 
   const [selectedItem, setSelectedItem] = useState<ShoppingCatalogItem | null>(null);
   const [priceHistory, setPriceHistory] = useState<PriceHistoryEntry[]>([]);
+  const [receiptPrices, setReceiptPrices] = useState<PriceObservation[]>([]);
+  const [receiptPricesTick, setReceiptPricesTick] = useState(0);
+  // BUDG-8 S12 view state only.
+  const [loaded, setLoaded] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState('ALL');
+  const [manageOpen, setManageOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
+  const [allObservations, setAllObservations] = useState<PriceObservation[]>([]);
+  useSheetEffects(manageOpen, () => setManageOpen(false));
+  useSheetEffects(addOpen, () => setAddOpen(false));
+  useSheetEffects(Boolean(selectedItem), () => closeItemDetail());
+
+  // Row chips: the same read the receipt sheet makes (all observations of this household).
+  useEffect(() => {
+    if (!uid) return;
+    let live = true;
+    listPriceObservationsIn(db, uid)
+      .then((all) => live && setAllObservations(all))
+      .catch(() => live && setAllObservations([]));
+    return () => {
+      live = false;
+    };
+  }, [uid, receiptPricesTick]);
+
+  // BUDG-5: comparable unit prices from confirmed receipts (newest first).
+  useEffect(() => {
+    if (!uid || !selectedItem?.id) {
+      setReceiptPrices([]);
+      return;
+    }
+    let live = true;
+    listPriceObservationsIn(db, uid, selectedItem.id)
+      .then((rows) => live && setReceiptPrices(rows.sort((a, b) => (b.observedOn + b.id).localeCompare(a.observedOn + a.id))))
+      .catch(() => live && setReceiptPrices([]));
+    return () => {
+      live = false;
+    };
+  }, [uid, selectedItem?.id, receiptPricesTick]);
 
   useEffect(() => {
     if (!uid) return;
-    const unCatalog = watchShoppingCatalog(uid, setRows);
+    const unCatalog = watchShoppingCatalog(uid, (next) => {
+      setRows(next);
+      setLoaded(true);
+    });
     const unCategories = watchShoppingCategories(uid, setCategories);
     return () => {
       unCatalog();
@@ -423,21 +472,6 @@ export default function ShoppingItemsScreen() {
     }
   }
 
-  async function importCsv() {
-    if (!uid) return;
-    setImporting(true);
-    try {
-      const count = await importShoppingCatalogCsv(uid, csvText);
-      setCsvText(`${shoppingCatalogCsvHeader}\n`);
-      Alert.alert('Import complete', `${count} catalog items imported.`);
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : String(e);
-      setScreenError(message || 'CSV import failed.');
-    } finally {
-      setImporting(false);
-    }
-  }
-
   async function exportCsv() {
     if (exporting) return;
     setExporting(true);
@@ -512,497 +546,363 @@ export default function ShoppingItemsScreen() {
     setSelectedItem(null);
   }
 
+  // ---- BUDG-8 S12 layout: search + category chips, rows with the last-price chip, Manage sheet ----
+  const shownRows = categoryFilter === 'ALL' ? displayRows : displayRows.filter((row) => normalize(row.category || '') === normalize(categoryFilter));
+  const mappedCount = rows.filter((row) => String(row.assignedPlanItemId || '').trim().length > 0).length;
+  const categoryChoice = [{ label: 'No category', value: '' }, ...categoryNames.map((name) => ({ label: name, value: name }))];
+  const lineChoice = [{ label: 'No line', value: '' }, ...planOptions.map((option) => ({ label: option.label, value: option.value }))];
+  const fmtObs = (o: PriceObservation) => (m: number) => fmtMoney(fromMinor(m), o.currencyCode);
+
+  function chipFor(row: ShoppingCatalogItem): { text: string; muted: boolean } {
+    const mine = allObservations.filter((o) => o.catalogItemId === row.id).sort((a, b) => (b.observedOn + b.id).localeCompare(a.observedOn + a.id));
+    if (mine.length) {
+      const last = mine[0];
+      const cmp = priceChipText(last, lastComparable(last, mine), fmtObs(last));
+      if (cmp.startsWith('Last')) return { text: plainPriceWords(cmp), muted: false };
+      const unit = displayUnitPriceMinor(last);
+      const base = unit ? `Last ${fmtObs(last)(unit.minor)} / ${unit.unitLabel} · ${last.observedOn}` : `Last receipt ${last.observedOn}`;
+      return { text: priceLine(base, plainPriceWords(cmp)), muted: false };
+    }
+    if ((row.lastPrice || 0) > 0) return { text: `List estimate ${fmtMoney(row.lastPrice || 0)} · not compared`, muted: true };
+    return { text: 'No comparable price', muted: true };
+  }
+
+
+  const detail = selectedItem?.id ? edits[selectedItem.id] : undefined;
+
   return (
-    <ScrollView className="flex-1" contentContainerClassName="gap-4 pb-8">
-      <View className="gap-1">
-        <Text className="text-3xl font-bold text-foreground dark:text-zinc-50">Shopping Items</Text>
-        <Text className="text-sm text-muted-foreground">Reusable shopping items library with category management and CSV import.</Text>
-      </View>
+    <View className="min-h-0 flex-1 bg-background dark:bg-zinc-950">
+      <ScrollView className="flex-1" contentContainerClassName="gap-6 pb-8" keyboardShouldPersistTaps="handled">
+        <PageHeader
+          title="Catalog"
+          subtitle={`${rows.length} item${rows.length === 1 ? '' : 's'} you buy · ${mappedCount} linked to a budget line`}
+          right={<AppButton label="Manage" variant="ghost" size="touch" testID="catalog-manage" onPress={() => setManageOpen(true)} />}
+          switcher={
+            <AppSegmented
+              value={sortMode}
+              touch
+              full
+              onChange={(value) => setSortMode(value as 'NAME' | 'CATEGORY')}
+              options={[
+                { label: 'A–Z', value: 'NAME' },
+                { label: 'By category', value: 'CATEGORY' },
+              ]}
+            />
+          }
+          action={<PrimaryAction label="Add item" onPress={() => setAddOpen(true)} />}
+        />
+        {screenError ? <ErrorState message={screenError} onRetry={() => setScreenError('')} /> : null}
 
-      <AppCard className="gap-2">
-        <Text className="text-xs uppercase tracking-wide text-muted-foreground">Budget Mapping Period</Text>
-        <View className="w-full md:w-80">
-          <DropdownField
-            value={selectedPid}
-            options={periodOptions}
-            onChange={setSelectedPid}
-            placeholder="Select period"
-            menuStrategy="inline"
-          />
-        </View>
-        <Text className="text-xs text-muted-foreground">
-          Assign each shopping item to a budget item so imported list items and transactions stay linked.
-        </Text>
-      </AppCard>
-
-      <View className="grid grid-cols-1 gap-3 md:grid-cols-5">
-        <AppCard>
-          <Text className="text-xs uppercase tracking-wide text-muted-foreground">Items</Text>
-          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">{rows.length}</Text>
-        </AppCard>
-        <AppCard>
-          <Text className="text-xs uppercase tracking-wide text-muted-foreground">Categories</Text>
-          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">{categoryNames.length}</Text>
-        </AppCard>
-        <AppCard className="gap-2">
-          <Text className="text-xs uppercase tracking-wide text-muted-foreground">Sync Source</Text>
-          <Text className="text-xs text-muted-foreground">Existing shopping lists</Text>
-          <AppButton size="sm" variant="outline" label={syncing ? 'Syncing...' : 'Sync from Lists'} onPress={syncFromExistingLists} disabled={syncing} />
-        </AppCard>
-        <AppCard className="gap-2">
-          <Text className="text-xs uppercase tracking-wide text-muted-foreground">CSV Import</Text>
-          <Text className="text-xs text-muted-foreground">name,category,tags,budgetItemName</Text>
-          <AppButton size="sm" variant="outline" label={exporting ? 'Exporting...' : 'Export CSV'} onPress={exportCsv} disabled={exporting || displayRows.length === 0} />
-        </AppCard>
-        <AppCard>
-          <Text className="text-xs uppercase tracking-wide text-muted-foreground">Mapped to Budget</Text>
-          <Text className="mt-1 text-xl font-semibold text-foreground dark:text-zinc-50">
-            {rows.filter((row) => String(row.assignedPlanItemId || '').trim().length > 0).length}
-          </Text>
-        </AppCard>
-      </View>
-
-      <AppCard className="gap-3">
-        <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Manage Categories</Text>
-        <View className="flex-row items-center gap-2">
-          <View className="flex-1">
-            <AppInput value={categoryDraft} onChangeText={setCategoryDraft} placeholder="e.g. Vegetables" className="h-9" />
+        <View className="gap-3">
+          <View className="flex-row flex-wrap items-center gap-2">
+            <AppInput value={search} onChangeText={setSearch} placeholder="Search items" accessibilityLabel="Search catalog" className="min-w-48 flex-1" />
           </View>
-          <IconActionButton icon="plus" label="Add category" onPress={addCategory} />
+          {categoryNames.length ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerClassName="gap-2">
+              {['ALL', ...categoryNames].map((name) => {
+                const on = categoryFilter === name;
+                return (
+                  <Pressable
+                    key={name}
+                    accessibilityRole="button"
+                    aria-pressed={on}
+                    onPress={() => setCategoryFilter(name)}
+                    className={cn('h-11 lg:h-9 justify-center rounded-full border px-4', on ? 'border-primary bg-primary dark:border-zinc-100 dark:bg-zinc-50' : 'border-border bg-card dark:border-zinc-800 dark:bg-zinc-900')}
+                  >
+                    <Text className={cn('text-sm font-medium', on ? 'text-white dark:text-zinc-900' : 'text-foreground dark:text-zinc-50')}>{name === 'ALL' ? 'All' : name}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          ) : null}
         </View>
-        <View className="flex-row flex-wrap gap-2">
-          {categoryNames.map((name) => (
-            <View key={name} className="flex-row items-center gap-1 rounded-full border border-border bg-muted/20 px-2 py-1 dark:border-zinc-800 dark:bg-zinc-800/30">
-              <Text className="text-xs text-foreground dark:text-zinc-50">{name}</Text>
-              <IconActionButton
-                icon="close"
-                iconSize={14}
-                label={`Delete category ${name}`}
-                variant="danger"
-                className="h-5 w-5 rounded-full"
-                onPress={() => removeCategory(name)}
+
+        {selectMode ? (
+          <View className="flex-row flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-3 py-1 dark:border-zinc-800 dark:bg-zinc-900">
+            <Text className="min-w-0 flex-1 text-sm text-foreground dark:text-zinc-50">{`${selectedCount} selected`}</Text>
+            <AppButton label={allVisibleSelected ? 'Clear visible' : 'Select visible'} variant="ghost" size="touch" onPress={() => setVisibleSelection(!allVisibleSelected)} />
+            <AppButton label="Done" variant="outline" size="touch" onPress={() => setManageOpen(true)} />
+          </View>
+        ) : null}
+
+        {!loaded ? <LoadingState testID="catalog-loading" /> : null}
+        {loaded && !rows.length ? (
+          <EmptyState icon="tag-outline" message="Items you add to a list are saved here for next time." actionLabel="Add item" onAction={() => setAddOpen(true)} testID="catalog-empty" />
+        ) : null}
+        {loaded && rows.length && !shownRows.length ? <EmptyState icon="magnify" message="No items match this search." /> : null}
+        {shownRows.length ? (
+          <View testID="catalog-rows" className="overflow-hidden rounded-xl border border-border bg-card dark:border-zinc-800 dark:bg-zinc-900">
+            {shownRows.map((row, i) => {
+              if (!row.id) return null;
+              const chip = chipFor(row);
+              const picked = Boolean(selectedIds[row.id]);
+              return (
+                <View key={row.id} className={cn('min-h-11 lg:min-h-9 flex-row items-center', i > 0 && 'border-t border-border dark:border-zinc-800')}>
+                  {selectMode ? (
+                    <Pressable accessibilityRole="checkbox" aria-checked={picked} accessibilityLabel={`Select ${row.name}`} onPress={() => toggleSelected(row.id)} className="h-11 lg:h-9 w-11 lg:w-9 items-center justify-center">
+                      <MaterialCommunityIcons name={picked ? 'checkbox-marked' : 'checkbox-blank-outline'} size={22} color={picked ? '#22C55E' : '#717182'} />
+                    </Pressable>
+                  ) : null}
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => (selectMode ? toggleSelected(row.id) : openItemDetail(row))}
+                    className={cn('min-h-11 lg:min-h-9 min-w-0 flex-1 flex-row items-center gap-3 py-2 pr-4 hover:bg-muted/50 active:bg-muted dark:hover:bg-zinc-800/60', selectMode ? 'pl-1' : 'pl-4')}
+                  >
+                    <View className="min-w-0 flex-1">
+                      <Text className="text-sm font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>{row.name}</Text>
+                      <Text className="text-xs text-muted-foreground dark:text-zinc-400" numberOfLines={1}>
+                        {[row.category || 'No category', row.assignedPlanItemName || 'No line'].join(' · ')}
+                      </Text>
+                      <Text testID="catalog-price-chip" className={cn('text-xs', chip.muted ? 'text-muted-foreground dark:text-zinc-400' : 'font-medium text-foreground dark:text-zinc-50')} numberOfLines={2}>
+                        {chip.text}
+                      </Text>
+                    </View>
+                    {!selectMode ? <MaterialCommunityIcons name="chevron-right" size={20} color="#717182" /> : null}
+                  </Pressable>
+                </View>
+              );
+            })}
+          </View>
+        ) : null}
+      </ScrollView>
+
+      <AppSheet
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        title="Add catalog item"
+        footer={
+          <>
+            <AppButton
+              label="Add item"
+              size="touch-lg"
+              className="w-full"
+              disabled={!draft.name.trim()}
+              onPress={() => void addCatalogItem().then(() => setAddOpen(false))}
+            />
+            <AppButton label="Cancel" variant="ghost" size="touch" onPress={() => setAddOpen(false)} />
+          </>
+        }
+      >
+        <View className="gap-4">
+          <FormField label="Name">
+            <AppInput autoFocus value={draft.name} onChangeText={(value) => setDraft((prev) => ({ ...prev, name: value }))} placeholder="Rice 5 kg" accessibilityLabel="Catalog item name" className="" />
+          </FormField>
+          <FormField label="Category">
+            <DropdownField value={draft.category} options={categoryChoice} onChange={(value) => setDraft((prev) => ({ ...prev, category: value }))} menuStrategy="inline" triggerClassName="min-h-11 lg:min-h-9" />
+          </FormField>
+          <FormField label="Budget line">
+            <DropdownField value={draft.assignedPlanItemId} options={lineChoice} onChange={(value) => setDraft((prev) => ({ ...prev, assignedPlanItemId: value }))} placeholder="Choose a line" menuStrategy="inline" triggerClassName="min-h-11 lg:min-h-9" />
+          </FormField>
+          <FormField label="Tags">
+            <AppInput value={draft.tagsInput} onChangeText={(value) => setDraft((prev) => ({ ...prev, tagsInput: value }))} placeholder="staples, pantry" accessibilityLabel="Tags" className="" />
+          </FormField>
+        </View>
+      </AppSheet>
+
+      <AppSheet
+        open={Boolean(selectedItem)}
+        onClose={closeItemDetail}
+        title={selectedItem?.name || 'Item'}
+        testID="catalog-item-sheet"
+        footer={
+          selectedItem?.id && detail ? (
+            <>
+              <AppButton
+                label={detail.saving ? 'Saving…' : 'Save'}
+                size="touch-lg"
+                className="w-full"
+                disabled={!detail.dirty || detail.saving}
+                onPress={() => void saveCatalogItem(selectedItem)}
               />
+              <View className="flex-row items-center justify-between">
+                <AppButton label="Close" variant="ghost" size="touch" onPress={closeItemDetail} />
+                <AppButton
+                  label="Delete item"
+                  variant="ghost"
+                  size="touch"
+                  textClassName="text-destructive dark:text-red-300"
+                  onPress={() => {
+                    void removeCatalogItem(selectedItem).then(() => setSelectedItem(null));
+                  }}
+                />
+              </View>
+            </>
+          ) : null
+        }
+      >
+        {selectedItem?.id && detail ? (
+          <View className="gap-6">
+            <View className="gap-2" testID="receipt-prices">
+              <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Prices from receipts</Text>
+              {receiptPrices.length ? (
+                <Text className="text-sm font-medium text-foreground dark:text-zinc-50">
+                  {plainPriceWords(priceChipText(receiptPrices[0], lastComparable(receiptPrices[0], receiptPrices), fmtObs(receiptPrices[0]))) || 'First price for this item.'}
+                </Text>
+              ) : (
+                <Text className="text-sm text-muted-foreground dark:text-zinc-400">No receipt prices yet. Add a receipt from a finished list.</Text>
+              )}
+              {receiptPrices.length ? (
+                <View className="overflow-hidden rounded-xl border border-border dark:border-zinc-800">
+                  {receiptPrices.map((o, i) => {
+                    const unit = displayUnitPriceMinor(o);
+                    return (
+                      <View key={o.id} className={cn('min-h-11 lg:min-h-9 flex-row items-center gap-2 py-1 pl-3', i > 0 && 'border-t border-border dark:border-zinc-800')}>
+                        <View className="min-w-0 flex-1">
+                          <Text className="text-sm text-foreground dark:text-zinc-50">
+                            {`${o.observedOn}${o.storeName ? ` · ${o.storeName}` : ''} · ${o.quantity} ${o.unit}${o.packSize ? ` (pack ${o.packSize})` : ''}`}
+                          </Text>
+                          <Text className="text-xs text-muted-foreground dark:text-zinc-400" style={{ fontVariant: ['tabular-nums'] }}>
+                            {`${fmtMoney(fromMinor(o.lineTotalMinor), o.currencyCode)}${unit ? ` · ${fmtMoney(fromMinor(unit.minor), o.currencyCode)} / ${unit.unitLabel}` : ' · Missing quantity or price'}${o.isReturn ? ' · Returned' : ''}${o.promo ? ' · Promo' : ''}${o.currencyCode !== APP_CURRENCY ? ' · Other currency' : ''}`}
+                          </Text>
+                        </View>
+                        <IconActionButton
+                          icon="trash-can-outline"
+                          label="Delete receipt"
+                          variant="danger"
+                          className="h-11 lg:h-9 w-11 lg:w-9"
+                          onPress={() => {
+                            void deleteReceiptIn(db, uid || '', o.receiptId).then(() => setReceiptPricesTick((t) => t + 1));
+                          }}
+                        />
+                      </View>
+                    );
+                  })}
+                </View>
+              ) : null}
             </View>
-          ))}
-          {!categoryNames.length ? <Text className="text-xs text-muted-foreground">No categories yet.</Text> : null}
-        </View>
-      </AppCard>
 
-      <AppCard className="gap-3">
-        <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Add Shopping Item</Text>
-        <View className="flex-row flex-wrap items-end gap-2">
-          <View className="min-w-[220px] flex-1 gap-1">
-            <Text className="text-xs text-muted-foreground">Name</Text>
-            <AppInput value={draft.name} onChangeText={(value) => setDraft((prev) => ({ ...prev, name: value }))} placeholder="e.g. Rice" className="h-9" />
-          </View>
-          <View className="min-w-[200px] gap-1">
-            <Text className="text-xs text-muted-foreground">Category</Text>
-            <DropdownField
-              value={draft.category}
-              options={[{ label: 'No category', value: '' }, ...categoryNames.map((name) => ({ label: name, value: name }))]}
-              onChange={(value) => setDraft((prev) => ({ ...prev, category: value }))}
-              menuStrategy="inline"
-            />
-          </View>
-          <View className="min-w-[220px] flex-1 gap-1">
-            <Text className="text-xs text-muted-foreground">Tags</Text>
-            <AppInput
-              value={draft.tagsInput}
-              onChangeText={(value) => setDraft((prev) => ({ ...prev, tagsInput: value }))}
-              placeholder="utilities, vegetables"
-              className="h-9"
-            />
-          </View>
-          <View className="min-w-[280px] flex-1 gap-1">
-            <Text className="text-xs text-muted-foreground">Budget Item</Text>
-            <DropdownField
-              value={draft.assignedPlanItemId}
-              options={[{ label: 'Unassigned', value: '' }, ...planOptions.map((row) => ({ label: row.label, value: row.value }))]}
-              onChange={(value) => setDraft((prev) => ({ ...prev, assignedPlanItemId: value }))}
-              placeholder="Link to budget item"
-              menuStrategy="inline"
-            />
-          </View>
-          <IconActionButton icon="plus" label="Add shopping catalog item" onPress={addCatalogItem} />
-        </View>
-      </AppCard>
+            <View className="gap-4">
+              <FormField label="Name">
+                <AppInput value={detail.name} onChangeText={(value) => setEditField(selectedItem.id!, { name: value })} accessibilityLabel="Catalog item name" className="" />
+              </FormField>
+              <FormField label="Category">
+                <DropdownField value={detail.category} options={categoryChoice} onChange={(value) => setEditField(selectedItem.id!, { category: value })} menuStrategy="inline" triggerClassName="min-h-11 lg:min-h-9" />
+              </FormField>
+              <FormField label="Budget line">
+                <DropdownField value={detail.assignedPlanItemId} options={lineChoice} onChange={(value) => setEditField(selectedItem.id!, { assignedPlanItemId: value })} placeholder="Choose a line" menuStrategy="inline" triggerClassName="min-h-11 lg:min-h-9" />
+              </FormField>
+              <FormField label="Tags">
+                <AppInput value={detail.tagsInput} onChangeText={(value) => setEditField(selectedItem.id!, { tagsInput: value })} placeholder="staples, pantry" accessibilityLabel="Tags" className="" />
+              </FormField>
+              {detail.dirty ? <Text className="text-sm text-amber-700 dark:text-amber-300">Unsaved changes</Text> : null}
+            </View>
 
-      <AppCard className="gap-3">
-        <View className="flex-col gap-1 md:flex-row md:items-center md:justify-between">
-          <View>
-            <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Bulk Update Shopping Items</Text>
-            <Text className="text-xs text-muted-foreground">
-              Update selected items or all items that currently share the same category or budget item.
-            </Text>
+            <View className="gap-2">
+              <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">From shopping lists</Text>
+              <Text className="text-xs text-muted-foreground dark:text-zinc-400">Estimates from shopping lists (no currency or unit): not compared.</Text>
+              {priceHistory.length ? (
+                <View className="overflow-hidden rounded-xl border border-border dark:border-zinc-800">
+                  {priceHistory.map((entry, i) => (
+                    <View key={entry.id} className={cn('flex-row justify-between gap-2 px-3 py-2', i > 0 && 'border-t border-border dark:border-zinc-800')}>
+                      <Text className="text-sm text-foreground dark:text-zinc-50">{new Date(entry.createdAt).toLocaleDateString()}</Text>
+                      <Text className="shrink-0 text-sm font-medium text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>
+                        {`${fmtMoney(entry.price)}${entry.quantity > 1 ? ` (x${entry.quantity})` : ''}`}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <Text className="text-sm text-muted-foreground dark:text-zinc-400">No purchase history found.</Text>
+              )}
+            </View>
           </View>
-          <Text className="text-xs font-semibold text-muted-foreground">
-            Matches: {bulkMatchedRows.length}
-          </Text>
-        </View>
-        <View className="flex-row flex-wrap items-end gap-2">
-          <View className="min-w-[180px] gap-1">
-            <Text className="text-xs text-muted-foreground">Find by</Text>
+        ) : null}
+      </AppSheet>
+
+      <AppSheet open={manageOpen} onClose={() => setManageOpen(false)} title="Manage catalog" testID="catalog-manage-sheet">
+        <View className="gap-8">
+          <View className="gap-3">
+            <Text role="heading" aria-level={3} className="text-sm font-semibold text-foreground dark:text-zinc-50">Change many items</Text>
             <AppSegmented
               value={bulkScope}
-              compact
+              touch
               onChange={(value) => {
                 setBulkScope(value as BulkScope);
                 setBulkSourceValue('');
               }}
               options={[
-                { label: 'Selected', value: 'SELECTED' },
+                { label: 'Picked', value: 'SELECTED' },
                 { label: 'Category', value: 'CATEGORY' },
-                { label: 'Budget Item', value: 'BUDGET' },
+                { label: 'Line', value: 'BUDGET' },
               ]}
             />
-          </View>
-          {bulkScope === 'SELECTED' ? (
-            <View className="min-w-[240px] flex-1 gap-1">
-              <Text className="text-xs text-muted-foreground">Selected Items</Text>
+            {bulkScope === 'SELECTED' ? (
               <View className="flex-row flex-wrap items-center gap-2">
-                <AppBadge label={`${selectedCount} selected`} variant={selectedCount ? 'default' : 'outline'} />
+                <Text className="min-w-0 flex-1 text-sm text-foreground dark:text-zinc-50">{`${selectedCount} picked`}</Text>
                 <AppButton
-                  label={allVisibleSelected ? 'Clear Visible' : 'Select Visible'}
-                  size="sm"
+                  label={selectMode ? 'Stop picking' : 'Pick items'}
                   variant="outline"
-                  onPress={() => setVisibleSelection(!allVisibleSelected)}
-                  disabled={visibleSelectableRows.length === 0}
+                  size="touch"
+                  onPress={() => {
+                    const next = !selectMode;
+                    setSelectMode(next);
+                    if (next) setManageOpen(false);
+                  }}
                 />
-                <AppButton
-                  label="Clear All"
-                  size="sm"
-                  variant="ghost"
-                  onPress={() => setSelectedIds({})}
-                  disabled={selectedCount === 0}
-                />
+                <AppButton label="Clear" variant="ghost" size="touch" disabled={selectedCount === 0} onPress={() => setSelectedIds({})} />
               </View>
-            </View>
-          ) : (
-            <View className="min-w-[240px] flex-1 gap-1">
-              <Text className="text-xs text-muted-foreground">
-                Current {bulkScope === 'CATEGORY' ? 'Category' : 'Budget Item'}
-              </Text>
-              <DropdownField
-                value={bulkSourceValue}
-                options={bulkSourceOptions}
-                onChange={setBulkSourceValue}
-                menuStrategy="inline"
-              />
-            </View>
-          )}
-          <View className="min-w-[220px] flex-1 gap-1">
-            <Text className="text-xs text-muted-foreground">Set Category</Text>
-            <DropdownField
-              value={bulkCategoryValue}
-              options={bulkTargetCategoryOptions}
-              onChange={setBulkCategoryValue}
-              menuStrategy="inline"
+            ) : (
+              <FormField label={bulkScope === 'CATEGORY' ? 'Items now in category' : 'Items now on line'}>
+                <DropdownField value={bulkSourceValue} options={bulkSourceOptions} onChange={setBulkSourceValue} menuStrategy="inline" triggerClassName="min-h-11 lg:min-h-9" />
+              </FormField>
+            )}
+            <FormField label="Set category">
+              <DropdownField value={bulkCategoryValue} options={bulkTargetCategoryOptions} onChange={setBulkCategoryValue} menuStrategy="inline" triggerClassName="min-h-11 lg:min-h-9" />
+            </FormField>
+            <FormField label="Set budget line">
+              <DropdownField value={bulkPlanItemId} options={bulkTargetPlanOptions} onChange={setBulkPlanItemId} menuStrategy="inline" triggerClassName="min-h-11 lg:min-h-9" />
+            </FormField>
+            <AppButton
+              label={bulkUpdating ? 'Updating…' : `Update ${bulkMatchedRows.length} item${bulkMatchedRows.length === 1 ? '' : 's'}`}
+              size="touch"
+              onPress={applyBulkUpdate}
+              disabled={bulkUpdating || bulkMatchedRows.length === 0 || (bulkCategoryValue === BULK_KEEP && bulkPlanItemId === BULK_KEEP)}
             />
           </View>
-          <View className="min-w-[280px] flex-1 gap-1">
-            <Text className="text-xs text-muted-foreground">Set Budget Item</Text>
-            <DropdownField
-              value={bulkPlanItemId}
-              options={bulkTargetPlanOptions}
-              onChange={setBulkPlanItemId}
-              menuStrategy="inline"
-            />
+
+          <View className="gap-3">
+            <Text role="heading" aria-level={3} className="text-sm font-semibold text-foreground dark:text-zinc-50">Budget lines from</Text>
+            <Text className="text-xs text-muted-foreground dark:text-zinc-400">Lines offered above come from this month&apos;s plan.</Text>
+            <DropdownField value={selectedPid} options={periodOptions} onChange={setSelectedPid} placeholder="Choose month" menuStrategy="inline" triggerClassName="min-h-11 lg:min-h-9" />
           </View>
-          <AppButton
-            label={bulkUpdating ? 'Updating...' : `Update ${bulkMatchedRows.length}`}
-            onPress={applyBulkUpdate}
-            disabled={bulkUpdating || bulkMatchedRows.length === 0 || (bulkCategoryValue === BULK_KEEP && bulkPlanItemId === BULK_KEEP)}
-            textClassName="text-white"
-          />
-        </View>
-      </AppCard>
 
-      <AppCard className="gap-3">
-        <View className="flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <View className="w-full md:w-72">
-            <AppInput value={search} onChangeText={setSearch} placeholder="Search by name, category or budget..." className="h-9" />
-          </View>
-          <AppSegmented
-            value={sortMode}
-            compact
-            onChange={(value) => setSortMode(value as 'NAME' | 'CATEGORY')}
-            options={[
-              { label: 'Name', value: 'NAME' },
-              { label: 'Category', value: 'CATEGORY' },
-            ]}
-          />
-        </View>
-
-        {!isCompact ? (
-          <ScrollView horizontal showsHorizontalScrollIndicator>
-            <View className="min-w-[1220px] flex-1">
-              <View className="flex-row border-b border-border pb-2 dark:border-zinc-800">
-                <Text className="w-[48px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pick</Text>
-                <Text className="w-[220px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Name</Text>
-                <Text className="w-[180px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Category</Text>
-                <Text className="w-[420px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Budget Item</Text>
-                <Text className="w-[160px] text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Actions</Text>
-              </View>
-
-              {displayRows.map((row) => {
-                const edit = row.id ? edits[row.id] : null;
-                if (!row.id || !edit) return null;
-                const isEditing = editingId === row.id;
-                return (
-                  <Pressable
-                    key={row.id}
-                    onPress={() => !isEditing && setSelectedItem(row)}
-                    className={`flex-row items-center border-b py-2 dark:border-zinc-800 ${
-                      edit.dirty
-                        ? 'border-primary/40 bg-primary/5 dark:bg-zinc-800/70'
-                        : 'border-border hover:bg-muted/35 dark:hover:bg-zinc-800/55'
-                    }`}
-                  >
-                    <View className="w-[48px] pr-2">
-                      <Pressable
-                        onPress={() => toggleSelected(row.id)}
-                        className="h-9 w-9 items-center justify-center rounded-md border border-border bg-background dark:border-zinc-800 dark:bg-zinc-900"
-                      >
-                        <MaterialCommunityIcons
-                          name={selectedIds[row.id] ? 'checkbox-marked' : 'checkbox-blank-outline'}
-                          size={20}
-                          color={selectedIds[row.id] ? '#22C55E' : '#717182'}
-                        />
-                      </Pressable>
-                    </View>
-                    <View className="w-[220px] pr-2">
-                      {isEditing ? (
-                        <AppInput value={edit.name} onChangeText={(value) => setEditField(row.id!, { name: value })} className="h-9" />
-                      ) : (
-                        <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{row.name}</Text>
-                      )}
-                    </View>
-                    <View className="w-[180px] pr-2">
-                      {isEditing ? (
-                        <DropdownField
-                          value={edit.category}
-                          options={[{ label: 'No category', value: '' }, ...categoryNames.map((name) => ({ label: name, value: name }))]}
-                          onChange={(value) => setEditField(row.id!, { category: value })}
-                          menuStrategy="inline"
-                        />
-                      ) : (
-                        <Text className="text-xs text-muted-foreground">{row.category || 'No category'}</Text>
-                      )}
-                    </View>
-                    <View className="w-[420px] pr-2">
-                      {isEditing ? (
-                        <DropdownField
-                          value={edit.assignedPlanItemId}
-                          options={[{ label: 'Unassigned', value: '' }, ...planOptions.map((option) => ({ label: option.label, value: option.value }))]}
-                          onChange={(value) => setEditField(row.id!, { assignedPlanItemId: value })}
-                          placeholder="Link to budget item"
-                          menuStrategy="inline"
-                        />
-                      ) : (
-                        <Text className="text-xs text-muted-foreground">
-                          {row.assignedPlanItemName || 'Unassigned'}
-                        </Text>
-                      )}
-                    </View>
-                    <View className="w-[160px] flex-row items-center justify-center gap-2">
-                      {isEditing ? (
-                        <>
-                          {edit.dirty ? <AppBadge label="Unsaved" variant="warning" /> : null}
-                          <IconActionButton icon="content-save-outline" label="Save shopping item" onPress={() => saveCatalogItem(row)} disabled={!edit.dirty || edit.saving} />
-                          <IconActionButton icon="close" label="Cancel edit" variant="muted" onPress={() => cancelEdit(row.id!)} />
-                        </>
-                      ) : (
-                        <>
-                          <IconActionButton icon="pencil-outline" label="Edit shopping item" onPress={() => beginEdit(row.id!)} />
-                          <IconActionButton icon="trash-can-outline" label="Delete shopping item" variant="danger" onPress={() => removeCatalogItem(row)} />
-                        </>
-                      )}
-                    </View>
-                  </Pressable>
-                );
-              })}
-
-              {!displayRows.length ? (
-                <View className="py-4">
-                  <Text className="text-sm text-muted-foreground">No shopping items found for this filter.</Text>
-                </View>
-              ) : null}
+          <View className="gap-3">
+            <Text role="heading" aria-level={3} className="text-sm font-semibold text-foreground dark:text-zinc-50">Categories</Text>
+            <View className="flex-row items-center gap-2">
+              <AppInput value={categoryDraft} onChangeText={setCategoryDraft} placeholder="Vegetables" accessibilityLabel="New category" className="min-w-0 flex-1" />
+              <AppButton label="Add" variant="outline" size="touch" onPress={addCategory} />
             </View>
-          </ScrollView>
-        ) : (
-          <View className="overflow-hidden rounded-lg border border-border dark:border-zinc-800">
-            <View className="flex-row border-b border-border bg-muted/30 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-800/40">
-              <Text className="w-[44px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pick</Text>
-              <Text className="w-[180px] text-xs font-semibold uppercase tracking-wide text-muted-foreground">Name</Text>
-              <Text className="flex-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Category</Text>
-            </View>
-            {displayRows.map((row) => (
-              <Pressable
-                key={row.id}
-                onPress={() => openItemDetail(row)}
-                className="flex-row items-center border-b border-border px-3 py-2 last:border-b-0 dark:border-zinc-800"
-              >
+            <View className="flex-row flex-wrap gap-2">
+              {categoryNames.map((name) => (
                 <Pressable
-                  onPress={() => toggleSelected(row.id)}
-                  className="mr-2 h-8 w-8 items-center justify-center rounded-md border border-border bg-background dark:border-zinc-800 dark:bg-zinc-900"
+                  key={name}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Delete category ${name}`}
+                  onPress={() => void removeCategory(name)}
+                  className="h-11 lg:h-9 flex-row items-center gap-1 rounded-full border border-border bg-card px-4 dark:border-zinc-800 dark:bg-zinc-900"
                 >
-                  <MaterialCommunityIcons
-                    name={row.id && selectedIds[row.id] ? 'checkbox-marked' : 'checkbox-blank-outline'}
-                    size={20}
-                    color={row.id && selectedIds[row.id] ? '#22C55E' : '#717182'}
-                  />
+                  <Text className="text-sm text-foreground dark:text-zinc-50">{name}</Text>
+                  <MaterialCommunityIcons name="close" size={16} color="#717182" />
                 </Pressable>
-                <Text className="w-[180px] text-sm font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>
-                  {row.name}
-                </Text>
-                <Text className="flex-1 text-xs text-muted-foreground" numberOfLines={1}>
-                  {row.category || 'No category'}
-                </Text>
-              </Pressable>
-            ))}
-            {!displayRows.length ? (
-              <View className="py-4">
-                <Text className="text-center text-sm text-muted-foreground">No shopping items found for this filter.</Text>
-              </View>
-            ) : null}
-          </View>
-        )}
-      </AppCard>
-
-      <AppCard className="gap-3">
-        <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Import CSV</Text>
-        <Text className="text-xs text-muted-foreground">CSV format: {shoppingCatalogCsvHeader}</Text>
-        <Text className="text-xs text-muted-foreground">Example: Rice,Groceries,vegetables|staples,Groceries</Text>
-        <Text className="text-xs text-muted-foreground">Quantity and price are intentionally excluded from this import.</Text>
-        <AppInput
-          value={csvText}
-          onChangeText={setCsvText}
-          multiline
-          numberOfLines={7}
-          className="h-36 items-start py-2"
-          autoCapitalize="none"
-        />
-        <View className="flex-row justify-end">
-          <AppButton onPress={importCsv} variant="outline" label={importing ? 'Importing...' : 'Import CSV'} disabled={importing} />
-        </View>
-      </AppCard>
-
-      {screenError ? (
-        <AppCard>
-          <View className="flex-row items-center gap-2">
-            <MaterialCommunityIcons name="alert-circle-outline" size={16} color="#D4183D" />
-            <Text className="text-sm text-destructive">{screenError}</Text>
-          </View>
-        </AppCard>
-      ) : null}
-
-      <AppModal
-        open={Boolean(selectedItem)}
-        onClose={closeItemDetail}
-        title={selectedItem?.name || 'Item Details'}
-      >
-        <View className="gap-4">
-          {selectedItem?.id && edits[selectedItem.id] ? (
-            <View className="gap-3">
-              <View className="gap-1">
-                <Text className="text-xs text-muted-foreground">Name</Text>
-                <AppInput
-                  value={edits[selectedItem.id].name}
-                  onChangeText={(value) => setEditField(selectedItem.id!, { name: value })}
-                />
-              </View>
-              <View className="gap-1">
-                <Text className="text-xs text-muted-foreground">Category</Text>
-                <DropdownField
-                  value={edits[selectedItem.id].category}
-                  options={[{ label: 'No category', value: '' }, ...categoryNames.map((name) => ({ label: name, value: name }))]}
-                  onChange={(value) => setEditField(selectedItem.id!, { category: value })}
-                  menuStrategy="inline"
-                />
-              </View>
-              <View className="gap-1">
-                <Text className="text-xs text-muted-foreground">Budget Item</Text>
-                <DropdownField
-                  value={edits[selectedItem.id].assignedPlanItemId}
-                  options={[{ label: 'Unassigned', value: '' }, ...planOptions.map((option) => ({ label: option.label, value: option.value }))]}
-                  onChange={(value) => setEditField(selectedItem.id!, { assignedPlanItemId: value })}
-                  placeholder="Link to budget item"
-                  menuStrategy="inline"
-                />
-              </View>
-              <View className="gap-1">
-                <Text className="text-xs text-muted-foreground">Tags</Text>
-                <AppInput
-                  value={edits[selectedItem.id].tagsInput}
-                  onChangeText={(value) => setEditField(selectedItem.id!, { tagsInput: value })}
-                  placeholder="utilities, groceries"
-                />
-              </View>
-              <View className="flex-row flex-wrap items-center gap-2">
-                <AppBadge label={`Last Price ${fmtMoney(selectedItem?.lastPrice || 0)}`} variant="outline" />
-                {edits[selectedItem.id].dirty ? <AppBadge label="Unsaved" variant="warning" /> : null}
-              </View>
+              ))}
+              {!categoryNames.length ? <Text className="text-sm text-muted-foreground dark:text-zinc-400">No categories yet.</Text> : null}
             </View>
-          ) : (
-            <View className="flex-row flex-wrap gap-4">
-              <View>
-                <Text className="text-xs text-muted-foreground">Category</Text>
-                <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{selectedItem?.category || 'None'}</Text>
-              </View>
-              <View>
-                <Text className="text-xs text-muted-foreground">Budget Item</Text>
-                <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{selectedItem?.assignedPlanItemName || 'Unassigned'}</Text>
-              </View>
-              <View>
-                <Text className="text-xs text-muted-foreground">Last Price</Text>
-                <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{fmtMoney(selectedItem?.lastPrice || 0)}</Text>
-              </View>
-            </View>
-          )}
-
-          <View className="gap-2">
-            <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Price History</Text>
-            <ScrollView className="max-h-60 rounded-md border border-border bg-muted/20 dark:border-zinc-800 dark:bg-zinc-800/30">
-              {priceHistory.length ? (
-                priceHistory.map((entry) => (
-                  <View key={entry.id} className="flex-row justify-between border-b border-border px-3 py-2 last:border-b-0 dark:border-zinc-800">
-                    <Text className="text-sm text-foreground dark:text-zinc-50">
-                      {new Date(entry.createdAt).toLocaleDateString()}
-                    </Text>
-                    <Text className="text-sm font-medium text-foreground dark:text-zinc-50">
-                      {fmtMoney(entry.price)} {entry.quantity > 1 ? `(x${entry.quantity})` : ''}
-                    </Text>
-                  </View>
-                ))
-              ) : (
-                <Text className="p-4 text-sm text-muted-foreground">No purchase history found.</Text>
-              )}
-            </ScrollView>
           </View>
 
-          <View className="flex-row justify-end gap-2">
-            {selectedItem ? (
-              <IconActionButton
-                icon="trash-can-outline"
-                label="Delete shopping item"
-                variant="danger"
-                onPress={async () => {
-                  await removeCatalogItem(selectedItem);
-                  setSelectedItem(null);
-                }}
-              />
-            ) : null}
-            <AppButton variant="outline" label="Close" onPress={closeItemDetail} />
-            {selectedItem?.id && edits[selectedItem.id] ? (
-              <AppButton
-                label={edits[selectedItem.id].saving ? 'Saving...' : 'Save'}
-                onPress={() => saveCatalogItem(selectedItem)}
-                disabled={!edits[selectedItem.id].dirty || edits[selectedItem.id].saving}
-              />
-            ) : null}
+          <View className="gap-3">
+            <Text role="heading" aria-level={3} className="text-sm font-semibold text-foreground dark:text-zinc-50">Import from CSV</Text>
+            <CatalogImport uid={uid} />
+          </View>
+
+          <View className="gap-3">
+            <Text role="heading" aria-level={3} className="text-sm font-semibold text-foreground dark:text-zinc-50">More</Text>
+            <View className="flex-row flex-wrap gap-2">
+              <AppButton label={exporting ? 'Exporting…' : 'Export CSV'} variant="outline" size="touch" onPress={exportCsv} disabled={exporting || displayRows.length === 0} />
+              <AppButton label={syncing ? 'Syncing…' : 'Add items from my lists'} variant="outline" size="touch" onPress={syncFromExistingLists} disabled={syncing} />
+            </View>
           </View>
         </View>
-      </AppModal>
-    </ScrollView>
+      </AppSheet>
+    </View>
   );
 }

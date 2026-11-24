@@ -20,6 +20,12 @@ export type PlanItem = {
     reconcilePinned?: boolean;
     workspaceId?: string;
     periodId?: string;
+    /** BUDG-3 stable link to the reusable category / template (doc ids, never names). */
+    sourceType?: 'EXPENSE_ITEM' | 'RECURRING' | 'YEAR_ITEM';
+    sourceId?: string;
+    accountChoice?: 'DEFAULT' | 'EXPLICIT' | 'REPAIR';
+    repairReason?: 'missing' | 'archived' | 'ineligible';
+    suggestedAccountId?: string;
 };
 
 export function planCol(userId: string, periodId: string) {

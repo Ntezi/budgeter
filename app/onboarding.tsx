@@ -1,71 +1,84 @@
-import React, { useMemo, useState } from 'react';
-import { View, Text } from 'react-native';
+import React, { useState } from 'react';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { AppButton } from '@/components/ui/AppButton';
-import { AppCard } from '@/components/ui/AppCard';
 import { cn } from '@/lib/cn';
 import { setOnboardingComplete } from '@/lib/onboarding';
+import { monthIdFromDate } from '@/lib/rules/months';
+import { periodTitleFromId } from '@/lib/repo/periods';
 
-const STEPS = [
-  {
-    title: 'Welcome to Budgeter',
-    description: 'Plan your money month-by-month with clarity and confidence.',
-    icon: 'wallet-outline' as const,
-    tone: 'bg-blue-100 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300',
-  },
-  {
-    title: 'Needs, Wants, Savings',
-    description: 'Classify every budget item and see where your money goes.',
-    icon: 'piggy-bank-outline' as const,
-    tone: 'bg-pink-100 text-pink-600 dark:bg-pink-950/40 dark:text-pink-300',
-  },
-  {
-    title: 'Auto vs Manual Planning',
-    description: 'Use 50/30/20 automatically or track real percentages from your plan.',
-    icon: 'target' as const,
-    tone: 'bg-emerald-100 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300',
-  },
+const GROUPS = [
+  { dot: 'bg-needs', name: 'Needs', text: 'rent, food, transport' },
+  { dot: 'bg-wants', name: 'Wants', text: 'eating out, fun' },
+  { dot: 'bg-savings', name: 'Savings', text: 'savings and debt' },
 ];
 
+/**
+ * BUDG-8 01: three skippable steps, no writes (C-10). The seen flag is the existing lib/onboarding.
+ * Step 3 "Plan <Month>" goes to /auth?next=/budgets?new=1; the root gate keeps that link through
+ * sign-in, landing on Plan with the New month sheet on the current month.
+ */
 export default function OnboardingScreen() {
   const router = useRouter();
   const [step, setStep] = useState(0);
+  const monthTitle = periodTitleFromId(monthIdFromDate(new Date()));
 
-  const current = useMemo(() => STEPS[step], [step]);
-
-  async function next() {
-    if (step < STEPS.length - 1) {
-      setStep((prev) => prev + 1);
-      return;
-    }
+  async function finish(to: string) {
     await setOnboardingComplete(true);
-    router.replace('/auth');
+    router.replace(to as never);
   }
 
+  const title = ['How we split your money', 'Your accounts', 'Start this month'][step];
+
   return (
-    <View className="flex-1 items-center justify-center bg-background px-5 dark:bg-zinc-950">
-      <AppCard className="w-full max-w-md items-center gap-6 border-0 bg-card/50 px-6 py-8 md:px-8">
+    <ScrollView testID="onboarding" className="flex-1 bg-background dark:bg-zinc-950" contentContainerClassName="min-h-full px-5 pb-8 pt-6">
+      <View className="w-full flex-1 gap-8 self-center" style={{ maxWidth: 448 }}>
+        <View className="flex-row items-center justify-between">
+          <Text role="status" className="text-sm font-medium text-muted-foreground dark:text-zinc-400">{`Step ${step + 1} of 3`}</Text>
+          {step < 2 ? (
+            <Pressable accessibilityRole="button" accessibilityLabel="Skip" onPress={() => void finish('/auth')} className="min-h-11 min-w-11 items-center justify-center rounded-md px-3 hover:bg-muted/50 dark:hover:bg-zinc-800/60">
+              <Text className="text-sm font-medium text-foreground dark:text-zinc-50">Skip</Text>
+            </Pressable>
+          ) : null}
+        </View>
         <View className="flex-row gap-2">
-          {STEPS.map((item, index) => (
-            <View
-              key={item.title}
-              className={cn('h-1.5 w-9 rounded-full', index === step ? 'bg-primary dark:bg-zinc-50' : 'bg-muted dark:bg-zinc-800')}
-            />
+          {[0, 1, 2].map((i) => (
+            <View key={i} className={cn('h-1.5 flex-1 rounded-full', i <= step ? 'bg-primary dark:bg-zinc-50' : 'bg-muted dark:bg-zinc-800')} />
           ))}
         </View>
 
-        <View className={cn('h-20 w-20 items-center justify-center rounded-2xl', current.tone)}>
-          <MaterialCommunityIcons name={current.icon} size={40} />
+        <View className="flex-1 gap-5">
+          <Text role="heading" aria-level={1} className="text-2xl font-bold text-foreground dark:text-zinc-50">{title}</Text>
+          {step === 0 ? (
+            <View className="gap-4">
+              {GROUPS.map((g) => (
+                <View key={g.name} className="flex-row items-center gap-3">
+                  <View className={cn('h-3 w-3 rounded-full', g.dot)} />
+                  <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">{g.name}</Text>
+                  <Text className="min-w-0 flex-1 text-sm text-muted-foreground dark:text-zinc-400">{g.text}</Text>
+                </View>
+              ))}
+              <Text className="text-sm text-muted-foreground dark:text-zinc-400">Every cost in your plan sits in one of these three groups.</Text>
+            </View>
+          ) : null}
+          {step === 1 ? <Text className="text-sm text-muted-foreground dark:text-zinc-400">Add the places your money lives: bank, mobile money, cash.</Text> : null}
+          {step === 2 ? <Text className="text-sm text-muted-foreground dark:text-zinc-400">{`Make a plan for ${monthTitle}: what you expect to earn and spend. It takes a few minutes.`}</Text> : null}
         </View>
 
         <View className="gap-2">
-          <Text className="text-center text-2xl font-bold text-foreground dark:text-zinc-50">{current.title}</Text>
-          <Text className="text-center text-base text-muted-foreground">{current.description}</Text>
+          {step === 0 ? <AppButton label="Next" size="touch-lg" className="w-full" onPress={() => setStep(1)} /> : null}
+          {step === 1 ? <AppButton label="I'll add them on Accounts" accessibilityLabel="Next: I'll add them on Accounts" size="touch-lg" className="w-full" onPress={() => setStep(2)} /> : null}
+          {step === 2 ? (
+            <>
+              <AppButton label={`Plan ${monthTitle}`} size="touch-lg" className="w-full" onPress={() => {
+                  // The intent travels as a URL; the root gate keeps it through sign-in (lib/rules/appGate.ts).
+                  void finish(`/auth?next=${encodeURIComponent('/budgets?new=1')}`);
+                }} />
+              <AppButton label="Look around first" variant="ghost" size="touch" className="w-full" onPress={() => void finish('/dashboard')} />
+            </>
+          ) : null}
         </View>
-
-        <AppButton label={step === STEPS.length - 1 ? 'Get Started' : 'Next'} onPress={next} className="mt-2 w-full" />
-      </AppCard>
-    </View>
+      </View>
+    </ScrollView>
   );
 }
