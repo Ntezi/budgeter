@@ -14,9 +14,13 @@ import { IconActionButton } from '@/components/ui/IconActionButton';
 import { db } from '@/lib/firebase';
 import { fmtMoney } from '@/lib/format';
 import { fromMinor, minorToText, parseMinor, toMinor } from '@/lib/money';
-import { localDateISO, isDateISO, postingPeriodId } from '@/lib/rules/postingMonth';
+import { localDateISO, isDateISO } from '@/lib/rules/postingMonth';
+import { monthTitle } from '@/lib/rules/months';
+import { useBudgetChoice } from '@/components/add/useBudgetChoice';
+import { type PlanItem, watchPlanTotals } from '@/lib/repo/plans';
+import { watchIncomeItems } from '@/lib/repo/income';
 import { normalizeQuantity } from '@/lib/rules/units';
-import { hasFundedAmount } from '@/lib/funding';
+import { computeFundedBudgetByItemId, hasFundedAmount } from '@/lib/funding';
 import { lastComparable, priceChipText, variantKeyOf, type PriceObservation } from '@/lib/rules/priceCompare';
 import { RECEIPT_UNITS, receiptNewExpenseProblem, receiptTotalMinor, type Receipt, type ReceiptLine } from '@/lib/repo/receiptsCore';
 import {
@@ -26,7 +30,6 @@ import type { Account } from '@/lib/repo/accounts';
 import type { ShoppingCatalogItem, ShoppingListItem } from '@/lib/repo/shopping';
 
 export const APP_CURRENCY = process.env.EXPO_PUBLIC_APP_CURRENCY || 'GHS';
-const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 // D-12: show 'piece' for the stored 'pc' (the stored value is unchanged).
 const UNIT_OPTIONS = RECEIPT_UNITS.map((u) => ({ label: u === 'pc' ? 'piece' : u, value: u }));
 
@@ -69,14 +72,10 @@ type Props = {
   prefill: LineDraft[];
   sourceListId?: string;
   /** Transactions row "Attach receipt" (design-BUDG-5 entry point 2): opens on "Link existing" for this expense. */
-  linkTo?: { txId: string; date: string; amount: number; name?: string };
-  /** H-4: budget lines of `planPeriodId` and their funded amounts (same source as Record expense). */
-  planLines?: { id: string; name: string; group?: string }[];
-  fundedByPlanId?: Record<string, number>;
-  planPeriodId?: string;
+  linkTo?: { txId: string; date: string; amount: number; name?: string; periodId?: string };
 };
 
-export function ReceiptModal({ open, onClose, onSaved, ownerUid, actorUid, accounts, catalog, prefill, sourceListId, linkTo, planLines = [], fundedByPlanId = {}, planPeriodId = '' }: Props) {
+export function ReceiptModal({ open, onClose, onSaved, ownerUid, actorUid, accounts, catalog, prefill, sourceListId, linkTo }: Props) {
   const [receiptId, setReceiptId] = useState('');
   const [step, setStep] = useState<1 | 2>(1);
   const [storeName, setStoreName] = useState('');
@@ -117,16 +116,39 @@ export function ReceiptModal({ open, onClose, onSaved, ownerUid, actorUid, accou
     if (!accountId && activeAccounts[0]?.id) setAccountId(activeAccounts[0].id);
   }, [activeAccounts, accountId]);
 
-  const periodId = isDateISO(purchaseDate) ? postingPeriodId(purchaseDate) : '';
-  // H-4: the line must belong to the purchase month and be funded, as on every other expense path.
-  const fundedLines = useMemo(() => planLines.filter((l) => hasFundedAmount(fundedByPlanId, l.id)), [planLines, fundedByPlanId]);
+  // BUDG-40 AC-2: the budget follows the purchase date until chosen; lines and funding come from the chosen budget.
+  const budget = useBudgetChoice(open, ownerUid, purchaseDate);
+  const periodId = budget.budgetId;
+  const linkPid = linkTo?.periodId || '';
+  useEffect(() => {
+    if (open && linkPid) budget.choose(linkPid); // Activity: the expense lives in the month being viewed
+  }, [open, linkPid]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [planLines, setPlanLines] = useState<PlanItem[]>([]);
+  const [incomeTotal, setIncomeTotal] = useState(0);
+  useEffect(() => {
+    setPlanLines([]);
+    setPlanItemId('');
+    if (!open || !ownerUid || !periodId) return;
+    const unsubs = [
+      watchPlanTotals(ownerUid, periodId, (_totals, rows) => setPlanLines(rows.filter((row) => row.id))),
+      watchIncomeItems(ownerUid, periodId, (_rows, activeTotal) => setIncomeTotal(activeTotal)),
+    ];
+    return () => unsubs.forEach((unsub) => unsub());
+  }, [open, ownerUid, periodId]);
+  const fundedByPlanId = useMemo(() => computeFundedBudgetByItemId(planLines as any, incomeTotal), [planLines, incomeTotal]);
+  // H-4: the line must belong to the chosen budget and be funded, as on every other expense path.
+  const fundedLines = useMemo(() => planLines.filter((l) => hasFundedAmount(fundedByPlanId, String(l.id))), [planLines, fundedByPlanId]);
   const chosenLine = planLines.find((l) => l.id === planItemId);
-  const newProblem = receiptNewExpenseProblem({
-    accountId,
-    planItemId: chosenLine ? planItemId : '',
-    lineFunded: hasFundedAmount(fundedByPlanId, planItemId),
-    lineInPostingMonth: Boolean(periodId) && periodId === planPeriodId,
-  });
+  const newProblem = !periodId
+    ? 'Enter the purchase date as YYYY-MM-DD.'
+    : !budget.isOpen
+      ? `${monthTitle(periodId)} is closed or has no budget yet. Choose an open budget.`
+      : receiptNewExpenseProblem({
+          accountId,
+          planItemId: chosenLine ? planItemId : '',
+          lineFunded: hasFundedAmount(fundedByPlanId, planItemId),
+          lineInPostingMonth: Boolean(chosenLine),
+        });
   useEffect(() => {
     if (!open || step !== 2 || !periodId) return;
     getDocs(collection(db, 'users', ownerUid, 'periods', periodId, 'transactions'))
@@ -200,7 +222,7 @@ export function ReceiptModal({ open, onClose, onSaved, ownerUid, actorUid, accou
       const r = toReceipt();
       if (mode === 'NEW') {
         if (newProblem) throw new Error(newProblem);
-        const res = await confirmReceiptAsNewExpense(db, ownerUid, r, { accountId, planItemId, planItemName: chosenLine?.name, group: chosenLine?.group });
+        const res = await confirmReceiptAsNewExpense(db, ownerUid, r, { accountId, planItemId, planItemName: chosenLine?.name, group: chosenLine?.group, periodId });
         onSaved(res.created ? `Receipt saved and expense recorded in ${monthLabel}.` : 'Receipt was already saved.');
       } else {
         if (!txId) throw new Error('Choose the expense this receipt belongs to.');
@@ -215,7 +237,7 @@ export function ReceiptModal({ open, onClose, onSaved, ownerUid, actorUid, accou
     }
   }
 
-  const monthLabel = periodId ? `${MONTHS[Number(periodId.slice(5, 7)) - 1]} ${periodId.slice(0, 4)}` : '';
+  const monthLabel = periodId ? monthTitle(periodId) : '';
   const accountName = activeAccounts.find((a) => a.id === accountId)?.name || '';
 
   const addLine = () => setLines((prev) => [...prev, { lineId: shortId(), name: '', qty: '1', unit: 'pc', total: '', catalogItemId: '', promo: false, isReturn: false }]);
@@ -300,10 +322,13 @@ export function ReceiptModal({ open, onClose, onSaved, ownerUid, actorUid, accou
       ) : (
         <View className="gap-4">
           <AppSegmented value={mode} touch options={[{ label: 'Record new expense', value: 'NEW' }, { label: 'Link existing', value: 'EXISTING' }]} onChange={setMode} />
+          <View testID="receipt-budget">
+            <DropdownField value={periodId} options={budget.options} onChange={(id) => budget.choose(id)} placeholder="Budget" menuStrategy="inline" triggerClassName="min-h-11" />
+          </View>
           {mode === 'NEW' ? (
             <>
               <DropdownField value={accountId} options={activeAccounts.map((a) => ({ label: a.name, value: a.id as string }))} onChange={setAccountId} placeholder="Account that paid" menuStrategy="inline" triggerClassName="min-h-11" />
-              <DropdownField value={planItemId} options={fundedLines.map((l) => ({ label: l.name, value: l.id }))} onChange={setPlanItemId} placeholder="Budget line" menuStrategy="inline" triggerClassName="min-h-11" />
+              <DropdownField value={planItemId} options={fundedLines.map((l) => ({ label: l.name, value: String(l.id) }))} onChange={setPlanItemId} placeholder="Budget line" menuStrategy="inline" triggerClassName="min-h-11" />
             </>
           ) : (
             <DropdownField

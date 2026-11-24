@@ -554,7 +554,7 @@ export default function TransactionsScreen() {
             ))}
           </View>
         ) : null}
-        <Text className="px-1 text-xs text-muted-foreground dark:text-zinc-400">Viewing {monthTitle(selectedPid)}. New expenses post to the month of their date.</Text>
+        <Text className="px-1 text-xs text-muted-foreground dark:text-zinc-400">Viewing {monthTitle(selectedPid)}. New expenses go to the budget you choose, the month of their date unless you pick another.</Text>
       </View>
       {readOnly ? <LockedState monthLabel={monthTitle(selectedPid).split(' ')[0]} testID="activity-closed" /> : null}
 
@@ -752,7 +752,7 @@ export default function TransactionsScreen() {
         accounts={receiptAccounts}
         catalog={receiptCatalog}
         prefill={[]}
-        linkTo={receiptFor?.id ? { txId: receiptFor.id, date: String(receiptFor.date || ''), amount: Number(receiptFor.amount || 0), name: receiptFor.name } : undefined}
+        linkTo={receiptFor?.id ? { txId: receiptFor.id, date: String(receiptFor.date || ''), amount: Number(receiptFor.amount || 0), name: receiptFor.name, periodId: selectedPid } : undefined}
       />
     </ScrollView>
   );

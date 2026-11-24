@@ -114,11 +114,11 @@ export function AddSheet({ open, uid, onClose, onSaved, onGo }: Props) {
 
           {f.missing ? (
             <View className="gap-2">
-              <Text className="text-sm text-foreground dark:text-zinc-50">{month} has no plan yet. Expenses post to the month of their date.</Text>
+              <Text className="text-sm text-foreground dark:text-zinc-50">{month} has no budget yet. Create it, or choose another open budget below.</Text>
               <AppButton label={`Create ${month} draft`} variant="outline" size="touch" onPress={f.createPostingMonth} disabled={f.pending} />
             </View>
           ) : null}
-          {f.locked ? <Text className="text-sm text-foreground dark:text-zinc-50">{month} is closed and view-only. Choose a date in an open month.</Text> : null}
+          {f.locked ? <Text className="text-sm text-foreground dark:text-zinc-50">{month} is closed and view-only. Choose an open budget below.</Text> : null}
 
           {noLines && !f.locked ? (
             <EmptyState icon="clipboard-text-outline" message={`Plan ${month} first to choose a line`} actionLabel={`Plan ${month}`} onAction={() => onGo(`/budgets/${f.postingPid}`)} />
@@ -194,6 +194,21 @@ export function AddSheet({ open, uid, onClose, onSaved, onGo }: Props) {
             <View className="w-full flex-row items-center justify-end gap-2">
               {isToday ? <Text className="text-sm text-muted-foreground dark:text-zinc-400">Today</Text> : null}
               <AppInput value={f.date} onChangeText={f.setDate} placeholder="YYYY-MM-DD" accessibilityLabel="Date" className="h-11 w-36 text-base" />
+            </View>
+          </FormRow>
+          {/* BUDG-40 AC-2: the budget this expense goes to; follows the date until chosen here. */}
+          <FormRow label="Budget">
+            <View testID="expense-budget" className="w-full">
+              <DropdownField
+                value={f.postingPid}
+                options={f.budgetOptions}
+                onChange={f.chooseBudget}
+                placeholder="Enter a date first"
+                className="w-full"
+                triggerClassName="min-h-11"
+                menuStrategy="inline"
+                menuClassName="max-h-44"
+              />
             </View>
           </FormRow>
           {noteOpen ? (

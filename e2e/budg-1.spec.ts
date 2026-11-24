@@ -107,7 +107,7 @@ test('AC-5 viewed month never changes the posting month', async ({ page }, info)
   // A date in the locked month is blocked; a date in a missing month offers an explicit create.
   await page.getByTestId('add-button').first().click(); // BUDG-8 S9: the shell + replaces the page's Add Expense button
   await page.getByPlaceholder('YYYY-MM-DD').fill(`${PREV}-15`);
-  await expect(page.getByText(`${monthTitle(PREV)} is closed and view-only. Choose a date in an open month.`)).toBeVisible();
+  await expect(page.getByText(`${monthTitle(PREV)} is closed and view-only. Choose an open budget below.`)).toBeVisible();
   await page.getByPlaceholder('YYYY-MM-DD').fill('2030-02-10');
   await expect(page.getByText('Create February 2030 draft')).toBeVisible();
   await shot(page, info, 'AC-5-missing-posting-month-explicit-create');

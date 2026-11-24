@@ -1,6 +1,8 @@
 // Record expense from a shopping list (BUDG-4 AC-7, SEC-20, SEC-22).
 // Takes the Firestore instance so emulator tests can call it. One transaction per item:
 // period must exist and be DRAFT; tx id is deterministic so a retry never duplicates.
+// BUDG-40: optional chosen budget (periodId) and a per-item marker (shoppingExpenseMarks/{txId}) so a retry
+// in another budget is refused while the first expense exists.
 import { doc, runTransaction, serverTimestamp, type Firestore } from 'firebase/firestore';
 import { isDateISO, postingPeriodId } from '../rules/postingMonth';
 import { fromMinor, MINOR_PER_MAJOR, toMinor } from '../money';
@@ -59,7 +61,16 @@ export type ShoppingExpenseInput = {
   group?: string;
   /** H-3: household-generated key for chef-added items (recordKeyFor). */
   householdKey?: string;
+  /** BUDG-40 AC-2: the budget the user chose; overrides the month of dateISO. Must exist and be DRAFT. */
+  periodId?: string;
 };
+
+const PERIOD_ID = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+/** BUDG-40 F-10: one marker per recorded item, so a retry in another budget cannot post it twice. */
+export function shoppingMarkPath(ownerUid: string, txId: string) {
+  return ['users', ownerUid, 'shoppingExpenseMarks', txId] as const;
+}
 
 export type ShoppingExpenseResult = { created: boolean; periodId: string; txId: string };
 
@@ -67,16 +78,28 @@ export async function recordShoppingExpense(db: Firestore, ownerUid: string, inp
   if (!isDateISO(input.dateISO)) throw new Error('Choose a valid date.');
   const amount = exactShoppingAmount(input.amount);
   if (!input.accountId) throw new Error('Choose the account that paid.');
-  const periodId = postingPeriodId(input.dateISO);
+  const chosen = input.periodId === undefined || input.periodId === '' ? undefined : String(input.periodId);
+  if (chosen !== undefined && !PERIOD_ID.test(chosen)) throw new Error('Invalid budget month.');
+  const periodId = chosen ?? postingPeriodId(input.dateISO);
   const txId = shoppingTxIdFor(input.listId, input.itemId, input.householdKey);
   const periodRef = doc(db, 'users', ownerUid, 'periods', periodId);
   const txRef = doc(db, 'users', ownerUid, 'periods', periodId, 'transactions', txId);
+  const markRef = doc(db, ...shoppingMarkPath(ownerUid, txId));
   const created = await runTransaction(db, async (t) => {
     const period = await t.get(periodRef);
+    const mark = await t.get(markRef);
+    const existing = await t.get(txRef);
+    // F-10: the tx id is per budget, so a retry in another budget would post the item again. The marker
+    // names the budget it was recorded in; while that expense still exists, any other budget is refused.
+    const markedPid = mark.exists() ? String(mark.data()?.periodId || '') : '';
+    if (markedPid && markedPid !== periodId) {
+      const other = await t.get(doc(db, 'users', ownerUid, 'periods', markedPid, 'transactions', txId));
+      if (other.exists()) throw new Error(`${input.itemName || 'This item'} is already recorded in ${markedPid}. Nothing was recorded.`);
+    }
     if (!period.exists()) throw new Error(`No budget for ${periodId}. Create that month first.`);
     if (period.data()?.status === 'DECIDED') throw new Error(`${periodId} is locked. Nothing was recorded.`);
-    const existing = await t.get(txRef);
     if (existing.exists()) return false;
+    t.set(markRef, { periodId, txId, listId: input.listId, itemId: input.itemId, createdAt: serverTimestamp() });
     t.set(txRef, {
       type: 'EXPENSE',
       name: input.planItemName || input.itemName,
