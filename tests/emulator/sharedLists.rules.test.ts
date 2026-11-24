@@ -13,6 +13,8 @@ import { connectAuthEmulator, createUserWithEmailAndPassword, getAuth, signInAno
 import { audienceFor } from '../../lib/shell/nav';
 import { emulatorPorts } from '../../lib/emulatorPorts';
 import { recordShoppingExpense } from '../../lib/repo/shoppingExpense';
+import { revokeShareIn, shareListWithChefIn } from '../../lib/repo/sharedListsOps';
+import { writeBatch } from 'firebase/firestore';
 import { localDateISO } from '../../lib/rules/postingMonth';
 import { addMonthsToId, monthIdFromDate } from '../../lib/rules/months';
 
@@ -333,3 +335,70 @@ describe('H-1 forced share: the named chef can always leave; the share cannot lo
   });
 });
 
+// BUDG-6 R-2: share and revoke stay under the 500-write batch limit; revoke cuts the chef first.
+describe('R-2 large lists: share and revoke in chunks', () => {
+  const N = 450;
+  async function bigList(id: string) {
+    await setDoc(doc(owner.db, 'users', OWNER, 'shoppingLists', id), { name: `Big ${id}`, ownerUid: OWNER });
+    for (let start = 0; start < N; start += 400) {
+      const b = writeBatch(owner.db);
+      for (let i = start; i < Math.min(N, start + 400); i++) {
+        b.set(doc(owner.db, 'users', OWNER, 'shoppingLists', id, 'items', `it${String(i).padStart(3, '0')}`), { name: `Item ${i}`, quantity: 1, bought: false, status: 'planned' });
+      }
+      await b.commit();
+    }
+  }
+
+  test(`share and revoke a list of ${N} items`, async () => {
+    const listId = `big-${run}`;
+    await bigList(listId);
+    const id = await shareListWithChefIn(owner.db, OWNER, owner.uid, { id: listId, name: 'Big list' }, chef.uid, 'Chef');
+    const items = await getDocs(collection(chef.db, 'sharedLists', id, 'items'));
+    assert.equal(items.size, N, 'chef sees every item');
+    const listDoc = await getDoc(doc(owner.db, 'users', OWNER, 'shoppingLists', listId));
+    assert.equal(listDoc.data()?.shareId, id, 'list marked shared last');
+    await allowed(updateDoc(doc(chef.db, 'sharedLists', id, 'items', 'it007'), { status: 'GOT_IT', updatedBy: chef.uid, updatedAt: serverTimestamp() }), 'chef ticks one');
+    await allowed(revokeShareIn(owner.db, OWNER, listId, id), `revoke a ${N}-item share`);
+    await denied(getDoc(doc(chef.db, 'sharedLists', id)), 'chef reads the share after revoke');
+    await denied(getDocs(collection(chef.db, 'sharedLists', id, 'items')), 'chef reads items after revoke');
+    const folded = await getDoc(doc(owner.db, 'users', OWNER, 'shoppingLists', listId, 'items', 'it007'));
+    assert.equal(folded.data()?.bought, true, 'chef tick folded back');
+    const after = await getDoc(doc(owner.db, 'users', OWNER, 'shoppingLists', listId));
+    assert.equal(after.data()?.shareId, undefined, 'share fields removed last');
+    assert.equal((await getDocs(collection(owner.db, 'users', OWNER, 'shoppingLists', listId, 'items'))).size, N, 'no private item lost');
+  });
+
+  test('a share that fails midway leaves the chef without access and the list not shared', async () => {
+    const listId = `big-fail-${run}`;
+    await bigList(listId);
+    let shareSeen = '';
+    await assert.rejects(
+      shareListWithChefIn(owner.db, OWNER, owner.uid, { id: listId, name: 'Big list' }, chef.uid, 'Chef', {
+        beforeChunk: async (i) => {
+          if (i === 1) {
+            const live = await getDocs(query(collection(chef.db, 'sharedLists'), where('chefUid', '==', chef.uid), where('status', '==', 'ACTIVE')));
+            shareSeen = live.docs.find((d) => d.data().listId === listId)?.id || '';
+            throw new Error('injected failure after the first chunk');
+          }
+        },
+      }),
+      /injected failure/
+    );
+    assert.ok(shareSeen, 'the share was live during the write');
+    await denied(getDoc(doc(chef.db, 'sharedLists', shareSeen)), 'chef reads the failed share');
+    const live = await getDocs(query(collection(chef.db, 'sharedLists'), where('chefUid', '==', chef.uid), where('status', '==', 'ACTIVE')));
+    assert.equal(live.docs.some((d) => d.data().listId === listId), false, 'no live share for the list');
+    assert.equal((await getDoc(doc(owner.db, 'users', OWNER, 'shoppingLists', listId))).data()?.shareId, undefined);
+  });
+
+  test('a revoke that fails midway has already cut the chef off', async () => {
+    const listId = `big-rfail-${run}`;
+    await bigList(listId);
+    const id = await shareListWithChefIn(owner.db, OWNER, owner.uid, { id: listId, name: 'Big list' }, chef.uid, 'Chef');
+    await allowed(updateDoc(doc(chef.db, 'sharedLists', id, 'items', 'it001'), { note: 'from chef', updatedBy: chef.uid, updatedAt: serverTimestamp() }), 'chef edits');
+    await assert.rejects(revokeShareIn(owner.db, OWNER, listId, id, { beforeChunk: () => { throw new Error('injected'); } }), /injected/);
+    await denied(getDoc(doc(chef.db, 'sharedLists', id)), 'chef after a failed revoke');
+    await allowed(revokeShareIn(owner.db, OWNER, listId, id), 'retry completes the fold');
+    assert.equal((await getDoc(doc(owner.db, 'users', OWNER, 'shoppingLists', listId, 'items', 'it001'))).data()?.note, 'from chef');
+  });
+});
