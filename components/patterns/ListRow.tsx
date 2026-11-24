@@ -2,6 +2,7 @@ import React, { Children, Fragment, type ReactNode } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { cn } from '@/lib/cn';
+import { useDense } from '@/lib/shell/density';
 
 type Props = {
   title: string;
@@ -19,37 +20,38 @@ type Props = {
   titleTestID?: string;
 };
 
-/** Name left, amount right, one muted line under it; whole row is the target (min 56 px). */
+/** Name left, amount right, one muted line under it; whole row is the target (44 px min below 1024 px; old px-3 py-2 from 1024 px). Old sizes: name and amount text-sm, sub text-xs (BUDG-41). */
 export function ListRow({ title, sub, amount, amountClassName, left, onPress, accessibilityLabel, testID, titleLines = 1, titleTestID, subLines = 1 }: Props) {
   // A wrapping title (sentence) takes the full width; its amount drops below it so neither is cut.
   const wrap = titleLines <= 0;
+  const dense = useDense();
   const body = (
     <>
       {left}
       <View className="min-w-0 flex-1">
-        <Text testID={titleTestID} className="text-base font-medium text-foreground dark:text-zinc-50" numberOfLines={titleLines > 0 ? titleLines : undefined}>
+        <Text testID={titleTestID} className="text-sm font-medium text-foreground dark:text-zinc-50" numberOfLines={titleLines > 0 ? titleLines : undefined}>
           {title}
         </Text>
         {sub ? (
-          <Text className="text-sm text-muted-foreground dark:text-zinc-400" numberOfLines={subLines > 0 ? subLines : undefined}>
+          <Text className="text-xs text-muted-foreground dark:text-zinc-400" numberOfLines={subLines > 0 ? subLines : undefined}>
             {sub}
           </Text>
         ) : null}
         {amount && wrap ? (
-          <Text className={cn('text-base font-semibold text-foreground dark:text-zinc-50', amountClassName)} style={{ fontVariant: ['tabular-nums'] }}>
+          <Text className={cn('text-sm font-semibold text-foreground dark:text-zinc-50', amountClassName)} style={{ fontVariant: ['tabular-nums'] }}>
             {amount}
           </Text>
         ) : null}
       </View>
       {amount && !wrap ? (
-        <Text className={cn('shrink-0 text-base font-semibold text-foreground dark:text-zinc-50', amountClassName)} style={{ fontVariant: ['tabular-nums'] }}>
+        <Text className={cn('shrink-0 text-sm font-semibold text-foreground dark:text-zinc-50', amountClassName)} style={{ fontVariant: ['tabular-nums'] }}>
           {amount}
         </Text>
       ) : null}
-      {onPress ? <MaterialCommunityIcons name="chevron-right" size={20} color="#717182" /> : null}
+      {onPress ? <MaterialCommunityIcons name="chevron-right" size={18} color="#717182" /> : null}
     </>
   );
-  const cls = 'min-h-14 flex-row items-center gap-3 px-4 py-2';
+  const cls = cn('flex-row items-center gap-3 py-2', dense ? 'min-h-9 px-3' : 'min-h-11 lg:min-h-9 px-4');
   if (!onPress) return <View testID={testID} className={cls}>{body}</View>;
   return (
     <Pressable

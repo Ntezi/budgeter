@@ -48,7 +48,7 @@ export function AppModal({ open, onClose, title, children, contentClassName, pre
                 onPress={onClose}
                 accessibilityRole="button"
                 accessibilityLabel="Close"
-                className="h-11 w-11 items-center justify-center rounded-md hover:bg-muted dark:hover:bg-zinc-800"
+                className="h-11 lg:h-9 w-11 lg:w-9 items-center justify-center rounded-md hover:bg-muted dark:hover:bg-zinc-800"
               >
                 <MaterialCommunityIcons name="close" size={22} color="#717182" />
               </Pressable>
@@ -66,7 +66,7 @@ export function AppModal({ open, onClose, title, children, contentClassName, pre
     <Modal visible={open} transparent animationType="fade" onRequestClose={onClose}>
       <View className="flex-1 items-center justify-center bg-black/50 px-4">
         <Pressable className="absolute inset-0" onPress={onClose} />
-        <View role="dialog" aria-modal aria-label={title} testID={testID} className={cn('z-10 w-full max-w-xl rounded-xl border border-border bg-card p-4 dark:border-zinc-800 dark:bg-zinc-900', contentClassName)}>
+        <View role="dialog" aria-modal aria-label={title} testID={testID} className={cn('z-10 w-full max-w-xl rounded-xl border border-border bg-card p-3 md:p-4 dark:border-zinc-800 dark:bg-zinc-900', contentClassName)}>
           <View className="mb-3 flex-row items-center justify-between">
             <Text className="text-base font-semibold text-foreground dark:text-zinc-50">{title || ''}</Text>
             <Pressable onPress={onClose} className="h-8 w-8 items-center justify-center rounded-md bg-muted dark:bg-zinc-800">

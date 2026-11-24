@@ -157,11 +157,11 @@ function HouseholdShell({ ready }: { ready: boolean }) {
           <View className="min-w-0 flex-1">
             {ready && mode === 'phone' ? (
               <View testID="top-bar" className="h-14 flex-row items-center gap-2 border-b border-border bg-card pl-4 pr-1 dark:border-zinc-800 dark:bg-zinc-900">
-                <Text testID="page-title" role="heading" aria-level={1} numberOfLines={1} className="min-w-0 flex-1 text-lg font-semibold text-foreground dark:text-zinc-50">
+                <Text testID="page-title" role="heading" aria-level={1} numberOfLines={1} className="min-w-0 flex-1 text-base font-semibold text-foreground dark:text-zinc-50">
                   {title}
                 </Text>
                 {chip ? <MonthChip /> : null}
-                <Pressable testID="more-button" accessibilityRole="button" accessibilityLabel="More" onPress={more.show} className="h-11 w-11 items-center justify-center rounded-md">
+                <Pressable testID="more-button" accessibilityRole="button" accessibilityLabel="More" onPress={more.show} className="h-11 lg:h-9 w-11 lg:w-9 items-center justify-center rounded-md">
                   <NavIcon name="dots-horizontal" />
                 </Pressable>
               </View>

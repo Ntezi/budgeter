@@ -36,7 +36,7 @@ export function PageHeader({ title, subtitle, right, switcher, action }: Props) 
         <View className="flex-row flex-wrap items-center gap-3">
           <View className="min-w-0 flex-1 gap-1">
             {!phone ? (
-              <Text role="heading" aria-level={1} className="text-2xl font-bold text-foreground dark:text-zinc-50">
+              <Text role="heading" aria-level={1} className="text-3xl font-bold text-foreground dark:text-zinc-50">
                 {title}
               </Text>
             ) : null}

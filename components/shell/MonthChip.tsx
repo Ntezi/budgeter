@@ -40,7 +40,7 @@ export function MonthChip() {
         accessibilityRole="button"
         accessibilityLabel={`Viewing ${monthTitle(viewed)}, ${STATUS_WORD[status]}. Change month`}
         onPress={sheet.show}
-        className="h-11 flex-row items-center gap-1.5 rounded-full border border-border bg-card px-3 dark:border-zinc-800 dark:bg-zinc-900"
+        className="h-11 lg:h-9 flex-row items-center gap-1.5 rounded-full border border-border bg-card px-3 dark:border-zinc-800 dark:bg-zinc-900"
       >
         {status === 'CLOSED' ? <MaterialCommunityIcons name="lock-outline" size={16} color="#717182" /> : null}
         <Text className={cn('text-sm font-medium', status === 'NOT_STARTED' ? 'text-muted-foreground' : 'text-foreground dark:text-zinc-50')}>
@@ -50,11 +50,11 @@ export function MonthChip() {
       </Pressable>
       <AppSheet open={sheet.open} onClose={() => sheet.hide()} title="Choose a month to view" testID="month-sheet">
         <View className="flex-row items-center justify-between">
-          <Pressable accessibilityRole="button" accessibilityLabel={`${year - 1}`} onPress={() => setYear((y) => y - 1)} className="h-11 w-11 items-center justify-center rounded-md">
+          <Pressable accessibilityRole="button" accessibilityLabel={`${year - 1}`} onPress={() => setYear((y) => y - 1)} className="h-11 lg:h-9 w-11 lg:w-9 items-center justify-center rounded-md">
             <MaterialCommunityIcons name="chevron-left" size={22} color="#717182" />
           </Pressable>
           <Text className="text-base font-semibold text-foreground dark:text-zinc-50">{year}</Text>
-          <Pressable accessibilityRole="button" accessibilityLabel={`${year + 1}`} onPress={() => setYear((y) => y + 1)} className="h-11 w-11 items-center justify-center rounded-md">
+          <Pressable accessibilityRole="button" accessibilityLabel={`${year + 1}`} onPress={() => setYear((y) => y + 1)} className="h-11 lg:h-9 w-11 lg:w-9 items-center justify-center rounded-md">
             <MaterialCommunityIcons name="chevron-right" size={22} color="#717182" />
           </Pressable>
         </View>
@@ -70,7 +70,7 @@ export function MonthChip() {
                 aria-pressed={active}
                 onPress={() => choose(id)}
                 className={cn(
-                  'h-11 min-w-[30%] flex-1 flex-row items-center justify-center gap-1.5 rounded-lg border px-2',
+                  'h-11 lg:h-9 min-w-[30%] flex-1 flex-row items-center justify-center gap-1.5 rounded-lg border px-2',
                   active ? 'border-primary bg-primary dark:border-zinc-800 dark:bg-zinc-50' : 'border-border bg-card dark:border-zinc-800 dark:bg-zinc-900'
                 )}
               >
