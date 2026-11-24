@@ -35,7 +35,7 @@ export function RegularCostsHeader({ kind, right }: { kind: RegularKind; right?:
           />
         }
       />
-      <Text className="text-sm text-muted-foreground dark:text-zinc-400">{KIND_SENTENCE[kind]}</Text>
+      <Text className="text-xs text-muted-foreground dark:text-zinc-400">{KIND_SENTENCE[kind]}</Text>
     </View>
   );
 }

@@ -13,8 +13,8 @@ type Props = {
 };
 
 /**
- * The one primary action of a screen or sheet (BUDG-8 design review C-3): full width and h-12 on a
- * phone (below 768 px) and inside sheets; compact (h-11, content width) in a desktop header.
+ * The one primary action of a screen or sheet (BUDG-8 design review C-3): full width and h-11 lg:h-9 on a
+ * phone (below 768 px) and inside sheets; compact (h-11 lg:h-9, content width) in a desktop header.
  * Label: sentence case, verb + thing, no leading "+".
  */
 export function PrimaryAction({ label, onPress, inSheet, disabled, testID, accessibilityLabel }: Props) {

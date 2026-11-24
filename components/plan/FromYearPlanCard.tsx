@@ -116,8 +116,8 @@ export function FromYearPlanCard({ uid, pid, periodExists, status, planItems, ac
   const accountOptions = [{ label: 'No account', value: '' }, ...accounts.filter((a) => a.id && !a.archived).map((a) => ({ label: a.name, value: a.id! }))];
 
   return (
-    <AppCard className="gap-3 rounded-xl p-4" testID="from-year-plan">
-      <Text className="text-base font-semibold text-foreground dark:text-zinc-50">From your year plan</Text>
+    <AppCard className="gap-3 rounded-xl p-3 md:p-4" testID="from-year-plan">
+      <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">From your year plan</Text>
       {offers.length ? (
         <Text className="text-xs text-muted-foreground">Budgeted in this month. Nothing is added until you choose.</Text>
       ) : null}
@@ -127,8 +127,8 @@ export function FromYearPlanCard({ uid, pid, periodExists, status, planItems, ac
         return (
           <View key={item.id} className="gap-2 border-b border-border py-3 last:border-b-0 dark:border-zinc-800" testID={`year-offer-${item.id}`}>
             <View className="flex-row items-center gap-3">
-              <Text className="min-w-0 flex-1 text-base font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>{item.title}</Text>
-              <Text className="shrink-0 text-base font-semibold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>{fmtMoney(fromMinor(item.estimateMinor!))}</Text>
+              <Text className="min-w-0 flex-1 text-sm font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>{item.title}</Text>
+              <Text className="shrink-0 text-sm font-semibold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>{fmtMoney(fromMinor(item.estimateMinor!))}</Text>
             </View>
             <Text className="text-xs text-muted-foreground">
               {`Due ${item.dueDate} · ${planGroupLabel((item.group ?? 'NEED') as any)}${suggested ? ` · ${accountName(suggested)}` : ''}`}
@@ -140,7 +140,7 @@ export function FromYearPlanCard({ uid, pid, periodExists, status, planItems, ac
                   onChangeText={(v) => setReview((prev) => ({ ...prev, [item.id]: { ...r, amount: v } }))}
                   keyboardType="decimal-pad"
                   accessibilityLabel={`Amount for ${item.title}`}
-                  className="h-11 text-base" style={{ height: 44 }}
+                  className="h-11 lg:h-9 text-sm"
                 />
                 <View className="z-10">
                   <DropdownField
@@ -148,7 +148,7 @@ export function FromYearPlanCard({ uid, pid, periodExists, status, planItems, ac
                     options={PLAN_GROUP_OPTIONS as any}
                     onChange={(v) => setReview((prev) => ({ ...prev, [item.id]: { ...r, group: v } }))}
                     menuStrategy="inline"
-                    triggerClassName="h-11"
+                    triggerClassName="h-11 lg:h-9"
                   />
                 </View>
                 <DropdownField
@@ -158,7 +158,7 @@ export function FromYearPlanCard({ uid, pid, periodExists, status, planItems, ac
                   placeholder="No account"
                   menuStrategy="inline"
                   menuClassName="max-h-44"
-                  triggerClassName="h-11"
+                  triggerClassName="h-11 lg:h-9"
                 />
               </View>
             ) : null}

@@ -22,8 +22,7 @@ export function QuickAddRow({ onOpen }: { onOpen: (prefill: { name: string; amou
           onChangeText={setText}
           onSubmitEditing={() => submit()}
           returnKeyType="next"
-          className="h-11 text-base"
-          style={{ height: 44 }}
+          className="h-11 lg:h-9 text-sm"
         />
       </View>
       <AppButton label="Add" variant="outline" size="touch" disabled={!text.trim()} onPress={submit} />

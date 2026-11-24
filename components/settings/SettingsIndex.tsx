@@ -38,13 +38,13 @@ export function SettingsIndex(p: {
 
   return (
     <View testID="settings-index" className="gap-5">
-      <View className="flex-row items-center gap-3 rounded-xl border border-border bg-card p-4 dark:border-zinc-800 dark:bg-zinc-900">
-        <View className="h-12 w-12 items-center justify-center rounded-full bg-muted dark:bg-zinc-800">
+      <View className="flex-row items-center gap-3 rounded-xl border border-border bg-card p-3 md:p-4 dark:border-zinc-800 dark:bg-zinc-900">
+        <View className="h-11 lg:h-9 w-12 items-center justify-center rounded-full bg-muted dark:bg-zinc-800">
           <Text className="text-base font-semibold text-foreground dark:text-zinc-50">{p.initials}</Text>
         </View>
         <View className="min-w-0 flex-1">
           <Text className="text-base font-semibold text-foreground dark:text-zinc-50" style={{ overflowWrap: 'anywhere' } as never}>{p.email}</Text>
-          <Text className="text-sm text-muted-foreground dark:text-zinc-400">Signed in with Google</Text>
+          <Text className="text-xs text-muted-foreground dark:text-zinc-400">Signed in with Google</Text>
         </View>
       </View>
 
@@ -57,10 +57,10 @@ export function SettingsIndex(p: {
           selected={p.current === 'people'}
           onPress={() => p.open('people')}
         />
-        <View className="min-h-14 flex-row flex-wrap items-center gap-3 px-4 py-2">
+        <View className="min-h-11 lg:min-h-9 flex-row flex-wrap items-center gap-3 px-4 py-2">
           <View className="min-w-0 flex-1">
-            <Text className="text-base font-medium text-foreground dark:text-zinc-50">Your ID for sharing</Text>
-            <Text selectable className="text-sm text-muted-foreground dark:text-zinc-400" style={{ overflowWrap: 'anywhere' } as never}>{p.uid || '-'}</Text>
+            <Text className="text-sm font-medium text-foreground dark:text-zinc-50">Your ID for sharing</Text>
+            <Text selectable className="text-xs text-muted-foreground dark:text-zinc-400" style={{ overflowWrap: 'anywhere' } as never}>{p.uid || '-'}</Text>
             {copied ? <Text role="status" className="text-sm text-emerald-600 dark:text-emerald-300">{copied}</Text> : null}
           </View>
           {!phone ? <AppButton label="Copy" accessibilityLabel="Copy your ID" variant="outline" size="touch" onPress={copy} /> : null}
@@ -68,8 +68,8 @@ export function SettingsIndex(p: {
       </SettingsSection>
 
       <SettingsSection title="App">
-        <View className="min-h-14 flex-row flex-wrap items-center gap-3 px-4 py-2">
-          <Text className="min-w-0 flex-1 text-base font-medium text-foreground dark:text-zinc-50">Appearance</Text>
+        <View className="min-h-11 lg:min-h-9 flex-row flex-wrap items-center gap-3 px-4 py-2">
+          <Text className="min-w-0 flex-1 text-sm font-medium text-foreground dark:text-zinc-50">Appearance</Text>
           <AppSegmented touch value={p.theme} onChange={p.setTheme} options={[{ label: 'Light', value: 'light' }, { label: 'Dark', value: 'dark' }]} />
         </View>
         <SettingsRow testID="settings-row-reminder" label="Daily reminder" value={p.reminderOn ? 'On' : 'Off'} selected={p.current === 'reminder'} onPress={() => p.open('reminder')} />

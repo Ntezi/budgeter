@@ -225,11 +225,11 @@ export default function AccountsScreen() {
   ) : (
     <View className="gap-5">
       <View className="gap-1" testID="accounts-total">
-        <Text className="text-sm text-muted-foreground dark:text-zinc-400">{`Balance in ${month.split(' ')[0]}`}</Text>
+        <Text className="text-xs text-muted-foreground dark:text-zinc-400">{`Balance in ${month.split(' ')[0]}`}</Text>
         <Text className={cn('text-3xl font-bold', total < 0 ? 'text-destructive dark:text-red-300' : 'text-foreground dark:text-zinc-50')} style={tabular}>
           {fmtMoney(total)}
         </Text>
-        <Text className="text-sm text-muted-foreground dark:text-zinc-400">
+        <Text className="text-xs text-muted-foreground dark:text-zinc-400">
           across {active.length} {active.length === 1 ? 'account' : 'accounts'}
           {overdrawn ? <Text className="text-destructive dark:text-red-300">{` · ${overdrawn} overdrawn`}</Text> : null}
           {data.closed ? ` · ${month.split(' ')[0]} is closed` : ''}
@@ -262,7 +262,7 @@ export default function AccountsScreen() {
     <View className="gap-3">
       {archived.length ? (
         <>
-          <Pressable accessibilityRole="button" aria-expanded={archivedOpen} onPress={() => setArchivedOpen((v) => !v)} className="min-h-11 flex-row items-center gap-2 rounded-lg px-1">
+          <Pressable accessibilityRole="button" aria-expanded={archivedOpen} onPress={() => setArchivedOpen((v) => !v)} className="min-h-11 lg:min-h-9 flex-row items-center gap-2 rounded-lg px-1">
             <Text className="min-w-0 flex-1 text-sm font-medium text-muted-foreground dark:text-zinc-400">Archived ({archived.length})</Text>
             <MaterialCommunityIcons name={archivedOpen ? 'chevron-up' : 'chevron-down'} size={20} color="#717182" />
           </Pressable>
@@ -291,7 +291,7 @@ export default function AccountsScreen() {
             {balances}
             {footerBlock}
           </View>
-          <View className="min-w-0 flex-1 rounded-xl border border-border bg-card p-6 dark:border-zinc-800 dark:bg-zinc-900" testID="accounts-side">
+          <View className="min-w-0 flex-1 rounded-xl border border-border bg-card p-3 md:p-4 dark:border-zinc-800 dark:bg-zinc-900" testID="accounts-side">
             {detail ?? <Text className="text-sm text-muted-foreground dark:text-zinc-400">Choose an account to see its month.</Text>}
           </View>
         </View>
@@ -321,7 +321,7 @@ export default function AccountsScreen() {
           accountSheet.open && form ? (
             <>
               {formError ? <Text role="alert" className="text-sm text-red-600 dark:text-red-300">{formError}</Text> : null}
-              <AppButton label="Save" accessibilityLabel={form.id ? 'Save account' : 'Add account'} size="touch-lg" className="w-full" textClassName="text-base" onPress={() => void saveAccount()} />
+              <AppButton label="Save" accessibilityLabel={form.id ? 'Save account' : 'Add account'} size="touch-lg" className="w-full" onPress={() => void saveAccount()} />
               <AppButton label="Cancel" variant="ghost" size="touch" onPress={() => accountSheet.hide()} />
             </>
           ) : null
@@ -330,15 +330,15 @@ export default function AccountsScreen() {
         {accountSheet.open && form ? (
           <View className="gap-4">
             <FormField label="Name">
-              <AppInput autoFocus value={form.name} onChangeText={(name) => setForm({ ...form, name })} placeholder="Household account" accessibilityLabel="Account name" style={{ height: 44 }} />
+              <AppInput autoFocus value={form.name} onChangeText={(name) => setForm({ ...form, name })} placeholder="Household account" accessibilityLabel="Account name" />
             </FormField>
             <FormField label="Type">
               <AppSegmented<WalletType> touch value={form.type} onChange={(type) => setForm({ ...form, type })} options={walletTypeOptions.map((t) => ({ value: t, label: TYPE_LABEL[t] }))} />
             </FormField>
             <FormField label="Opening balance (optional)">
-              <AppInput value={form.openingBalance} onChangeText={(openingBalance) => setForm({ ...form, openingBalance })} placeholder="0.00" keyboardType="decimal-pad" inputMode="decimal" accessibilityLabel="Opening balance" style={{ height: 44 }} />
+              <AppInput value={form.openingBalance} onChangeText={(openingBalance) => setForm({ ...form, openingBalance })} placeholder="0.00" keyboardType="decimal-pad" inputMode="decimal" accessibilityLabel="Opening balance" />
             </FormField>
-            <View className="min-h-11 flex-row items-center justify-between gap-3">
+            <View className="min-h-11 lg:min-h-9 flex-row items-center justify-between gap-3">
               <Text className="min-w-0 flex-1 text-sm font-medium text-foreground dark:text-zinc-50">Daily reminder</Text>
               <Switch value={form.dailyReminderEnabled} onValueChange={(dailyReminderEnabled) => setForm({ ...form, dailyReminderEnabled })} accessibilityLabel="Daily reminder" />
             </View>
@@ -379,7 +379,7 @@ export default function AccountsScreen() {
           manualSheet.open ? (
             <>
               {manualError ? <Text role="alert" className="text-sm text-red-600 dark:text-red-300">{manualError}</Text> : null}
-              <AppButton label={manualPending ? 'Saving…' : 'Save balance'} size="touch-lg" className="w-full" textClassName="text-base" onPress={() => void saveManual()} />
+              <AppButton label={manualPending ? 'Saving…' : 'Save balance'} size="touch-lg" className="w-full" onPress={() => void saveManual()} />
               {data.byAccountId.get(manualId)?.cash.currentManual != null ? <AppButton label="Use the calculated balance" variant="ghost" size="touch" onPress={() => void resetManual()} /> : null}
             </>
           ) : null
@@ -387,7 +387,7 @@ export default function AccountsScreen() {
       >
         {manualSheet.open ? (
           <FormField label={`Balance for ${month}`}>
-            <AppInput autoFocus value={manualDraft} onChangeText={setManualDraft} keyboardType="decimal-pad" inputMode="decimal" accessibilityLabel="Manual balance" testID="manual-input" style={{ height: 44 }} />
+            <AppInput autoFocus value={manualDraft} onChangeText={setManualDraft} keyboardType="decimal-pad" inputMode="decimal" accessibilityLabel="Manual balance" testID="manual-input" />
           </FormField>
         ) : null}
       </AppSheet>

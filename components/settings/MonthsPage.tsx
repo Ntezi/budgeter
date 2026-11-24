@@ -39,7 +39,7 @@ export function MonthsPage(p: {
       {p.activePeriodId && p.canRollForward ? (
         <AppButton label={p.closing ? 'Closing…' : `Close ${title(p.activePeriodId)} and start the next`} variant="outline" size="touch" className="self-start" disabled={p.closing} onPress={(e) => confirm.show(e)} />
       ) : !p.monthlyMode ? (
-        <Text className="text-sm text-muted-foreground dark:text-zinc-400">Close and start next works only in monthly workspaces.</Text>
+        <Text className="text-xs text-muted-foreground dark:text-zinc-400">Close and start next works only in monthly workspaces.</Text>
       ) : null}
 
       <SettingsSection title="All months" testID="months-list">

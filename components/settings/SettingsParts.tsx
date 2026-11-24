@@ -29,14 +29,14 @@ export function SettingsRow({ label, value, onPress, selected, testID, right }: 
   const body = (
     <>
       <View className="min-w-0 flex-1">
-        <Text className="text-base font-medium text-foreground dark:text-zinc-50">{label}</Text>
-        {value ? <Text className="text-sm text-muted-foreground dark:text-zinc-400">{value}</Text> : null}
+        <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{label}</Text>
+        {value ? <Text className="text-xs text-muted-foreground dark:text-zinc-400">{value}</Text> : null}
       </View>
       {right}
       {onPress ? <MaterialCommunityIcons name="chevron-right" size={20} color="#717182" /> : null}
     </>
   );
-  const cls = cn('min-h-14 flex-row items-center gap-3 px-4 py-2', selected ? 'bg-muted dark:bg-zinc-800' : undefined);
+  const cls = cn('min-h-11 lg:min-h-9 flex-row items-center gap-3 px-4 py-2', selected ? 'bg-muted dark:bg-zinc-800' : undefined);
   if (!onPress) return <View testID={testID} className={cls}>{body}</View>;
   return (
     <Pressable
@@ -62,14 +62,14 @@ export function RadioRow({ label, sub, checked, onPress, testID }: { label: stri
       accessibilityState={{ checked }}
       aria-checked={checked}
       onPress={onPress}
-      className="min-h-14 flex-row items-center gap-3 px-4 py-2 hover:bg-muted/50 dark:hover:bg-zinc-800/60"
+      className="min-h-11 lg:min-h-9 flex-row items-center gap-3 px-4 py-2 hover:bg-muted/50 dark:hover:bg-zinc-800/60"
     >
       <View className={cn('h-5 w-5 items-center justify-center rounded-full border-2', checked ? 'border-primary dark:border-zinc-100' : 'border-border dark:border-zinc-700')}>
         {checked ? <View className="h-2.5 w-2.5 rounded-full bg-primary dark:bg-zinc-50" /> : null}
       </View>
       <View className="min-w-0 flex-1">
-        <Text className="text-base text-foreground dark:text-zinc-50">{label}</Text>
-        {sub ? <Text className="text-sm text-muted-foreground dark:text-zinc-400">{sub}</Text> : null}
+        <Text className="text-sm text-foreground dark:text-zinc-50">{label}</Text>
+        {sub ? <Text className="text-xs text-muted-foreground dark:text-zinc-400">{sub}</Text> : null}
       </View>
     </Pressable>
   );
@@ -81,14 +81,14 @@ export function SettingsPage({ title, intro, onBack, children, testID }: { title
   return (
     <View testID={testID} className="gap-5">
       {width < 1024 ? (
-        <Pressable accessibilityRole="link" accessibilityLabel="Back to Settings" onPress={onBack} className="min-h-11 flex-row items-center gap-1 self-start rounded-md pr-2 hover:bg-muted/50 dark:hover:bg-zinc-800/60">
+        <Pressable accessibilityRole="link" accessibilityLabel="Back to Settings" onPress={onBack} className="min-h-11 lg:min-h-9 flex-row items-center gap-1 self-start rounded-md pr-2 hover:bg-muted/50 dark:hover:bg-zinc-800/60">
           <MaterialCommunityIcons name="chevron-left" size={20} color="#717182" />
           <Text className="text-sm font-medium text-muted-foreground dark:text-zinc-400">Settings</Text>
         </Pressable>
       ) : null}
       <View className="gap-1">
         <Text role="heading" aria-level={2} className="text-xl font-semibold text-foreground dark:text-zinc-50">{title}</Text>
-        {intro ? <Text className="text-sm text-muted-foreground dark:text-zinc-400">{intro}</Text> : null}
+        {intro ? <Text className="text-xs text-muted-foreground dark:text-zinc-400">{intro}</Text> : null}
       </View>
       {children}
     </View>
@@ -101,7 +101,7 @@ export function Notice({ kind, text }: { kind: 'ok' | 'error' | 'info'; text: st
   return (
     <Text
       role={kind === 'error' ? 'alert' : 'status'}
-      className={cn('text-sm', kind === 'error' ? 'text-destructive dark:text-red-300' : kind === 'ok' ? 'text-emerald-600 dark:text-emerald-300' : 'text-muted-foreground dark:text-zinc-400')}
+      className={cn('text-xs', kind === 'error' ? 'text-destructive dark:text-red-300' : kind === 'ok' ? 'text-emerald-600 dark:text-emerald-300' : 'text-muted-foreground dark:text-zinc-400')}
     >
       {text}
     </Text>
@@ -125,7 +125,7 @@ export function ConfirmSheet({ open, onClose, title, message, actionLabel, busy,
         </View>
       }
     >
-      <Text className="text-base text-foreground dark:text-zinc-50">{message}</Text>
+      <Text className="text-sm text-foreground dark:text-zinc-50">{message}</Text>
     </AppSheet>
   );
 }

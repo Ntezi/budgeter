@@ -20,13 +20,13 @@ type Props = {
 /** One shopping row (BUDG-8 07): 44 px circle = Got it toggle, row tap = item sheet. Ticking never posts money. */
 export function ItemRow({ name, qty, sub, amount, subTone = 'muted', got, onToggle, onPress, testID }: Props) {
   return (
-    <View testID={testID} className="min-h-14 flex-row items-center gap-1 pl-2 pr-4">
+    <View testID={testID} className="min-h-11 lg:min-h-9 flex-row items-center gap-1 pl-2 pr-4">
       <Pressable
         accessibilityRole="checkbox"
         aria-checked={got}
         accessibilityLabel={`${got ? 'Got it' : 'To buy'}: ${name}`}
         onPress={onToggle}
-        className="h-11 w-11 items-center justify-center rounded-full"
+        className="h-11 lg:h-9 w-11 lg:w-9 items-center justify-center rounded-full"
       >
         <View
           className={cn(
@@ -41,26 +41,26 @@ export function ItemRow({ name, qty, sub, amount, subTone = 'muted', got, onTogg
         accessibilityRole="button"
         accessibilityHint="Opens the item"
         onPress={onPress}
-        className="min-h-14 min-w-0 flex-1 flex-row items-center gap-3 py-2"
+        className="min-h-11 lg:min-h-9 min-w-0 flex-1 flex-row items-center gap-3 py-2"
       >
         <View className="min-w-0 flex-1">
           <View className="min-w-0 flex-row items-baseline gap-2">
             <Text
               numberOfLines={1}
-              className={cn('shrink text-base font-medium text-foreground dark:text-zinc-50', got && 'text-muted-foreground line-through dark:text-zinc-500')}
+              className={cn('shrink text-sm font-medium text-foreground dark:text-zinc-50', got && 'text-muted-foreground line-through dark:text-zinc-500')}
             >
               {name}
             </Text>
-            {qty ? <Text className="shrink-0 text-sm text-muted-foreground dark:text-zinc-400">{qty}</Text> : null}
+            {qty ? <Text className="shrink-0 text-xs text-muted-foreground dark:text-zinc-400">{qty}</Text> : null}
           </View>
           {sub ? (
-            <Text numberOfLines={1} className={cn('text-sm', subTone === 'warn' ? 'text-amber-700 dark:text-amber-300' : 'text-muted-foreground dark:text-zinc-400')}>
+            <Text numberOfLines={1} className={cn('text-xs', subTone === 'warn' ? 'text-amber-700 dark:text-amber-300' : 'text-muted-foreground dark:text-zinc-400')}>
               {sub}
             </Text>
           ) : null}
         </View>
         {amount ? (
-          <Text className="shrink-0 text-base font-semibold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>
+          <Text className="shrink-0 text-sm font-semibold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>
             {amount}
           </Text>
         ) : null}
@@ -95,7 +95,7 @@ export function ItemSection({
   return (
     <View testID={testID} className="gap-2">
       {onFold ? (
-        <Pressable accessibilityRole="button" aria-expanded={!folded} onPress={onFold} className="h-11 flex-row items-center justify-between px-1">
+        <Pressable accessibilityRole="button" aria-expanded={!folded} onPress={onFold} className="h-11 lg:h-9 flex-row items-center justify-between px-1">
           <Text className="text-sm font-medium text-muted-foreground dark:text-zinc-400">{`${title} (${count})`}</Text>
           <MaterialCommunityIcons name={folded ? 'chevron-down' : 'chevron-up'} size={20} color="#717182" />
         </Pressable>

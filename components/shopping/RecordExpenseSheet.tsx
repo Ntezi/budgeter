@@ -50,13 +50,12 @@ export function RecordExpenseSheet(p: Props) {
       <Text testID="record-summary" accessibilityLiveRegion="polite" className="text-sm font-semibold text-foreground dark:text-zinc-50">
         {p.summary}
       </Text>
-      {p.error ? <Text role="alert" className="text-sm text-destructive dark:text-red-300">{p.error}</Text> : null}
+      {p.error ? <Text role="alert" className="text-xs text-destructive dark:text-red-300">{p.error}</Text> : null}
       <AppButton
         label={p.busy ? p.busyLabel || 'Saving…' : 'Save expense'}
         accessibilityLabel="Save expense"
         size="touch-lg"
         className="w-full"
-        textClassName="text-base"
         disabled={!p.ready || p.busy}
         onPress={p.onSave}
       />
@@ -69,13 +68,13 @@ export function RecordExpenseSheet(p: Props) {
   return (
     <AppSheet open={p.open} onClose={() => !p.busy && p.onClose()} title="Record expense" footer={footer} testID="record-expense-sheet">
       <View className="gap-4">
-        <Text className="text-sm text-muted-foreground dark:text-zinc-400">Check what each item cost and the line it comes from. Nothing is recorded until you press Save expense.</Text>
+        <Text className="text-xs text-muted-foreground dark:text-zinc-400">Check what each item cost and the line it comes from. Nothing is recorded until you press Save expense.</Text>
         <View className="overflow-hidden rounded-xl border border-border bg-card dark:border-zinc-800 dark:bg-zinc-900">
           {p.rows.map((row, i) => (
             <View key={row.id} testID="record-row" className={cn('gap-2 p-3', i > 0 && 'border-t border-border dark:border-zinc-800')}>
               <View className="flex-row items-center gap-2">
                 <View className="min-w-0 flex-1">
-                  <Text className="text-base font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>{row.name}</Text>
+                  <Text className="text-sm font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>{row.name}</Text>
                   {row.problem ? <Text className="text-sm text-amber-700 dark:text-amber-300">{`Needs ${row.problem}`}</Text> : null}
                 </View>
                 <AppInput
@@ -84,7 +83,7 @@ export function RecordExpenseSheet(p: Props) {
                   keyboardType="numeric"
                   inputMode="numeric"
                   accessibilityLabel={`Quantity of ${row.name}`}
-                  className="h-11 w-14 text-center text-base"
+                  className="h-11 lg:h-9 w-14 text-center text-sm"
                 />
                 <AppInput
                   value={row.amount}
@@ -93,12 +92,12 @@ export function RecordExpenseSheet(p: Props) {
                   inputMode="decimal"
                   placeholder="0.00"
                   accessibilityLabel={`Amount paid for ${row.name}`}
-                  className="h-11 w-24 text-right text-base"
+                  className="h-11 lg:h-9 w-24 text-right text-sm"
                 />
               </View>
               {/* D-11: a row without a line says what to do; Save stays disabled until each row has one. */}
               {!row.lineId ? (
-                <Text className="text-sm text-muted-foreground dark:text-zinc-400" testID="record-line-hint">
+                <Text className="text-xs text-muted-foreground dark:text-zinc-400" testID="record-line-hint">
                   Choose where this comes from
                 </Text>
               ) : null}
@@ -108,7 +107,7 @@ export function RecordExpenseSheet(p: Props) {
                 onChange={(lineId) => p.onRow(row.id, { lineId })}
                 placeholder="Choose a line"
                 menuStrategy="inline"
-                triggerClassName="min-h-11"
+                triggerClassName="min-h-11 lg:min-h-9"
               />
             </View>
           ))}
@@ -120,12 +119,12 @@ export function RecordExpenseSheet(p: Props) {
             onChange={p.onAccount}
             placeholder="Choose account"
             className="w-full"
-            triggerClassName="min-h-11"
+            triggerClassName="min-h-11 lg:min-h-9"
             menuStrategy="inline"
           />
         </FormRow>
         <FormRow label="Date">
-          <AppInput value={p.date} onChangeText={p.onDate} placeholder="YYYY-MM-DD" accessibilityLabel="Expense date" className="h-11 w-36 text-base" />
+          <AppInput value={p.date} onChangeText={p.onDate} placeholder="YYYY-MM-DD" accessibilityLabel="Expense date" className="w-36" />
         </FormRow>
         {p.onBudget ? (
           <FormRow label="Budget">
@@ -136,7 +135,7 @@ export function RecordExpenseSheet(p: Props) {
                 onChange={p.onBudget}
                 placeholder="Enter a date first"
                 className="w-full"
-                triggerClassName="min-h-11"
+                triggerClassName="min-h-11 lg:min-h-9"
                 menuStrategy="inline"
               />
             </View>

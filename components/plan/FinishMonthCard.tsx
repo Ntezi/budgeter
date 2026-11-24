@@ -41,13 +41,13 @@ export function FinishMonthCard({ monthLabel, nextLabel, readOnly, onCloseMonth,
     }
   };
   return (
-    <View testID="finish-month" className="gap-3 rounded-xl border border-border bg-card p-4 dark:border-zinc-800 dark:bg-zinc-900">
-      <Text className="text-base font-semibold text-foreground dark:text-zinc-50">{readOnly ? 'Next month' : `Finish ${monthLabel}`}</Text>
+    <View testID="finish-month" className="gap-3 rounded-xl border border-border bg-card p-3 md:p-4 dark:border-zinc-800 dark:bg-zinc-900">
+      <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">{readOnly ? 'Next month' : `Finish ${monthLabel}`}</Text>
       {readOnly ? (
         <AppButton label={`Start ${nextLabel}`} variant="outline" size="touch" onPress={() => void onCloseAndStart()} />
       ) : (
         <>
-          <Text className="text-sm text-muted-foreground dark:text-zinc-400">Closing makes the month read-only. Nothing is posted or moved.</Text>
+          <Text className="text-xs text-muted-foreground dark:text-zinc-400">Closing makes the month read-only. Nothing is posted or moved.</Text>
           <View className="flex-row flex-wrap gap-3">
             <AppButton label="Close month" variant="outline" size="touch" className="min-w-0 flex-1" onPress={(e) => ask('CLOSE', e)} />
             <AppButton label={`Close & start ${nextLabel}`} variant="outline" size="touch" className="min-w-0 flex-1" onPress={(e) => ask('CLOSE_START', e)} />
@@ -57,7 +57,7 @@ export function FinishMonthCard({ monthLabel, nextLabel, readOnly, onCloseMonth,
       <DangerTextButton label="Delete this plan" onPress={onDelete} />
       <AppModal open={confirm !== null} onClose={() => sheet.hide()} title={`Close ${monthLabel}?`} testID="close-month-confirm">
         <View className="gap-4">
-          <Text className="text-base text-foreground dark:text-zinc-50">
+          <Text className="text-sm text-foreground dark:text-zinc-50">
             {confirm === 'CLOSE_START'
               ? `${monthLabel} becomes read-only and ${nextLabel} opens. A new ${nextLabel} starts from your regular costs; an existing one is opened as it is.`
               : `${monthLabel} becomes read-only.`}

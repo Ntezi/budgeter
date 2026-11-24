@@ -54,15 +54,15 @@ export default function OnboardingScreen() {
               {GROUPS.map((g) => (
                 <View key={g.name} className="flex-row items-center gap-3">
                   <View className={cn('h-3 w-3 rounded-full', g.dot)} />
-                  <Text className="text-base font-semibold text-foreground dark:text-zinc-50">{g.name}</Text>
-                  <Text className="min-w-0 flex-1 text-base text-muted-foreground dark:text-zinc-400">{g.text}</Text>
+                  <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">{g.name}</Text>
+                  <Text className="min-w-0 flex-1 text-sm text-muted-foreground dark:text-zinc-400">{g.text}</Text>
                 </View>
               ))}
-              <Text className="text-base text-muted-foreground dark:text-zinc-400">Every cost in your plan sits in one of these three groups.</Text>
+              <Text className="text-sm text-muted-foreground dark:text-zinc-400">Every cost in your plan sits in one of these three groups.</Text>
             </View>
           ) : null}
-          {step === 1 ? <Text className="text-base text-muted-foreground dark:text-zinc-400">Add the places your money lives: bank, mobile money, cash.</Text> : null}
-          {step === 2 ? <Text className="text-base text-muted-foreground dark:text-zinc-400">{`Make a plan for ${monthTitle}: what you expect to earn and spend. It takes a few minutes.`}</Text> : null}
+          {step === 1 ? <Text className="text-sm text-muted-foreground dark:text-zinc-400">Add the places your money lives: bank, mobile money, cash.</Text> : null}
+          {step === 2 ? <Text className="text-sm text-muted-foreground dark:text-zinc-400">{`Make a plan for ${monthTitle}: what you expect to earn and spend. It takes a few minutes.`}</Text> : null}
         </View>
 
         <View className="gap-2">

@@ -42,7 +42,7 @@ export function PlanLineRow({ id, name, planned, spent, note, needsAccount, wide
       <View className="flex-row flex-wrap items-center gap-2">
         {needsAccount ? <AppBadge label="Choose account" variant="warning" /> : null}
         {note ? (
-          <Text className="min-w-0 shrink text-sm text-muted-foreground dark:text-zinc-400" numberOfLines={1}>
+          <Text className="min-w-0 shrink text-xs text-muted-foreground dark:text-zinc-400" numberOfLines={1}>
             {note}
           </Text>
         ) : null}
@@ -54,24 +54,24 @@ export function PlanLineRow({ id, name, planned, spent, note, needsAccount, wide
       accessibilityRole="button"
       accessibilityLabel={a11y}
       onPress={onPress}
-      className="min-h-14 gap-1.5 px-4 py-3 hover:bg-muted/50 active:bg-muted dark:hover:bg-zinc-800/60"
+      className="min-h-11 lg:min-h-9 gap-1 px-4 py-2.5 lg:px-3 lg:py-2 hover:bg-muted/50 active:bg-muted dark:hover:bg-zinc-800/60"
     >
       {wide ? (
         <View className="flex-row items-center gap-3">
           <View className="min-w-0 flex-1 gap-1">
-            <Text className="text-base font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>
+            <Text className="text-sm font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>
               {name}
             </Text>
             {extra}
           </View>
-          <Text className="w-32 text-right text-base font-semibold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>
+          <Text className="w-32 text-right text-sm font-semibold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>
             {fmtMoney(planned)}
           </Text>
-          <Text className="w-32 text-right text-base text-muted-foreground dark:text-zinc-400" style={{ fontVariant: ['tabular-nums'] }}>
+          <Text className="w-32 text-right text-xs text-muted-foreground dark:text-zinc-400" style={{ fontVariant: ['tabular-nums'] }}>
             {fmtMoney(spent)}
           </Text>
           <Text
-            className={cn('w-32 text-right text-base font-medium', over ? 'text-destructive dark:text-red-300' : 'text-foreground dark:text-zinc-50')}
+            className={cn('w-32 text-right text-sm font-medium', over ? 'text-destructive dark:text-red-300' : 'text-foreground dark:text-zinc-50')}
             style={{ fontVariant: ['tabular-nums'] }}
           >
             {over ? `-${fmtMoney(-left)}` : fmtMoney(left)}
@@ -81,17 +81,17 @@ export function PlanLineRow({ id, name, planned, spent, note, needsAccount, wide
       ) : (
         <>
           <View className="flex-row items-center gap-3">
-            <Text className="min-w-0 flex-1 text-base font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>
+            <Text className="min-w-0 flex-1 text-sm font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>
               {name}
             </Text>
-            <Text className="shrink-0 text-base font-semibold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>
+            <Text className="shrink-0 text-sm font-semibold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>
               {fmtMoney(planned)}
             </Text>
             <MaterialCommunityIcons name="chevron-right" size={20} color="#717182" />
           </View>
           <View className="flex-row flex-wrap items-center gap-x-1">
-            <Text className="text-sm text-muted-foreground dark:text-zinc-400">{`Spent ${fmtMoney(spent)} ·`}</Text>
-            <Text className={cn('text-sm', over ? 'font-medium text-destructive dark:text-red-300' : 'text-muted-foreground dark:text-zinc-400')}>
+            <Text className="text-xs text-muted-foreground dark:text-zinc-400">{`Spent ${fmtMoney(spent)} ·`}</Text>
+            <Text className={cn('text-xs', over ? 'font-medium text-destructive dark:text-red-300' : 'text-muted-foreground dark:text-zinc-400')}>
               {leftText(planned, spent)}
             </Text>
           </View>

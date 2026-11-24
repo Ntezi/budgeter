@@ -404,7 +404,7 @@ export default function SettingsScreen() {
     ) : null;
 
   return (
-    <ScrollView className="flex-1 bg-background dark:bg-zinc-950" contentContainerClassName="p-4 pb-12 md:p-6">
+    <ScrollView className="flex-1 bg-background dark:bg-zinc-950" contentContainerClassName="p-3 pb-12 md:p-4">
       <View className="w-full gap-5 self-center" style={{ maxWidth: desktop ? 1120 : 672 }}>
         <PageHeader title="Settings" />
         {desktop ? (

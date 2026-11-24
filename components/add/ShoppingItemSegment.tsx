@@ -129,7 +129,7 @@ export function ShoppingItemSegment({ open, uid, onDone, onGo }: Props) {
     }
   }
 
-  if (lists === null) return <Text className="text-base text-muted-foreground dark:text-zinc-400">Loading your lists…</Text>;
+  if (lists === null) return <Text className="text-xs text-muted-foreground dark:text-zinc-400">Loading your lists…</Text>;
   if (!lists.length) return <EmptyState icon="cart-outline" message="Make a list for your next shop." actionLabel="Go to Shopping" onAction={() => onGo('/shopping')} />;
 
   return (
@@ -145,7 +145,7 @@ export function ShoppingItemSegment({ open, uid, onDone, onGo }: Props) {
                 accessibilityRole="button"
                 aria-pressed={on}
                 onPress={() => setListId(l.id || '')}
-                className={cn('h-11 max-w-full justify-center rounded-full border px-4', on ? 'border-primary bg-primary dark:border-zinc-100 dark:bg-zinc-50' : 'border-border bg-card dark:border-zinc-800 dark:bg-zinc-900')}
+                className={cn('h-11 lg:h-9 max-w-full justify-center rounded-full border px-4', on ? 'border-primary bg-primary dark:border-zinc-100 dark:bg-zinc-50' : 'border-border bg-card dark:border-zinc-800 dark:bg-zinc-900')}
               >
                 <Text numberOfLines={1} className={cn('text-sm font-medium', on ? 'text-white dark:text-zinc-900' : 'text-foreground dark:text-zinc-50')}>{l.name}</Text>
               </Pressable>
@@ -176,7 +176,7 @@ export function ShoppingItemSegment({ open, uid, onDone, onGo }: Props) {
               <Text className="text-sm font-semibold text-amber-700 dark:text-amber-300">Already in your catalog?</Text>
               {candidates.map((m) => (
                 <View key={m.item.id} className="flex-row flex-wrap items-center gap-2">
-                  <Text className="min-w-0 flex-1 text-base text-foreground dark:text-zinc-50" numberOfLines={1}>{m.item.name}</Text>
+                  <Text className="min-w-0 flex-1 text-sm text-foreground dark:text-zinc-50" numberOfLines={1}>{m.item.name}</Text>
                   <AppButton label={choice === `use:${m.item.id}` ? 'Using this' : 'Use existing'} size="touch" variant={choice === `use:${m.item.id}` ? 'primary' : 'outline'} onPress={() => setChoice(`use:${m.item.id}`)} />
                 </View>
               ))}
@@ -184,16 +184,16 @@ export function ShoppingItemSegment({ open, uid, onDone, onGo }: Props) {
             </View>
           ) : null}
           {!choice.startsWith('use:') ? (
-            <View className="min-h-11 flex-row items-center justify-between gap-3">
-              <Text className="min-w-0 flex-1 text-base text-foreground dark:text-zinc-50">Save to catalog for next time</Text>
+            <View className="min-h-11 lg:min-h-9 flex-row items-center justify-between gap-3">
+              <Text className="min-w-0 flex-1 text-sm text-foreground dark:text-zinc-50">Save to catalog for next time</Text>
               <Switch value={saveToCatalog} onValueChange={setSaveToCatalog} accessibilityLabel="Save to catalog" />
             </View>
           ) : null}
-          <AppButton label={busy ? 'Adding…' : `Add "${pending}" to list`} size="touch-lg" textClassName="text-base" disabled={busy || (candidates.length > 0 && !choice)} onPress={() => void addTyped()} />
+          <AppButton label={busy ? 'Adding…' : `Add "${pending}" to list`} size="touch-lg" disabled={busy || (candidates.length > 0 && !choice)} onPress={() => void addTyped()} />
         </View>
       ) : null}
-      {notice ? <Text accessibilityLiveRegion="polite" className="text-base text-foreground dark:text-zinc-50">{notice}</Text> : null}
-      <Text className="text-sm text-muted-foreground dark:text-zinc-400">Ticking an item off never posts money.</Text>
+      {notice ? <Text accessibilityLiveRegion="polite" className="text-sm text-foreground dark:text-zinc-50">{notice}</Text> : null}
+      <Text className="text-xs text-muted-foreground dark:text-zinc-400">Ticking an item off never posts money.</Text>
     </View>
   );
 }

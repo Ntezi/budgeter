@@ -44,10 +44,10 @@ export function SplitDisclosure(p: Props) {
         aria-expanded={open}
         accessibilityLabel={`Split: ${summary}`}
         onPress={() => setOpen((v) => !v)}
-        className="min-h-11 flex-row items-center gap-2"
+        className="min-h-11 lg:min-h-9 flex-row items-center gap-2"
       >
         <Text className="shrink-0 text-sm font-medium text-foreground dark:text-zinc-50">Split</Text>
-        <Text className="min-w-0 flex-1 text-right text-sm text-muted-foreground dark:text-zinc-400">{summary}</Text>
+        <Text className="min-w-0 flex-1 text-right text-xs text-muted-foreground dark:text-zinc-400">{summary}</Text>
         <MaterialCommunityIcons name={open ? 'chevron-up' : 'chevron-down'} size={20} color="#717182" />
       </Pressable>
       {open ? (
@@ -61,7 +61,7 @@ export function SplitDisclosure(p: Props) {
                   {`${fmtMoney(p.planned[row.key])} · ${share(p.planned[row.key])}%`}
                 </Text>
               </View>
-              <Text className="pl-4 text-sm text-muted-foreground dark:text-zinc-400">
+              <Text className="pl-4 text-xs text-muted-foreground dark:text-zinc-400">
                 {`Target ${Math.round(p.targetPct[row.key] * 100)}% · ${fmtMoney(p.targetAmounts[row.key])}`}
               </Text>
             </View>
@@ -77,7 +77,7 @@ export function SplitDisclosure(p: Props) {
                         value={p.pctInputs[row.key]}
                         onChangeText={(v) => p.onPct(row.key, v)}
                         keyboardType="decimal-pad"
-                        className="h-11 text-base" style={{ height: 44 }}
+                        className="h-11 lg:h-9 text-sm"
                       />
                     </FormField>
                   </View>
@@ -85,7 +85,7 @@ export function SplitDisclosure(p: Props) {
               </View>
               <AppButton label="Save targets" variant="outline" size="touch" onPress={p.onSaveTargets} />
               <FormField label="Plan name">
-                <AppInput accessibilityLabel="Plan name" value={p.title} onChangeText={p.onTitle} className="h-11 text-base" style={{ height: 44 }} />
+                <AppInput accessibilityLabel="Plan name" value={p.title} onChangeText={p.onTitle} className="" />
               </FormField>
               <AppButton label="Save name" variant="outline" size="touch" onPress={p.onSaveTitle} />
             </View>

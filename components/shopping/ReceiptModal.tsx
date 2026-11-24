@@ -244,11 +244,11 @@ export function ReceiptModal({ open, onClose, onSaved, ownerUid, actorUid, accou
   const footer =
     step === 1 ? (
       <>
-        <Text className="text-base font-semibold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>
+        <Text className="text-sm font-semibold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>
           Total: {totalMinor === null ? 'enter every price' : fmt(totalMinor)}
         </Text>
         {error ? <Text role="alert" className="text-sm text-destructive dark:text-red-300">{error}</Text> : null}
-        <AppButton label={saving ? 'Saving…' : 'Next'} size="touch-lg" className="w-full" textClassName="text-base" disabled={saving || !lines.length} onPress={() => void next()} />
+        <AppButton label={saving ? 'Saving…' : 'Next'} size="touch-lg" className="w-full" disabled={saving || !lines.length} onPress={() => void next()} />
         <AppButton label="Cancel" variant="ghost" size="touch" onPress={onClose} />
       </>
     ) : (
@@ -258,8 +258,8 @@ export function ReceiptModal({ open, onClose, onSaved, ownerUid, actorUid, accou
             <Text className="text-sm font-semibold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>
               {`Posts to ${monthLabel} · ${accountName || 'choose account'} · ${totalMinor === null ? '-' : fmt(totalMinor)} · ${purchaseDate}`}
             </Text>
-            <Text className="text-sm text-muted-foreground dark:text-zinc-400">{`Date: ${purchaseDate} · Account: ${accountName || 'choose one'} · Amount: ${totalMinor === null ? '-' : fmt(totalMinor)} · Line: ${chosenLine?.name || 'choose one'}`}</Text>
-            {newProblem ? <Text testID="receipt-save-problem" className="text-sm text-muted-foreground dark:text-zinc-400">{newProblem}</Text> : null}
+            <Text className="text-xs text-muted-foreground dark:text-zinc-400">{`Date: ${purchaseDate} · Account: ${accountName || 'choose one'} · Amount: ${totalMinor === null ? '-' : fmt(totalMinor)} · Line: ${chosenLine?.name || 'choose one'}`}</Text>
+            {newProblem ? <Text testID="receipt-save-problem" className="text-xs text-muted-foreground dark:text-zinc-400">{newProblem}</Text> : null}
           </View>
         ) : null}
         {error ? <Text role="alert" className="text-sm text-destructive dark:text-red-300">{error}</Text> : null}
@@ -267,7 +267,6 @@ export function ReceiptModal({ open, onClose, onSaved, ownerUid, actorUid, accou
           label={saving ? 'Saving…' : mode === 'NEW' ? 'Save expense' : 'Link receipt'}
           size="touch-lg"
           className="w-full"
-          textClassName="text-base"
           disabled={saving || (mode === 'NEW' ? Boolean(newProblem) : !txId)}
           onPress={() => void save()}
         />
@@ -280,26 +279,26 @@ export function ReceiptModal({ open, onClose, onSaved, ownerUid, actorUid, accou
       {step === 1 ? (
         <View className="gap-4">
           <View className="flex-row flex-wrap gap-2">
-            <AppInput value={storeName} onChangeText={setStoreName} placeholder="Store (optional)" accessibilityLabel="Store" className="h-11 min-w-40 flex-1 text-base" />
-            <AppInput value={purchaseDate} onChangeText={setPurchaseDate} placeholder="YYYY-MM-DD" accessibilityLabel="Purchase date" className="h-11 w-36 text-center text-base" />
+            <AppInput value={storeName} onChangeText={setStoreName} placeholder="Store (optional)" accessibilityLabel="Store" className="min-w-40 flex-1" />
+            <AppInput value={purchaseDate} onChangeText={setPurchaseDate} placeholder="YYYY-MM-DD" accessibilityLabel="Purchase date" className="w-36 text-center" />
           </View>
-          <Text className="text-sm text-muted-foreground dark:text-zinc-400">Check each item, quantity and the price paid. Nothing is recorded yet.</Text>
+          <Text className="text-xs text-muted-foreground dark:text-zinc-400">Check each item, quantity and the price paid. Nothing is recorded yet.</Text>
           <View className="overflow-hidden rounded-xl border border-border bg-card dark:border-zinc-800 dark:bg-zinc-900">
             {parsed.map((p, i) => (
               <View key={p.l.lineId} className={`gap-2 p-3 ${i > 0 ? 'border-t border-border dark:border-zinc-800' : ''}`} testID="receipt-line">
                 <View className="flex-row items-center gap-2">
-                  <AppInput value={p.l.name} onChangeText={(v) => setLine(p.l.lineId, { name: v })} placeholder="Item" accessibilityLabel="Receipt item name" className="h-11 min-w-0 flex-1 text-base" />
-                  <AppInput value={p.l.total} onChangeText={(v) => setLine(p.l.lineId, { total: v })} keyboardType="decimal-pad" placeholder="Paid" accessibilityLabel="Price paid" className="h-11 w-24 text-right text-base" />
+                  <AppInput value={p.l.name} onChangeText={(v) => setLine(p.l.lineId, { name: v })} placeholder="Item" accessibilityLabel="Receipt item name" className="min-w-0 flex-1" />
+                  <AppInput value={p.l.total} onChangeText={(v) => setLine(p.l.lineId, { total: v })} keyboardType="decimal-pad" placeholder="Paid" accessibilityLabel="Price paid" className="w-24 text-right" />
                 </View>
                 <View className="flex-row items-center gap-2">
-                  <AppInput value={p.l.qty} onChangeText={(v) => setLine(p.l.lineId, { qty: v })} keyboardType="numeric" accessibilityLabel="Receipt quantity" className="h-11 w-16 text-center text-base" />
+                  <AppInput value={p.l.qty} onChangeText={(v) => setLine(p.l.lineId, { qty: v })} keyboardType="numeric" accessibilityLabel="Receipt quantity" className="w-16 text-center" />
                   <View className="min-w-0 flex-1">
-                    <DropdownField value={p.l.unit} options={UNIT_OPTIONS} onChange={(v) => setLine(p.l.lineId, { unit: v })} placeholder="Unit" menuStrategy="inline" triggerClassName="min-h-11" />
+                    <DropdownField value={p.l.unit} options={UNIT_OPTIONS} onChange={(v) => setLine(p.l.lineId, { unit: v })} placeholder="Unit" menuStrategy="inline" triggerClassName="min-h-11 lg:min-h-9" />
                   </View>
                   <IconActionButton icon="trash-can-outline" label="Remove line" variant="danger" onPress={() => setLines((prev) => prev.filter((x) => x.lineId !== p.l.lineId))} />
                 </View>
-                <DropdownField value={p.l.catalogItemId} options={catalogOptions} onChange={(v) => setLine(p.l.lineId, { catalogItemId: v })} placeholder="Catalog item" menuStrategy="inline" triggerClassName="min-h-11" />
-                {chip(p) ? <Text className="text-sm text-muted-foreground dark:text-zinc-400" testID="price-chip">{chip(p)}</Text> : null}
+                <DropdownField value={p.l.catalogItemId} options={catalogOptions} onChange={(v) => setLine(p.l.lineId, { catalogItemId: v })} placeholder="Catalog item" menuStrategy="inline" triggerClassName="min-h-11 lg:min-h-9" />
+                {chip(p) ? <Text className="text-xs text-muted-foreground dark:text-zinc-400" testID="price-chip">{chip(p)}</Text> : null}
                 {/* D-12: promo and return sit behind More so three rows fit at 390; a set flag stays visible. */}
                 {moreOpen[p.l.lineId] ? (
                   <View className="flex-row flex-wrap gap-2">
@@ -323,12 +322,12 @@ export function ReceiptModal({ open, onClose, onSaved, ownerUid, actorUid, accou
         <View className="gap-4">
           <AppSegmented value={mode} touch options={[{ label: 'Record new expense', value: 'NEW' }, { label: 'Link existing', value: 'EXISTING' }]} onChange={setMode} />
           <View testID="receipt-budget">
-            <DropdownField value={periodId} options={budget.options} onChange={(id) => budget.choose(id)} placeholder="Budget" menuStrategy="inline" triggerClassName="min-h-11" />
+            <DropdownField value={periodId} options={budget.options} onChange={(id) => budget.choose(id)} placeholder="Budget" menuStrategy="inline" triggerClassName="min-h-11 lg:min-h-9" />
           </View>
           {mode === 'NEW' ? (
             <>
-              <DropdownField value={accountId} options={activeAccounts.map((a) => ({ label: a.name, value: a.id as string }))} onChange={setAccountId} placeholder="Account that paid" menuStrategy="inline" triggerClassName="min-h-11" />
-              <DropdownField value={planItemId} options={fundedLines.map((l) => ({ label: l.name, value: String(l.id) }))} onChange={setPlanItemId} placeholder="Budget line" menuStrategy="inline" triggerClassName="min-h-11" />
+              <DropdownField value={accountId} options={activeAccounts.map((a) => ({ label: a.name, value: a.id as string }))} onChange={setAccountId} placeholder="Account that paid" menuStrategy="inline" triggerClassName="min-h-11 lg:min-h-9" />
+              <DropdownField value={planItemId} options={fundedLines.map((l) => ({ label: l.name, value: String(l.id) }))} onChange={setPlanItemId} placeholder="Budget line" menuStrategy="inline" triggerClassName="min-h-11 lg:min-h-9" />
             </>
           ) : (
             <DropdownField
@@ -337,7 +336,7 @@ export function ReceiptModal({ open, onClose, onSaved, ownerUid, actorUid, accou
               onChange={setTxId}
               placeholder={`Expense in ${monthLabel}`}
               menuStrategy="inline"
-              triggerClassName="min-h-11"
+              triggerClassName="min-h-11 lg:min-h-9"
             />
           )}
         </View>

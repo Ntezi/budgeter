@@ -53,7 +53,7 @@ export default function AuthScreen() {
         <View className="absolute left-4">
           <MaterialCommunityIcons name="google" size={20} color="#EA4335" />
         </View>
-        <Text className="text-base font-medium text-foreground dark:text-zinc-50">{pending ? 'Signing in…' : 'Continue with Google'}</Text>
+        <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{pending ? 'Signing in…' : 'Continue with Google'}</Text>
       </AppButton>
       {error ? (
         <View role="alert" className="gap-1">
@@ -74,14 +74,14 @@ export default function AuthScreen() {
         <Text role="heading" aria-level={1} className="text-2xl font-bold text-foreground dark:text-zinc-50">
           Know where your money goes, month by month.
         </Text>
-        <Text className="text-base text-muted-foreground dark:text-zinc-400">Plan, spend, shop together.</Text>
+        <Text className="text-sm text-muted-foreground dark:text-zinc-400">Plan, spend, shop together.</Text>
       </View>
       {desktop ? (
         <View className="gap-3">
           {BENEFITS.map((b) => (
             <View key={b.text} className="flex-row items-center gap-3">
               <MaterialCommunityIcons name={b.icon} size={22} color="#717182" />
-              <Text className="text-base text-foreground dark:text-zinc-50">{b.text}</Text>
+              <Text className="text-sm text-foreground dark:text-zinc-50">{b.text}</Text>
             </View>
           ))}
         </View>

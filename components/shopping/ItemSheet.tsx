@@ -49,7 +49,7 @@ export function ItemSheet(p: Props) {
   const footer = (
     <>
       {p.error ? <Text role="alert" className="text-sm text-destructive dark:text-red-300">{p.error}</Text> : null}
-      <AppButton label={p.saveLabel} size="touch-lg" className="w-full" textClassName="text-base" disabled={p.saveDisabled} onPress={p.onSave} />
+      <AppButton label={p.saveLabel} size="touch-lg" className="w-full" disabled={p.saveDisabled} onPress={p.onSave} />
       <View className="flex-row items-center justify-between">
         <AppButton label="Cancel" variant="ghost" size="touch" onPress={p.onClose} />
         {p.onDelete ? <AppButton label="Delete item" variant="ghost" size="touch" textClassName="text-destructive dark:text-red-300" onPress={p.onDelete} /> : null}
@@ -60,7 +60,7 @@ export function ItemSheet(p: Props) {
     <AppSheet open={p.open} onClose={p.onClose} title={p.title} footer={footer} testID="item-sheet">
       <View className="gap-4">
         <FormField label="Name">
-          <AppInput autoFocus value={p.draft.name} onChangeText={(name) => p.onChange({ name })} placeholder="Item name" accessibilityLabel="Item name" className="h-11 text-base" />
+          <AppInput autoFocus value={p.draft.name} onChangeText={(name) => p.onChange({ name })} placeholder="Item name" accessibilityLabel="Item name" className="" />
         </FormField>
 
         {p.candidates?.length ? (
@@ -71,8 +71,8 @@ export function ItemSheet(p: Props) {
               return (
                 <View key={c.id} className="flex-row flex-wrap items-center gap-2">
                   <View className="min-w-0 flex-1">
-                    <Text className="text-base text-foreground dark:text-zinc-50" numberOfLines={1}>{c.name}</Text>
-                    {c.hint ? <Text className="text-sm text-muted-foreground dark:text-zinc-400">{c.hint}</Text> : null}
+                    <Text className="text-sm text-foreground dark:text-zinc-50" numberOfLines={1}>{c.name}</Text>
+                    {c.hint ? <Text className="text-xs text-muted-foreground dark:text-zinc-400">{c.hint}</Text> : null}
                   </View>
                   <AppButton label={chosen ? 'Using this' : 'Use existing'} size="touch" variant={chosen ? 'primary' : 'outline'} onPress={() => p.onChoice?.(`use:${c.id}`)} />
                 </View>
@@ -90,9 +90,9 @@ export function ItemSheet(p: Props) {
 
         <FormField label="Quantity">
           <View className="flex-row items-center gap-2">
-            <AppButton label="−" accessibilityLabel="One less" variant="outline" size="touch" className="w-11 px-0" disabled={qty <= 1} onPress={() => p.onChange({ quantity: String(Math.max(1, qty - 1)) })} />
-            <AppInput value={p.draft.quantity} onChangeText={(quantity) => p.onChange({ quantity })} keyboardType="numeric" inputMode="numeric" accessibilityLabel="Quantity" className="h-11 w-20 text-center text-base" />
-            <AppButton label="+" accessibilityLabel="One more" variant="outline" size="touch" className="w-11 px-0" onPress={() => p.onChange({ quantity: String(Math.min(9999, qty + 1)) })} />
+            <AppButton label="−" accessibilityLabel="One less" variant="outline" size="touch" className="w-11 lg:w-9 px-0" disabled={qty <= 1} onPress={() => p.onChange({ quantity: String(Math.max(1, qty - 1)) })} />
+            <AppInput value={p.draft.quantity} onChangeText={(quantity) => p.onChange({ quantity })} keyboardType="numeric" inputMode="numeric" accessibilityLabel="Quantity" className="w-20 text-center" />
+            <AppButton label="+" accessibilityLabel="One more" variant="outline" size="touch" className="w-11 lg:w-9 px-0" onPress={() => p.onChange({ quantity: String(Math.min(9999, qty + 1)) })} />
           </View>
         </FormField>
         <View className="gap-2">
@@ -107,7 +107,7 @@ export function ItemSheet(p: Props) {
                   aria-pressed={on}
                   onPress={() => p.onChange({ unit: u })}
                   className={cn(
-                    'h-11 min-w-11 items-center justify-center rounded-full border px-4',
+                    'h-11 lg:h-9 min-w-11 items-center justify-center rounded-full border px-4',
                     on ? 'border-primary bg-primary dark:border-zinc-100 dark:bg-zinc-50' : 'border-border bg-card dark:border-zinc-800 dark:bg-zinc-900'
                   )}
                 >
@@ -119,31 +119,31 @@ export function ItemSheet(p: Props) {
         </View>
         <FormField label="Category">
           {p.categoryOptions ? (
-            <DropdownField value={p.draft.category} options={p.categoryOptions} onChange={(category) => p.onChange({ category })} placeholder="Category" menuStrategy="inline" triggerClassName="min-h-11" />
+            <DropdownField value={p.draft.category} options={p.categoryOptions} onChange={(category) => p.onChange({ category })} placeholder="Category" menuStrategy="inline" triggerClassName="min-h-11 lg:min-h-9" />
           ) : (
-            <AppInput value={p.draft.category} onChangeText={(category) => p.onChange({ category })} placeholder="Category" accessibilityLabel="Category" className="h-11 text-base" />
+            <AppInput value={p.draft.category} onChangeText={(category) => p.onChange({ category })} placeholder="Category" accessibilityLabel="Category" className="" />
           )}
         </FormField>
         <FormField label="Note">
-          <AppInput value={p.draft.note} onChangeText={(note) => p.onChange({ note })} placeholder="Note (optional)" accessibilityLabel="Note" className="h-11 text-base" />
+          <AppInput value={p.draft.note} onChangeText={(note) => p.onChange({ note })} placeholder="Note (optional)" accessibilityLabel="Note" className="" />
         </FormField>
         {p.lineOptions && p.onLine ? (
           <FormField label="Budget line">
-            <DropdownField value={p.lineId || ''} options={p.lineOptions} onChange={p.onLine} placeholder="Choose a line" menuStrategy="inline" triggerClassName="min-h-11" />
+            <DropdownField value={p.lineId || ''} options={p.lineOptions} onChange={p.onLine} placeholder="Choose a line" menuStrategy="inline" triggerClassName="min-h-11 lg:min-h-9" />
           </FormField>
         ) : null}
         {p.onTag ? (
           <FormField label="Tag">
-            <AppInput value={p.tag || ''} onChangeText={p.onTag} placeholder="Short tag, up to 20 characters" maxLength={20} accessibilityLabel="Tag" className="h-11 text-base" />
+            <AppInput value={p.tag || ''} onChangeText={p.onTag} placeholder="Short tag, up to 20 characters" maxLength={20} accessibilityLabel="Tag" className="" />
           </FormField>
         ) : null}
         {p.onSaveToCatalog && !usingExisting ? (
           <View className="gap-1">
-            <View className="min-h-11 flex-row items-center justify-between gap-3">
-              <Text className="min-w-0 flex-1 text-base text-foreground dark:text-zinc-50">Save to catalog for next time</Text>
+            <View className="min-h-11 lg:min-h-9 flex-row items-center justify-between gap-3">
+              <Text className="min-w-0 flex-1 text-sm text-foreground dark:text-zinc-50">Save to catalog for next time</Text>
               <Switch value={Boolean(p.saveToCatalog)} onValueChange={p.onSaveToCatalog} accessibilityLabel="Save to catalog" />
             </View>
-            {!p.saveToCatalog ? <Text className="text-sm text-muted-foreground dark:text-zinc-400">List only: the catalog stays unchanged.</Text> : null}
+            {!p.saveToCatalog ? <Text className="text-xs text-muted-foreground dark:text-zinc-400">List only: the catalog stays unchanged.</Text> : null}
           </View>
         ) : null}
       </View>

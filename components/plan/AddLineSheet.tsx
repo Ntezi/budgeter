@@ -40,7 +40,7 @@ export function AddLineSheet(p: Props) {
       <View className="gap-6">
         <View className="gap-4">
           <FormField label="Name">
-            <AppInput accessibilityLabel="Name" autoFocus value={p.draft.name} onChangeText={(v) => p.onDraft({ name: v })} placeholder="e.g. Rent" className="h-11 text-base" style={{ height: 44 }} />
+            <AppInput accessibilityLabel="Name" autoFocus value={p.draft.name} onChangeText={(v) => p.onDraft({ name: v })} placeholder="e.g. Rent" className="" />
           </FormField>
           <FormField label="Planned amount">
             <AppInput
@@ -49,14 +49,14 @@ export function AddLineSheet(p: Props) {
               onChangeText={(v) => p.onDraft({ amount: v })}
               placeholder="0.00"
               keyboardType="decimal-pad"
-              className="h-11 text-base" style={{ height: 44 }}
+              className="h-11 lg:h-9 text-sm"
             />
           </FormField>
           <FormField label="Group">
             <AppSegmented value={p.draft.group} onChange={(v: string) => p.onDraft({ group: v })} options={p.groupOptions as any} />
           </FormField>
           <FormField label="Tags (optional)">
-            <AppInput accessibilityLabel="Tags" value={p.draft.tags} onChangeText={(v) => p.onDraft({ tags: v })} placeholder="utilities, vegetables" className="h-11 text-base" style={{ height: 44 }} />
+            <AppInput accessibilityLabel="Tags" value={p.draft.tags} onChangeText={(v) => p.onDraft({ tags: v })} placeholder="utilities, vegetables" className="" />
           </FormField>
           {p.formError ? <Text className="text-sm text-destructive dark:text-red-300">{p.formError}</Text> : null}
           <AppButton label="Add line" size="touch-lg" className="w-full items-center justify-center" onPress={p.onAddLine} />
@@ -64,17 +64,17 @@ export function AddLineSheet(p: Props) {
 
         {p.costOptions.length ? (
           <View className="gap-3 border-t border-border pt-4 dark:border-zinc-800">
-            <Text className="text-base font-semibold text-foreground dark:text-zinc-50">Or pick a regular cost</Text>
+            <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Or pick a regular cost</Text>
             <View className="z-20">
-              <DropdownField value={p.costId} options={p.costOptions} onChange={p.onCost} placeholder="Select a cost" menuStrategy="inline" triggerClassName="h-11" />
+              <DropdownField value={p.costId} options={p.costOptions} onChange={p.onCost} placeholder="Select a cost" menuStrategy="inline" triggerClassName="h-11 lg:h-9" />
             </View>
             <FormField label="Paid from">
               <View className="z-10">
-                <DropdownField value={p.costAccountId} options={p.costAccountOptions} onChange={p.onCostAccount} placeholder="Account" menuStrategy="inline" triggerClassName="h-11" />
+                <DropdownField value={p.costAccountId} options={p.costAccountOptions} onChange={p.onCostAccount} placeholder="Account" menuStrategy="inline" triggerClassName="h-11 lg:h-9" />
               </View>
             </FormField>
             {p.costHint ? (
-              <Text className="text-sm text-muted-foreground dark:text-zinc-400" testID="default-account-hint">
+              <Text className="text-xs text-muted-foreground dark:text-zinc-400" testID="default-account-hint">
                 {p.costHint}
               </Text>
             ) : null}
@@ -89,7 +89,7 @@ export function AddLineSheet(p: Props) {
         ) : null}
 
         <View className="gap-2 border-t border-border pt-4 dark:border-zinc-800">
-          <Text className="text-sm text-muted-foreground dark:text-zinc-400">Copies every active repeat into this month once. Accounts arrive as suggestions.</Text>
+          <Text className="text-xs text-muted-foreground dark:text-zinc-400">Copies every active repeat into this month once. Accounts arrive as suggestions.</Text>
           <AppButton
             label={p.templatePending ? 'Adding…' : 'Add regular costs'}
             variant="outline"

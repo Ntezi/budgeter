@@ -102,7 +102,7 @@ export function RegularCostsView(p: Props) {
               <Text role="heading" aria-level={2} className="min-w-0 flex-1 text-sm font-semibold text-foreground dark:text-zinc-50">
                 {GROUP_LABEL[g]}
               </Text>
-              <Text className="shrink-0 text-sm text-muted-foreground dark:text-zinc-400" style={{ fontVariant: ['tabular-nums'] }}>
+              <Text className="shrink-0 text-xs text-muted-foreground dark:text-zinc-400" style={{ fontVariant: ['tabular-nums'] }}>
                 {`${fmtMoney(total)} / month`}
               </Text>
             </View>
@@ -139,7 +139,7 @@ export function RegularCostsView(p: Props) {
   const toolbar = p.items.length ? (
     <View className="gap-3 lg:flex-row lg:items-center">
       <View className="min-w-0 lg:w-72">
-        <AppInput accessibilityLabel="Search" placeholder="Search name or tag" value={search} onChangeText={setSearch} className="h-11 text-base" style={{ height: 44 }} />
+        <AppInput accessibilityLabel="Search" placeholder="Search name or tag" value={search} onChangeText={setSearch} className="" />
       </View>
       <View className="flex-row flex-wrap gap-2" accessibilityLabel="Filter by group">
         {(['ALL', ...groups] as const).map((g) => {
@@ -151,7 +151,7 @@ export function RegularCostsView(p: Props) {
               aria-pressed={on}
               onPress={() => setChip(g)}
               className={cn(
-                'h-11 min-w-11 items-center justify-center rounded-full border px-4',
+                'h-11 lg:h-9 min-w-11 items-center justify-center rounded-full border px-4',
                 on ? 'border-primary bg-primary dark:bg-zinc-50' : 'border-border bg-card dark:border-zinc-800 dark:bg-zinc-900'
               )}
             >
@@ -171,7 +171,7 @@ export function RegularCostsView(p: Props) {
         <ScrollView className="min-w-0 flex-[2]" contentContainerClassName="gap-5 pb-6">
           <RegularCostsHeader kind={p.kind} right={desktop ? addButton : undefined} />
           {p.notice ? (
-            <Text role="status" className="rounded-xl bg-muted px-4 py-3 text-sm text-foreground dark:bg-zinc-800 dark:text-zinc-50">
+            <Text role="status" className="rounded-xl bg-muted px-4 py-2.5 lg:px-3 lg:py-2 text-sm text-foreground dark:bg-zinc-800 dark:text-zinc-50">
               {p.notice}
             </Text>
           ) : null}
@@ -184,8 +184,8 @@ export function RegularCostsView(p: Props) {
             {formProps ? (
               <RegularItemPanel key={sel!.key} {...formProps} />
             ) : (
-              <View className="rounded-xl border border-dashed border-border p-5 dark:border-zinc-800">
-                <Text className="text-sm text-muted-foreground dark:text-zinc-400">{`Pick a ${noun} to change it, or add a new one.`}</Text>
+              <View className="rounded-xl border border-dashed border-border p-3 md:p-4 dark:border-zinc-800">
+                <Text className="text-xs text-muted-foreground dark:text-zinc-400">{`Pick a ${noun} to change it, or add a new one.`}</Text>
               </View>
             )}
           </ScrollView>

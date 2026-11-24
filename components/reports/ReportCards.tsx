@@ -12,7 +12,7 @@ import { fmtMoney } from '@/lib/format';
 
 export function ReportCard({ title, children, testID, right }: { title: string; children: ReactNode; testID?: string; right?: ReactNode }) {
   return (
-    <View testID={testID} className="min-w-0 gap-4 rounded-xl border border-border bg-card p-4 shadow-card dark:border-zinc-800 dark:bg-zinc-900 lg:p-5">
+    <View testID={testID} className="min-w-0 gap-4 rounded-xl border border-border bg-card p-3 md:p-4 shadow-card dark:border-zinc-800 dark:bg-zinc-900">
       <View className="flex-row items-start gap-2">
         <Text role="heading" aria-level={2} className="min-w-0 flex-1 text-lg font-semibold text-foreground dark:text-zinc-50">
           {title}
@@ -32,7 +32,7 @@ export function Disclosure({ label, children }: { label: string; children: React
         accessibilityRole="button"
         aria-expanded={open}
         onPress={() => setOpen((v) => !v)}
-        className="min-h-11 flex-row items-center gap-2 rounded-md"
+        className="min-h-11 lg:min-h-9 flex-row items-center gap-2 rounded-md"
       >
         <Text className="min-w-0 flex-1 text-sm font-medium text-foreground dark:text-zinc-50">{label}</Text>
         <MaterialCommunityIcons name={open ? 'chevron-up' : 'chevron-down'} size={20} color="#717182" />
@@ -47,18 +47,18 @@ export function LabelValue({ label, value, sub, valueClassName, onPress }: { lab
   const body = (
     <>
       <View className="min-w-0 flex-1">
-        <Text className="text-base text-foreground dark:text-zinc-50" numberOfLines={1}>{label}</Text>
-        {sub ? <Text className="text-sm text-muted-foreground dark:text-zinc-400">{sub}</Text> : null}
+        <Text className="text-sm text-foreground dark:text-zinc-50" numberOfLines={1}>{label}</Text>
+        {sub ? <Text className="text-xs text-muted-foreground dark:text-zinc-400">{sub}</Text> : null}
       </View>
-      <Text className={cn('shrink-0 text-base font-semibold text-foreground dark:text-zinc-50', valueClassName)} style={{ fontVariant: ['tabular-nums'] }}>
+      <Text className={cn('shrink-0 text-sm font-semibold text-foreground dark:text-zinc-50', valueClassName)} style={{ fontVariant: ['tabular-nums'] }}>
         {value}
       </Text>
       {onPress ? <MaterialCommunityIcons name="chevron-right" size={20} color="#717182" /> : null}
     </>
   );
-  if (!onPress) return <View className="min-h-11 flex-row items-center gap-3">{body}</View>;
+  if (!onPress) return <View className="min-h-11 lg:min-h-9 flex-row items-center gap-3">{body}</View>;
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={`${label}: ${value}`} onPress={onPress} className="min-h-11 flex-row items-center gap-3 rounded-md hover:bg-muted/50 dark:hover:bg-zinc-800/60">
+    <Pressable accessibilityRole="button" accessibilityLabel={`${label}: ${value}`} onPress={onPress} className="min-h-11 lg:min-h-9 flex-row items-center gap-3 rounded-md hover:bg-muted/50 dark:hover:bg-zinc-800/60">
       {body}
     </Pressable>
   );
@@ -72,18 +72,18 @@ export function SpendBreakdownCard(p: { title: string; loading: boolean; spent: 
       {p.loading ? (
         <LoadingState rows={2} />
       ) : p.spent <= 0 ? (
-        <Text className="text-base text-muted-foreground dark:text-zinc-400">Nothing spent yet.</Text>
+        <Text className="text-xs text-muted-foreground dark:text-zinc-400">Nothing spent yet.</Text>
       ) : (
         <View className="gap-4">
           <Text className="text-3xl font-bold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>{fmtMoney(p.spent)}</Text>
           {p.rows.map((row) => (
             <View key={row.label} className="gap-1.5">
               <View className="flex-row items-center gap-3">
-                <Text className="min-w-0 flex-1 text-base text-foreground dark:text-zinc-50" numberOfLines={1}>{row.label}</Text>
-                <Text className="shrink-0 text-base font-semibold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>
+                <Text className="min-w-0 flex-1 text-sm text-foreground dark:text-zinc-50" numberOfLines={1}>{row.label}</Text>
+                <Text className="shrink-0 text-sm font-semibold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>
                   {fmtMoney(row.amount)}
                 </Text>
-                <Text className="w-10 shrink-0 text-right text-sm text-muted-foreground dark:text-zinc-400">{`${Math.round(row.pct)}%`}</Text>
+                <Text className="w-10 shrink-0 text-right text-xs text-muted-foreground dark:text-zinc-400">{`${Math.round(row.pct)}%`}</Text>
               </View>
               <View className="h-2 overflow-hidden rounded-full bg-muted dark:bg-zinc-800">
                 <View className={cn('h-2 rounded-full', row.color)} style={{ width: `${Math.max(0, Math.min(100, row.pct))}%` }} />
@@ -123,11 +123,11 @@ export function TrendCard(p: { range: TrendRange; onRange: (r: TrendRange) => vo
       {p.loading && p.points.length < 2 ? (
         <LoadingState rows={2} />
       ) : p.points.length < 2 ? (
-        <Text className="text-base text-muted-foreground dark:text-zinc-400">Comparisons start after your second month.</Text>
+        <Text className="text-xs text-muted-foreground dark:text-zinc-400">Comparisons start after your second month.</Text>
       ) : (
         <View className="min-w-0 gap-3 overflow-hidden">
-          <Text className="text-base text-foreground dark:text-zinc-50">{p.sentence}</Text>
-          <Text className="text-sm text-muted-foreground dark:text-zinc-400">Spent per month</Text>
+          <Text className="text-sm text-foreground dark:text-zinc-50">{p.sentence}</Text>
+          <Text className="text-xs text-muted-foreground dark:text-zinc-400">Spent per month</Text>
           <LineChart data={p.points} lineColor={p.lineColor} axisColor={p.axisColor} />
         </View>
       )}
@@ -148,11 +148,11 @@ export function PricesCard(p: {
   return (
     <ReportCard title="What do things cost now?" testID="report-prices">
       {!p.options.length ? (
-        <Text className="text-base text-muted-foreground dark:text-zinc-400">Prices appear after you add a receipt or record a shop.</Text>
+        <Text className="text-xs text-muted-foreground dark:text-zinc-400">Prices appear after you add a receipt or record a shop.</Text>
       ) : (
         <View className="z-10 gap-1.5">
           <Text className="text-sm font-medium text-foreground dark:text-zinc-50">Item</Text>
-          <DropdownField value={p.value} options={p.options} onChange={p.onPick} placeholder="Pick an item" menuStrategy="inline" triggerClassName="h-11" />
+          <DropdownField value={p.value} options={p.options} onChange={p.onPick} placeholder="Pick an item" menuStrategy="inline" triggerClassName="h-11 lg:h-9" />
         </View>
       )}
       {p.value && p.latest ? (
@@ -166,7 +166,7 @@ export function PricesCard(p: {
           {p.points.length > 1 ? <LineChart data={p.points} lineColor={p.lineColor} axisColor={p.axisColor} /> : null}
         </View>
       ) : p.value ? (
-        <Text className="text-base text-muted-foreground dark:text-zinc-400">No prices recorded for this item yet.</Text>
+        <Text className="text-xs text-muted-foreground dark:text-zinc-400">No prices recorded for this item yet.</Text>
       ) : null}
       <LabelValue label="See catalog" value="" onPress={p.onCatalog} />
     </ReportCard>

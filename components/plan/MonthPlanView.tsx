@@ -1023,7 +1023,7 @@ export function MonthPlanView({ pid }: { pid: string }) {
           </View>
           <View className="items-center gap-3 rounded-xl border border-border bg-card px-4 py-8 dark:border-zinc-800 dark:bg-zinc-900">
             <MaterialCommunityIcons name="calendar-blank-outline" size={32} color="#717182" />
-            <Text className="text-center text-base text-foreground dark:text-zinc-50">There is no budget for this month yet. Creating it starts a blank draft.</Text>
+            <Text className="text-center text-sm text-foreground dark:text-zinc-50">There is no budget for this month yet. Creating it starts a blank draft.</Text>
             <AppButton label={`Create ${monthLabel} draft`} size="touch" onPress={createThisMonth} disabled={templatePending} />
           </View>
         </View>
@@ -1033,8 +1033,8 @@ export function MonthPlanView({ pid }: { pid: string }) {
 
   const figure = (label: string, value: string) => (
     <View className="min-h-8 flex-row items-center gap-3">
-      <Text className="min-w-0 flex-1 text-sm text-muted-foreground dark:text-zinc-400">{label}</Text>
-      <Text className="shrink-0 text-base font-semibold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>
+      <Text className="min-w-0 flex-1 text-xs text-muted-foreground dark:text-zinc-400">{label}</Text>
+      <Text className="shrink-0 text-sm font-semibold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>
         {value}
       </Text>
     </View>
@@ -1046,19 +1046,19 @@ export function MonthPlanView({ pid }: { pid: string }) {
         <Text accessibilityRole="header" className="text-xl font-bold text-foreground dark:text-zinc-50">{title && title !== pid ? title : monthLabel}</Text>
         <AppBadge label={readOnly ? 'Closed' : 'Open'} variant={readOnly ? 'secondary' : 'success'} />
       </View>
-      <Text className="text-sm text-muted-foreground dark:text-zinc-400">
+      <Text className="text-xs text-muted-foreground dark:text-zinc-400">
         {readOnly ? 'This month is closed. You can look, but not change it.' : 'You can still change this month.'}
       </Text>
     </View>
   );
 
   const summary = (
-    <View testID="plan-summary" className="gap-1 rounded-xl border border-border bg-card p-4 shadow-card dark:border-zinc-800 dark:bg-zinc-900">
+    <View testID="plan-summary" className="gap-1 rounded-xl border border-border bg-card p-3 md:p-4 shadow-card dark:border-zinc-800 dark:bg-zinc-900">
       {figure('Income', fmtMoney(incomeTotal))}
       {figure('Planned', fmtMoney(plannedTotal))}
       {figure('Spent so far', fmtMoney(totalSpentAcrossBudget))}
-      <View className="mt-1 min-h-11 flex-row items-center gap-3 border-t border-border pt-2 dark:border-zinc-800">
-        <Text className="min-w-0 flex-1 text-base font-medium text-foreground dark:text-zinc-50">
+      <View className="mt-1 min-h-11 lg:min-h-9 flex-row items-center gap-3 border-t border-border pt-2 dark:border-zinc-800">
+        <Text className="min-w-0 flex-1 text-sm font-medium text-foreground dark:text-zinc-50">
           {unallocatedTotal >= 0 ? 'Not planned yet' : 'Planned beyond income'}
         </Text>
         <Text
@@ -1110,9 +1110,9 @@ export function MonthPlanView({ pid }: { pid: string }) {
   // A blank month: nothing is copied until this tap (BUDG-1: "Add from templates" separate from Create).
   const blankStart =
     !readOnly && !planItems.length ? (
-      <View testID="start-from-regular" className="gap-3 rounded-xl border border-border bg-card p-4 dark:border-zinc-800 dark:bg-zinc-900">
-        <Text className="text-base font-semibold text-foreground dark:text-zinc-50">Start from your regular costs</Text>
-        <Text className="text-sm text-muted-foreground dark:text-zinc-400">{`${monthLabel} is blank. Copy your repeats in once, or add lines yourself below.`}</Text>
+      <View testID="start-from-regular" className="gap-3 rounded-xl border border-border bg-card p-3 md:p-4 dark:border-zinc-800 dark:bg-zinc-900">
+        <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Start from your regular costs</Text>
+        <Text className="text-xs text-muted-foreground dark:text-zinc-400">{`${monthLabel} is blank. Copy your repeats in once, or add lines yourself below.`}</Text>
         <AppButton
           label={templatePending ? 'Adding…' : 'Add regular costs'}
           size="touch"
@@ -1287,7 +1287,7 @@ export function MonthPlanView({ pid }: { pid: string }) {
       <AppSheet open={Boolean(pendingAccountChange)} onClose={() => setPendingAccountChange(null)} title="Use this account for" testID="account-choice-sheet">
         {pendingAccountChange ? (
           <View className="gap-3">
-            <Text className="text-base text-foreground dark:text-zinc-50">
+            <Text className="text-sm text-foreground dark:text-zinc-50">
               {`${pendingAccountChange.name} → ${pendingAccountChange.accountId ? accountName(pendingAccountChange.accountId) : 'No account'}`}
             </Text>
             <Text className="text-sm text-muted-foreground dark:text-zinc-400">Nothing is posted or transferred. Other months, locked budgets and posted expenses stay as they are.</Text>
@@ -1299,7 +1299,7 @@ export function MonthPlanView({ pid }: { pid: string }) {
               onPress={() => confirmAccountChange('FUTURE')}
               disabled={defaultsBusy || !pendingAccountChange.accountId}
             />
-            <Text className="text-sm text-muted-foreground dark:text-zinc-400">{`Future months: new lines from ${pendingAccountChange.sourceLabel} will suggest this account.`}</Text>
+            <Text className="text-xs text-muted-foreground dark:text-zinc-400">{`Future months: new lines from ${pendingAccountChange.sourceLabel} will suggest this account.`}</Text>
             {defaultsError ? <Text className="text-sm text-destructive dark:text-red-300">{defaultsError}</Text> : null}
             <AppButton label="Cancel" variant="ghost" size="touch" onPress={() => setPendingAccountChange(null)} />
           </View>
@@ -1309,13 +1309,13 @@ export function MonthPlanView({ pid }: { pid: string }) {
       <AppSheet open={reviewOpen} onClose={() => setReviewOpen(false)} title="Apply suggested accounts" testID="review-sheet">
         <View className="gap-3">
           {suggestedLines.map(({ line, accountId }) => (
-            <View key={line.id} className="min-h-12 flex-row flex-wrap items-center gap-x-3 gap-y-1 border-b border-border py-2 dark:border-zinc-800">
-              <Text className="min-w-0 flex-1 text-base text-foreground dark:text-zinc-50" numberOfLines={1}>{line.name}</Text>
-              <Text className="shrink-0 text-base font-semibold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>{fmtMoney(line.amount || 0)}</Text>
-              <Text className="w-full text-sm text-muted-foreground dark:text-zinc-400">{accountName(accountId)}</Text>
+            <View key={line.id} className="min-h-11 lg:min-h-9 flex-row flex-wrap items-center gap-x-3 gap-y-1 border-b border-border py-2 dark:border-zinc-800">
+              <Text className="min-w-0 flex-1 text-sm text-foreground dark:text-zinc-50" numberOfLines={1}>{line.name}</Text>
+              <Text className="shrink-0 text-sm font-semibold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>{fmtMoney(line.amount || 0)}</Text>
+              <Text className="w-full text-xs text-muted-foreground dark:text-zinc-400">{accountName(accountId)}</Text>
             </View>
           ))}
-          <Text className="text-sm text-muted-foreground dark:text-zinc-400">Each line earmarks its amount in that account, as choosing an account does today. Nothing is posted.</Text>
+          <Text className="text-xs text-muted-foreground dark:text-zinc-400">Each line earmarks its amount in that account, as choosing an account does today. Nothing is posted.</Text>
           <AppButton label={defaultsBusy ? 'Applying…' : 'Apply all'} size="touch" onPress={applyAllSuggestions} disabled={defaultsBusy || !suggestedLines.length} />
           <AppButton label="Cancel" variant="ghost" size="touch" onPress={() => setReviewOpen(false)} />
         </View>

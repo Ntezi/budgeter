@@ -1,12 +1,13 @@
 import React, { type ReactNode } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useDense } from '@/lib/shell/density';
 
-/** Label above the field (text-sm medium). */
+/** Label above the field (text-xs medium, the old field-label size). */
 export function FormField({ label, children, nativeID }: { label: string; children: ReactNode; nativeID?: string }) {
   return (
     <View className="gap-1.5">
-      <Text nativeID={nativeID} className="text-sm font-medium text-foreground dark:text-zinc-50">
+      <Text nativeID={nativeID} className="text-xs font-medium text-foreground dark:text-zinc-50">
         {label}
       </Text>
       {children}
@@ -16,12 +17,13 @@ export function FormField({ label, children, nativeID }: { label: string; childr
 
 /** A tappable row: label left, current value right, chevron (e.g. "Paid from  Household account  ›"). */
 export function FormRow({ label, value, onPress, children }: { label: string; value?: string; onPress?: () => void; children?: ReactNode }) {
+  const rowH = useDense() ? 'min-h-9' : 'min-h-11 lg:min-h-9';
   const inner = (
     <>
-      <Text className="w-24 shrink-0 text-sm font-medium text-foreground dark:text-zinc-50">{label}</Text>
+      <Text className="w-24 shrink-0 text-xs font-medium text-foreground dark:text-zinc-50">{label}</Text>
       <View className="min-w-0 flex-1 items-end">
         {children ?? (
-          <Text className="text-base text-foreground dark:text-zinc-50" numberOfLines={1}>
+          <Text className="text-sm text-foreground dark:text-zinc-50" numberOfLines={1}>
             {value}
           </Text>
         )}
@@ -29,9 +31,9 @@ export function FormRow({ label, value, onPress, children }: { label: string; va
       {onPress ? <MaterialCommunityIcons name="chevron-right" size={20} color="#717182" /> : null}
     </>
   );
-  if (!onPress) return <View className="min-h-12 flex-row items-center gap-3">{inner}</View>;
+  if (!onPress) return <View className={`${rowH} flex-row items-center gap-3`}>{inner}</View>;
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={`${label}: ${value ?? ''}`} onPress={onPress} className="min-h-12 flex-row items-center gap-3">
+    <Pressable accessibilityRole="button" accessibilityLabel={`${label}: ${value ?? ''}`} onPress={onPress} className={`${rowH} flex-row items-center gap-3`}>
       {inner}
     </Pressable>
   );
