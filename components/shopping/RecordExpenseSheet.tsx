@@ -92,11 +92,17 @@ export function RecordExpenseSheet(p: Props) {
                   className="h-11 w-24 text-right text-base"
                 />
               </View>
+              {/* D-11: a row without a line says what to do; Save stays disabled until each row has one. */}
+              {!row.lineId ? (
+                <Text className="text-sm text-muted-foreground dark:text-zinc-400" testID="record-line-hint">
+                  Choose where this comes from
+                </Text>
+              ) : null}
               <DropdownField
                 value={row.lineId}
-                options={[{ label: 'Choose a funded line', value: '' }, ...p.lineOptions]}
+                options={[{ label: 'Choose a line', value: '' }, ...p.lineOptions]}
                 onChange={(lineId) => p.onRow(row.id, { lineId })}
-                placeholder="Budget line"
+                placeholder="Choose a line"
                 menuStrategy="inline"
                 triggerClassName="min-h-11"
               />
@@ -130,10 +136,10 @@ export function GotItFooter({ count, total, onRecord, onReceipt }: { count: numb
       <Text className="text-sm font-medium text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>
         {`${count} item${count === 1 ? '' : 's'} got${total ? ` · ${total}` : ''}`}
       </Text>
-      {/* D-14: below 360 px the two actions stack so neither label wraps. */}
+      {/* D-14: below 360 px the two actions stack so neither label wraps; stacked, they are full width (flex-1 in a column collapses them to 20 px). */}
       <View className={narrow ? 'gap-2' : 'flex-row gap-2'}>
-        <AppButton label="Record expense" size="touch" className="min-w-0 flex-1" onPress={onRecord} />
-        <AppButton label="Add receipt" variant="outline" size="touch" className="min-w-0 flex-1" onPress={onReceipt} />
+        <AppButton label="Record expense" size="touch" className={narrow ? 'w-full' : 'min-w-0 flex-1'} onPress={onRecord} />
+        <AppButton label="Add receipt" variant="outline" size="touch" className={narrow ? 'w-full' : 'min-w-0 flex-1'} onPress={onReceipt} />
       </View>
     </View>
   );
