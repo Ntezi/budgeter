@@ -1,11 +1,12 @@
 // BUDG-8 S8 Move money (briefs/redesign/05 "Move money sheet"): one form used by the Accounts screen's
 // sheet and the Add sheet's "Move money" segment. Writes only through moveMoney() (unchanged transfer logic).
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { FormField } from '@/components/patterns/FormLayout';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppInput } from '@/components/ui/AppInput';
+import { newClientId } from '@/lib/repo/transactions';
 import { moveMoney, transferDate } from '@/components/accounts/transferWrites';
 import type { useAccountsData } from '@/components/accounts/useAccountsData';
 import { cn } from '@/lib/cn';
@@ -77,6 +78,7 @@ export function useMoveMoney(opts: { active: boolean; uid: string | null | undef
     };
   }
 
+  const formKeyRef = useRef(newClientId().slice(0, 18)); // H-2: one key per open form
   async function save() {
     if (!uid || !pid || !from || pending) return false;
     if (!selected.length) {
@@ -89,7 +91,8 @@ export function useMoveMoney(opts: { active: boolean; uid: string | null | undef
     }
     setPending(true);
     try {
-      await moveMoney({ uid, periodId: pid, source: from, rows: selected, destinationById: (id) => data.byAccountId.get(id), updatedBy });
+      await moveMoney({ uid, periodId: pid, source: from, rows: selected, destinationById: (id) => data.byAccountId.get(id), updatedBy, formKey: formKeyRef.current });
+      formKeyRef.current = newClientId().slice(0, 18); // the next move is a new write
       return true;
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Could not move money.');

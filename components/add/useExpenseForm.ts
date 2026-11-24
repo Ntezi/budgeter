@@ -8,7 +8,7 @@ import { type PlanItem, watchPlanTotals } from '@/lib/repo/plans';
 import { watchIncomeItems } from '@/lib/repo/income';
 import { type Allocation, watchAllocations } from '@/lib/repo/allocations';
 import { type Account, watchAccounts } from '@/lib/repo/accounts';
-import { addTransaction, type Tx, watchTransactions } from '@/lib/repo/transactions';
+import { addTransactionOnce, newClientId, type Tx, watchTransactions } from '@/lib/repo/transactions';
 
 /**
  * Expense form logic (BUDG-1 AC-5), moved unchanged from components/ExpenseFormModal.tsx for the
@@ -25,6 +25,7 @@ export function useExpenseForm(open: boolean, uid: string | null | undefined, on
   const [error, setError] = useState('');
   const [pending, setPending] = useState(false);
   const pendingRef = useRef(false);
+  const txIdRef = useRef(''); // H-2: one id per open form; a retry or a second Save reuses it
 
   const [periodState, setPeriodState] = useState<PeriodState | null>(null);
   const [planItems, setPlanItems] = useState<PlanItem[]>([]);
@@ -35,6 +36,7 @@ export function useExpenseForm(open: boolean, uid: string | null | undefined, on
 
   useEffect(() => {
     if (!open) return;
+    txIdRef.current = newClientId();
     setDateState(localDateISO());
     setPlanItemId('');
     setAccountId('');
@@ -131,7 +133,8 @@ export function useExpenseForm(open: boolean, uid: string | null | undefined, on
     pendingRef.current = true;
     setPending(true);
     try {
-      await addTransaction(uid, postingPid, {
+      if (!txIdRef.current) txIdRef.current = newClientId();
+      await addTransactionOnce(uid, postingPid, txIdRef.current, {
         name: selectedPlan.name,
         categoryId: selectedPlan.id,
         planItemId: selectedPlan.id,
@@ -141,6 +144,7 @@ export function useExpenseForm(open: boolean, uid: string | null | undefined, on
         note: note.trim(),
         paidFromAccountId: selectedAccount.id,
       });
+      txIdRef.current = newClientId(); // saved: a further Save in this form is a new expense
       onSaved?.(postingPid);
       return true;
     } catch (e) {

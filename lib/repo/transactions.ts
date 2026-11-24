@@ -3,6 +3,7 @@ import {
   serverTimestamp, updateDoc, deleteDoc,
 } from 'firebase/firestore';
 import { db } from '../firebase';
+import { newClientIdIn, writeOnceInMonthIn, type ExtraWrite } from './onceWrites';
 import { assertPeriodEditable, type Group } from './periods';
 import {
   docMatchesActiveScope,
@@ -100,15 +101,29 @@ export function watchTransactions(
   });
 }
 
-export async function addTransaction(userId: string, pid: string, tx: Omit<Tx, 'id'>) {
-  await assertPeriodEditable(userId, pid);
+function expenseDocData(pid: string, tx: Omit<Tx, 'id'>) {
   const normalized = normalizeTxFields(tx, { defaultType: true });
-  return addDoc(txCol(userId, pid), compactFields(withWorkspaceWrite({
+  return compactFields(withWorkspaceWrite({
     ...normalized,
     periodId: pid,
     date: tx.date ?? new Date().toISOString().slice(0, 10),
     createdAt: serverTimestamp(),
-  })) as any);
+  })) as any;
+}
+
+export async function addTransaction(userId: string, pid: string, tx: Omit<Tx, 'id'>) {
+  await assertPeriodEditable(userId, pid);
+  return addDoc(txCol(userId, pid), expenseDocData(pid, tx));
+}
+
+/** H-2: one id per open form (same format as addDoc's). */
+export function newClientId() {
+  return newClientIdIn(db);
+}
+
+/** H-2: the Add expense Save: same document as addTransaction, written once under the form's id, never into a DECIDED month. */
+export async function addTransactionOnce(userId: string, pid: string, txId: string, tx: Omit<Tx, 'id'>) {
+  return writeOnceInMonthIn(db, userId, scopedPeriodDocId(pid), [{ id: txId, data: expenseDocData(pid, tx) }], [], (row) => docMatchesActiveScope(row as any));
 }
 
 export async function setTransaction(
@@ -143,19 +158,16 @@ export async function putTransactionWithId(
   })) as any, { merge: true });
 }
 
-export async function addTransferTransaction(
-  userId: string,
-  pid: string,
-  input: {
-    fromAccountId: string;
-    toAccountId: string;
-    amount: number;
-    date?: string;
-    note?: string;
-    group?: Group;
-  }
-) {
-  await assertPeriodEditable(userId, pid);
+type TransferInput = {
+  fromAccountId: string;
+  toAccountId: string;
+  amount: number;
+  date?: string;
+  note?: string;
+  group?: Group;
+};
+
+function transferDocData(pid: string, input: TransferInput) {
   const fromAccountId = String(input.fromAccountId || '').trim();
   const toAccountId = String(input.toAccountId || '').trim();
   const amount = Math.max(0, Number(input.amount || 0));
@@ -177,15 +189,22 @@ export async function addTransferTransaction(
     },
     { defaultType: false }
   );
+  return compactFields(withWorkspaceWrite({
+    ...tx,
+    periodId: pid,
+    createdAt: serverTimestamp(),
+  })) as any;
+}
 
-  return addDoc(
-    txCol(userId, pid),
-    compactFields(withWorkspaceWrite({
-      ...tx,
-      periodId: pid,
-      createdAt: serverTimestamp(),
-    })) as any
-  );
+export async function addTransferTransaction(userId: string, pid: string, input: TransferInput) {
+  await assertPeriodEditable(userId, pid);
+  return addDoc(txCol(userId, pid), transferDocData(pid, input));
+}
+
+/** H-2: Move money: every transfer (ids from the form) and the balance overrides in one transaction, once. */
+export async function addTransfersOnce(userId: string, pid: string, transfers: { id: string; input: TransferInput }[], extra: ExtraWrite[]) {
+  const txWrites = transfers.map((t) => ({ id: t.id, data: transferDocData(pid, t.input) }));
+  return writeOnceInMonthIn(db, userId, scopedPeriodDocId(pid), txWrites, extra, (row) => docMatchesActiveScope(row as any));
 }
 
 export async function listAllTransactions(userId: string): Promise<TxWithPeriod[]> {
