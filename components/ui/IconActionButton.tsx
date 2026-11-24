@@ -85,7 +85,7 @@ export function IconActionButton({
         accessibilityLabel={label}
         {...({ title: label } as any)}
         className={cn(
-          'h-8 w-8 items-center justify-center rounded-md active:opacity-80',
+          'h-11 w-11 lg:h-8 lg:w-8 items-center justify-center rounded-md active:opacity-80',
           VARIANT_CLASS[variant],
           savedFlash && 'border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-900/30',
           disabled && 'opacity-50',

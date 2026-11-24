@@ -107,7 +107,7 @@ export function AddSheet({ open, uid, onClose, onSaved, onGo }: Props) {
               keyboardType="decimal-pad"
               inputMode="decimal"
               accessibilityLabel="Amount"
-              className="h-14 text-3xl font-semibold"
+              className="font-semibold"
             />
           </FormField>
 

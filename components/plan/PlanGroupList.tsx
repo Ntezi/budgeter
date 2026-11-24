@@ -70,7 +70,7 @@ export function PlanGroupList({ groups, wide, readOnly, onOpenLine, onAddLine }:
                     )}
                   >
                     <MaterialCommunityIcons name="plus" size={20} color="#717182" />
-                    <Text className="text-xs text-muted-foreground dark:text-zinc-400">{group.addLabel}</Text>
+                    <Text className="text-sm text-muted-foreground dark:text-zinc-400">{group.addLabel}</Text>
                   </Pressable>
                 )}
               </View>
