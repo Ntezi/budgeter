@@ -177,7 +177,7 @@ export function SharedListView({ shareId, myUid, onBack, showBack = true }: { sh
       testID="shopping-item"
       name={item.name}
       qty={qtyLabel(item.quantity, item.unit)}
-      sub={[item.note, item.category].filter(Boolean).join(' · ') || undefined}
+      sub={[item.note, item.category, ...(item.tags || [])].filter(Boolean).join(' · ') || undefined}
       got={item.status === 'GOT_IT'}
       onToggle={() => void run(() => updateSharedItem(shareId, myUid, item.id!, { status: item.status === 'GOT_IT' ? 'TO_BUY' : 'GOT_IT' }))}
       onPress={() => setDraft({ id: item.id!, name: item.name, quantity: String(item.quantity ?? 1), unit: item.unit || '', category: item.category || '', note: item.note || '' })}

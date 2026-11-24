@@ -59,10 +59,10 @@ service cloud.firestore {
       return ['ownerUid', 'listId', 'listName', 'chefUid', 'chefLabel', 'status', 'createdBy', 'createdAt', 'revokedAt'];
     }
     function itemKeys() {
-      return ['name', 'quantity', 'unit', 'category', 'note', 'status', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt'];
+      return ['name', 'quantity', 'unit', 'category', 'note', 'tags', 'status', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt'];
     }
     function itemEditableKeys() {
-      return ['name', 'quantity', 'unit', 'category', 'note', 'status', 'updatedBy', 'updatedAt'];
+      return ['name', 'quantity', 'unit', 'category', 'note', 'tags', 'status', 'updatedBy', 'updatedAt'];
     }
     function optString(d, key, max) { return !(key in d) || (d[key] is string && d[key].size() <= max); }
     function validSharedItem(d) {
@@ -70,6 +70,7 @@ service cloud.firestore {
         (!('quantity' in d) || (d.quantity is number && d.quantity >= 0 && d.quantity <= 9999)) &&
         (!('unit' in d) || d.unit in ['', 'pc', 'g', 'kg', 'ml', 'l', 'pack']) &&
         optString(d, 'category', 60) && optString(d, 'note', 500) &&
+        (!('tags' in d) || (d.tags is list && d.tags.size() <= 12)) &&
         d.status in ['TO_BUY', 'GOT_IT'] &&
         d.updatedBy == request.auth.uid && d.updatedAt == request.time;
     }
