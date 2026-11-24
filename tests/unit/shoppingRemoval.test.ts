@@ -1,9 +1,8 @@
-// BUDG-42: selection, chunking and swipe decisions for fast item removal.
+// BUDG-42: selection, chunking and copy for fast item removal.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  chefCanRemove, chunk, clampSwipe, isHorizontalSwipe, pruneSelected, REMOVE_CHUNK, removalWrites, removeConfirmTitle,
-  swipeOutcome, SWIPE_DELETE_WIDTH, toggleSelectAll, toggleSelected,
+  chefCanRemove, chunk, pruneSelected, REMOVE_CHUNK, removalWrites, removeConfirmTitle, toggleSelectAll, toggleSelected,
 } from '../../lib/rules/shoppingRemoval';
 
 test('chunk keeps every row, in order, under the batch limit', () => {
@@ -21,23 +20,6 @@ test('removal writes: private doc and its mirror, nothing else', () => {
     removalWrites([{ id: 'a', private: true, shared: true }, { id: 'b', private: true, shared: false }, { id: 'c', private: false, shared: true }, { id: '', private: true, shared: true }]),
     [{ id: 'a', where: 'private' }, { id: 'a', where: 'shared' }, { id: 'b', where: 'private' }, { id: 'c', where: 'shared' }]
   );
-});
-
-test('swipe: horizontal only, vertical scroll wins', () => {
-  assert.equal(isHorizontalSwipe(-40, 5), true);
-  assert.equal(isHorizontalSwipe(-40, 25), false); // mostly vertical
-  assert.equal(isHorizontalSwipe(-8, 0), false); // a tap jitter
-  assert.equal(isHorizontalSwipe(0, -200), false);
-});
-
-test('swipe outcome: past 40% deletes, half the Delete area reveals, less closes', () => {
-  assert.equal(swipeOutcome(-160, 390), 'delete');
-  assert.equal(swipeOutcome(-155, 390), 'reveal');
-  assert.equal(swipeOutcome(-SWIPE_DELETE_WIDTH / 2, 390), 'reveal');
-  assert.equal(swipeOutcome(-20, 390), 'close');
-  assert.equal(swipeOutcome(30, 390), 'close');
-  assert.equal(clampSwipe(50, 390), 0);
-  assert.equal(clampSwipe(-900, 390), -390);
 });
 
 test('selection: toggle, select all / none, prune gone ids', () => {

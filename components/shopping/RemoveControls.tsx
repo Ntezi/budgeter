@@ -109,7 +109,7 @@ export function RemoveConfirmDialog({
   );
 }
 
-/** "Removed <name> · Undo" for about 5 s after a swipe or trash removal. */
+/** "Removed <name> · Undo" for about 5 s after a row trash removal. */
 export function UndoNotice({ name, onUndo, onDone }: { name: string; onUndo: () => void; onDone: () => void }) {
   const done = useRef(onDone);
   done.current = onDone;
