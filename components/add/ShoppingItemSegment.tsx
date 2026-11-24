@@ -122,7 +122,7 @@ export function ShoppingItemSegment({ open, uid, onDone, onGo }: Props) {
         if (write.addAlias && row && row.name.trim().toLowerCase() !== typed.toLowerCase()) await addShoppingCatalogAlias(uid, write.catalogItemId, typed);
         return add({ name: row?.name || typed, catalog: row, catalogItemId: write.catalogItemId });
       }
-      const catalogItemId = write.catalog === 'create' ? await createShoppingCatalogItem(uid, { name: typed, category: '' }) : '';
+      const catalogItemId = write.catalog === 'create' ? await createShoppingCatalogItem(uid, { name: typed, category: '', pending: { addedFrom: 'shopping-list', addedBy: uid } }) : '';
       return add({ name: typed, catalogItemId });
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Could not add the item.');

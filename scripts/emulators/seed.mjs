@@ -128,6 +128,7 @@ async function main() {
   await batch.commit();
   await (await import('./seed-budg4.mjs')).seedBudg4({ auth, db, owner, FieldValue }); // BUDG-4 lane
   await (await import('./seed-budg5.mjs')).seedBudg5({ db, owner, FieldValue, prevPid: pid(prev), day: (n) => day(prev, n), currency: process.env.EXPO_PUBLIC_APP_CURRENCY || 'GHS' }); // BUDG-5 lane
+  await (await import('./seed-budg43.mjs')).seedBudg43({ db, owner, FieldValue }); // BUDG-43 lane
   console.log(`[seed] demo-budgeta seeded: 3 users, 4 accounts, periods ${pid(prev)} (DECIDED) and ${pid(cur)} (DRAFT), 2 shopping lists`);
 }
 

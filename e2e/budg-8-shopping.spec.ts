@@ -5,7 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { EVIDENCE, listIds, noPageScroll, reseed, signIn } from './helpers';
+import { EVIDENCE, expectSheetClosesFromAnywhere, listAction, listIds, noPageScroll, reseed, signIn } from './helpers';
 
 const WIDTHS = [320, 390, 768, 1024, 1440];
 const THEMES = ['light', 'dark'] as const;
@@ -79,7 +79,7 @@ for (const theme of THEMES) {
 
       // Record expense sheet: Got-it items only, one Save with the Posts to line; nothing posts on open.
       const txBefore = (await listIds('periods', pid, 'transactions')).length;
-      await page.getByText('Record expense', { exact: true }).click();
+      await listAction(page, 'Record expense'); // BUDG-42: from the List options menu
       await expect(page.getByTestId('record-expense-sheet')).toBeVisible();
       await expect(page.getByTestId('record-summary')).toBeVisible();
       expect((await listIds('periods', pid, 'transactions')).length).toBe(txBefore);
@@ -93,14 +93,14 @@ for (const theme of THEMES) {
       await expect(page.getByTestId('record-expense-sheet')).toHaveCount(0);
 
       // Item sheet from a row tap.
-      await page.getByTestId('shopping-item').first().getByRole('button').last().click();
+      await page.getByTestId('shopping-item').first().getByTestId('item-open').click(); // BUDG-42: the row also holds remove controls
       await expect(page.getByLabel('Item name')).toBeVisible();
       await snap(page, `S10-item-sheet-${key}`);
       await page.keyboard.press('Escape');
       await expect(page.getByLabel('Item name')).toHaveCount(0);
 
       // Receipt sheet (S11), pre-filled from the Got-it items.
-      await page.getByText('Add receipt', { exact: true }).click();
+      await listAction(page, 'Add receipt');
       await expect(page.getByTestId('receipt-line').first()).toBeVisible();
       // D-12: 'Not in catalog' once per row (no repeat under the field), unit reads 'piece', promo/return behind More.
       for (const line of await page.getByTestId('receipt-line').all()) {
@@ -124,13 +124,8 @@ test('S10 keyboard, focus return, Back, empty list, list options', async ({ page
   await openShopping(page, 390);
   await openList(page, 'Weekly groceries');
   // Escape returns focus to the trigger; Back closes the sheet before leaving the route.
-  const trigger = page.getByRole('button', { name: 'Record expense', exact: true });
-  await trigger.focus();
-  await page.keyboard.press('Enter');
-  await expect(page.getByTestId('record-expense-sheet')).toBeVisible();
-  await page.keyboard.press('Escape');
-  await expect(page.getByTestId('record-expense-sheet')).toHaveCount(0);
-  await expect.poll(() => page.evaluate(() => (document.activeElement?.textContent || '').trim())).toBe('Record expense');
+  // BUDG-42: Record expense opens from List options and focus returns to List options.
+  await expectSheetClosesFromAnywhere(page, 'record-expense-sheet', page.getByLabel('List options'), () => listAction(page, 'Record expense'));
   await page.getByLabel('List options').click();
   await expect(page.getByTestId('list-options')).toBeVisible();
   await snap(page, 'S10-list-options-w390-light');
@@ -209,7 +204,7 @@ test('S10/S11 household and chef in two contexts, tap counts, Add sheet shopping
   // Stop sharing the chef's only list -> the chef stays in the chef shell and sees Access ended.
   await household.getByText('Stop sharing', { exact: true }).click();
   await household.getByTestId('confirm-stop-sharing').click();
-  await expect(household.getByText('Share with chef', { exact: true })).toBeVisible();
+  await expect(household.getByTestId('share-state')).toHaveCount(0); // BUDG-42: Share with chef moved to List options
   await expect(chef.getByText('Access ended')).toBeVisible();
   await expect(chef.getByText('Lemons')).toHaveCount(0);
   await snap(chef, 'S11-chef-access-ended-w390-light');
@@ -218,7 +213,7 @@ test('S10/S11 household and chef in two contexts, tap counts, Add sheet shopping
   // Sharing again works from the Share sheet.
   await household.getByLabel('Back to lists').click();
   await openList(household, 'Weekend party');
-  await household.getByText('Share with chef', { exact: true }).click();
+  await listAction(household, 'Share with chef');
   await household.getByLabel('Chef account ID').fill('seed-chef');
   await snap(household, 'S11-share-sheet-w390-light');
   await household.getByText('Share list', { exact: true }).click();

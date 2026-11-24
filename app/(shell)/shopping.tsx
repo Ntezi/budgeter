@@ -63,6 +63,7 @@ import {
   type SharedList,
 } from '@/lib/repo/sharedLists';
 import { SharedListView } from '@/components/SharedListView';
+import { useCatalogCopySync, useChefPendingEntries } from '@/components/catalog/catalogSync';
 import { ReceiptModal, lineDraftsFromItems } from '@/components/shopping/ReceiptModal';
 import { useWorkspace, useWorkspaceUid } from '@/providers/WorkspaceProvider';
 import { AppSheet, useSheet } from '@/components/patterns/AppSheet';
@@ -73,7 +74,10 @@ import { AddItemBar } from '@/components/shopping/AddItemBar';
 import { ItemRow, ItemSection, qtyLabel } from '@/components/shopping/ItemRow';
 import { ItemSheet } from '@/components/shopping/ItemSheet';
 import { ListsList } from '@/components/shopping/ListsList';
-import { GotItFooter, RecordExpenseSheet, type RecordRow } from '@/components/shopping/RecordExpenseSheet';
+import { RecordExpenseSheet, type RecordRow } from '@/components/shopping/RecordExpenseSheet';
+import { RemoveConfirmDialog, SelectBar, UndoNotice, useSelectModeEffects } from '@/components/shopping/RemoveControls';
+import { removeShoppingItemsIn, restoreShoppingItemsIn, type RemovedSnapshot } from '@/lib/repo/shoppingRemoveOps';
+import { pruneSelected, toggleSelectAll, toggleSelected, type RemoveTarget } from '@/lib/rules/shoppingRemoval';
 import { ShareSheet, StopSharingDialog } from '@/components/shopping/ShareSheet';
 import { useSheetEffects } from '@/components/shopping/useSheetEffects';
 
@@ -160,6 +164,7 @@ export default function ShoppingScreen() {
   const [selectedListId, setSelectedListId] = useState('');
   const [privateItems, setItems] = useState<ShoppingListItem[]>([]);
   const [catalogRows, setCatalogRows] = useState<ShoppingCatalogItem[]>([]);
+  const [catalogLoaded, setCatalogLoaded] = useState(false); // BUDG-43: no chef-item matching before the catalog is in
 
   const [createListOpen, setCreateListOpen] = useState(false);
   const [listDraftName, setListDraftName] = useState('');
@@ -236,6 +241,7 @@ export default function ShoppingScreen() {
   const foldTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const addPendingRef = useRef(false); // one Add to list save at a time (a second tap added the item twice)
   const [addSaving, setAddSaving] = useState(false);
+  const [shareChef, setShareChef] = useState(''); // BUDG-43: chef uid while the share is ACTIVE
   const [shareLeft, setShareLeft] = useState(false); // the chef left this list (share REVOKED, list still marked)
   const recordKeys = useRef<Record<string, string>>({}); // H-3: one key per chef item per open form
   useEffect(() => () => {
@@ -245,13 +251,26 @@ export default function ShoppingScreen() {
   const [revoking, setRevoking] = useState(false);
   const [recordError, setRecordError] = useState('');
   const moreSheet = useSheet();
+  // BUDG-42: select mode, bulk removal, swipe/trash Undo
+  const [selectMode, setSelectMode] = useState(false);
+  const [pickedIds, setPickedIds] = useState<string[]>([]);
+  const [removeAsk, setRemoveAsk] = useState<null | { ids: string[] }>(null);
+  const [removing, setRemoving] = useState(false);
+  const [removeError, setRemoveError] = useState('');
+  const [undo, setUndo] = useState<null | { key: number; name: string; snapshots: RemovedSnapshot[] }>(null);
+  const optionsOpener = useRef<HTMLElement | null>(null);
+  const removeAskRef = useRef(false);
+  removeAskRef.current = Boolean(removeAsk);
+  useSelectModeEffects(selectMode, () => {
+    if (!removeAskRef.current) setSelectMode(false);
+  });
   useSheetEffects(addOpen, () => setAddOpen(false));
   useSheetEffects(editItemOpen, () => setEditItemOpen(false));
-  useSheetEffects(completing, () => setCompleting(false));
+  useSheetEffects(completing, () => setCompleting(false), optionsOpener);
   useSheetEffects(shareOpen, () => setShareOpen(false));
-  useSheetEffects(receiptOpen, () => setReceiptOpen(false));
+  useSheetEffects(receiptOpen, () => setReceiptOpen(false), optionsOpener);
   useSheetEffects(createListOpen, () => setCreateListOpen(false));
-  useSheetEffects(importOpen, () => setImportOpen(false));
+  useSheetEffects(importOpen, () => setImportOpen(false), optionsOpener);
 
   useEffect(() => {
     if (!uid) return;
@@ -304,7 +323,10 @@ export default function ShoppingScreen() {
 
   useEffect(() => {
     if (!uid) return;
-    return watchShoppingCatalog(uid, setCatalogRows);
+    return watchShoppingCatalog(uid, (rows) => {
+      setCatalogRows(rows);
+      setCatalogLoaded(true);
+    });
   }, [uid]);
 
   useEffect(() => {
@@ -345,8 +367,19 @@ export default function ShoppingScreen() {
 
   useEffect(() => {
     setShareLeft(false);
+    setShareChef('');
     if (!shareId) return;
-    return watchShare(shareId, (row) => setShareLeft(householdShareState(shareId, row?.status) === 'left'), () => setShareLeft(false));
+    return watchShare(
+      shareId,
+      (row) => {
+        setShareLeft(householdShareState(shareId, row?.status) === 'left');
+        setShareChef(row?.status === 'ACTIVE' ? row.chefUid : ''); // BUDG-43
+      },
+      () => {
+        setShareLeft(false);
+        setShareChef('');
+      }
+    );
   }, [shareId]);
 
   // Household view of a shared list: private twins (price, plan, links) merged with
@@ -383,6 +416,16 @@ export default function ShoppingScreen() {
     });
     return merged;
   }, [privateItems, sharedItems, shareId]);
+
+  // BUDG-43 AC-2 / AC-4: household client only (uid === myUid or a member; never the chef, who has no list here).
+  useChefPendingEntries(
+    uid || '',
+    shareId && shareChef ? { shareId, chefUid: shareChef, listId: selectedListId, listName: selectedList?.name, active: true } : null,
+    sharedItems as { id: string; name: string; unit?: string; category?: string; createdBy?: string }[],
+    catalogRows,
+    catalogLoaded
+  );
+  useCatalogCopySync(Boolean(uid && shareChef), catalogRows, shareId ? [shareId] : [], catalogLoaded);
 
   useEffect(() => {
     if (!myUid) return;
@@ -584,6 +627,16 @@ export default function ShoppingScreen() {
 
   const completionScopeLabel = selectedItems.length > 0 ? 'selected items' : 'shopping items';
   const isShoppingListEmpty = displayItems.length === 0;
+  // BUDG-42: a list switch leaves select mode and drops a pending Undo; live updates prune the selection.
+  useEffect(() => {
+    setSelectMode(false);
+    setPickedIds([]);
+    setUndo(null);
+  }, [selectedListId]);
+  const removableKey = displayItems.map((it) => it.id || '').join('|');
+  useEffect(() => {
+    setPickedIds((prev) => pruneSelected(prev, removableKey ? removableKey.split('|') : []));
+  }, [removableKey]);
 
   function resolvePlanForItemName(name: string, catalog?: ShoppingCatalogItem | null) {
     const catalogPlanId = String(catalog?.assignedPlanItemId || '').trim();
@@ -689,7 +742,11 @@ export default function ShoppingScreen() {
           await addShoppingCatalogAlias(uid, catalogItemId, name);
         }
       } else if (write.catalog === 'create') {
-        catalogItemId = await createShoppingCatalogItem(uid, { name, category: addDraft.category, unit: addDraft.unit || undefined });
+        catalogItemId = await createShoppingCatalogItem(uid, {
+          name, category: addDraft.category, unit: addDraft.unit || undefined,
+          // BUDG-43 AC-1: a new item from a list is kept in the catalog "to approve".
+          pending: { addedFrom: 'shopping-list', addedBy: myUid || uid, sourceListId: selectedListId, sourceListName: selectedList?.name },
+        });
       }
       const plan = resolvePlanForItemName(itemName, catalog);
       const fields = {
@@ -784,6 +841,57 @@ export default function ShoppingScreen() {
     if (!uid || !selectedListId || !item.id) return;
     if (!item.fromChef) await deleteShoppingListItem(uid, selectedListId, item.id, mirror);
     else if (shareId) await deleteSharedItem(shareId, item.id);
+  }
+
+  // BUDG-42 AC-6: only the item doc and its sharedLists mirror; a chef-added item lives only in the share.
+  function targetFor(item: ShoppingListItem): RemoveTarget {
+    return item.fromChef ? { id: item.id || '', private: false, shared: Boolean(shareId) } : { id: item.id || '', private: true, shared: Boolean(mirror) };
+  }
+  const removeScope = () => ({ ownerUid: uid || undefined, listId: selectedListId || undefined, shareId: shareId || undefined });
+
+  async function removeOneWithUndo(item: ShoppingListItem) {
+    if (!uid || !selectedListId || !item.id) return;
+    try {
+      const { snapshots } = await removeShoppingItemsIn(db, removeScope(), [targetFor(item)], { snapshot: true });
+      setUndo({ key: Date.now(), name: item.name, snapshots });
+    } catch (e: unknown) {
+      Alert.alert('Could not remove the item', e instanceof Error ? e.message : 'Try again.');
+    }
+  }
+
+  async function undoRemove() {
+    const last = undo;
+    setUndo(null);
+    if (!last) return;
+    try {
+      await restoreShoppingItemsIn(db, last.snapshots, myUid);
+    } catch (e: unknown) {
+      Alert.alert('Could not bring the item back', e instanceof Error ? e.message : 'Try again.');
+    }
+  }
+
+  async function confirmRemove() {
+    if (!removeAsk || removing) return;
+    const byId = new Map(items.map((it) => [it.id || '', it]));
+    const targets = removeAsk.ids.map((id) => byId.get(id)).filter((it): it is ShoppingListItem => Boolean(it?.id)).map(targetFor);
+    setRemoving(true);
+    setRemoveError('');
+    try {
+      await removeShoppingItemsIn(db, removeScope(), targets);
+      setRemoveAsk(null);
+      setSelectMode(false);
+      setPickedIds([]);
+    } catch (e: unknown) {
+      setRemoveError(e instanceof Error ? e.message : 'Could not remove the items.');
+    } finally {
+      setRemoving(false);
+    }
+  }
+
+  function enterSelect(firstId?: string) {
+    setUndo(null);
+    setPickedIds(firstId ? [firstId] : []);
+    setSelectMode(true);
   }
 
   async function removeList(list: ShoppingList) {
@@ -1323,6 +1431,11 @@ export default function ShoppingScreen() {
         got={Boolean(item.bought)}
         onToggle={() => void toggleBought(item)}
         onPress={() => openEditItem(item)}
+        onRemove={() => void removeOneWithUndo(item)}
+        onLongPress={() => enterSelect(item.id)}
+        selectMode={selectMode}
+        selected={pickedIds.includes(item.id || '')}
+        onSelect={() => setPickedIds((prev) => toggleSelected(prev, item.id || ''))}
       />
     );
   }
@@ -1355,7 +1468,7 @@ export default function ShoppingScreen() {
     if (!selectedList) return null;
     const sub = isShoppingListEmpty
       ? 'No items yet'
-      : `${toBuyItems.length} to buy${toBuyEstimate > 0 ? ` · est. ${fmtMoney(toBuyEstimate)}` : ''}`;
+      : `${toBuyItems.length} to buy${toBuyEstimate > 0 ? ` · est. ${fmtMoney(toBuyEstimate)}` : ''}${selectedItems.length ? ` · ${selectedItems.length} got${selectedTotal > 0 ? ` ${fmtMoney(selectedTotal)}` : ''}` : ''}`;
     return (
       <View className="gap-3">
         {!isWide ? (
@@ -1373,7 +1486,11 @@ export default function ShoppingScreen() {
             variant="outline"
             size="touch"
             className="w-11 lg:w-9 px-0"
-            onPress={(e) => moreSheet.show(e)}
+            onPress={(e) => {
+              const t = (e as { currentTarget?: unknown } | undefined)?.currentTarget;
+              optionsOpener.current = typeof HTMLElement !== 'undefined' && t instanceof HTMLElement ? (t.closest('button, [role="button"], [tabindex]') as HTMLElement | null) ?? t : null;
+              moreSheet.show(e);
+            }}
           >
             <MaterialCommunityIcons name="dots-horizontal" size={22} color="#717182" />
           </AppButton>
@@ -1390,18 +1507,7 @@ export default function ShoppingScreen() {
               <AppButton label="Stop sharing" variant="ghost" size="touch" onPress={() => setStopShareOpen(true)} />
             )}
           </View>
-        ) : (
-          <AppButton
-            label="Share with chef"
-            variant="outline"
-            size="touch"
-            className="self-start"
-            onPress={() => {
-              setShareError('');
-              setShareOpen(true);
-            }}
-          />
-        )}
+        ) : null}
         {receiptNotice ? <Text accessibilityLiveRegion="polite" className="text-sm text-foreground dark:text-zinc-50">{receiptNotice}</Text> : null}
       </View>
     );
@@ -1417,6 +1523,18 @@ export default function ShoppingScreen() {
       <View className="min-h-0 flex-1">
         <ScrollView className="flex-1" contentContainerClassName="gap-6 pb-6" keyboardShouldPersistTaps="handled">
           {renderListHeader()}
+          {selectMode ? (
+            <SelectBar
+              count={pickedIds.length}
+              allSelected={displayItems.length > 0 && pickedIds.length === displayItems.length}
+              onSelectAll={() => setPickedIds((prev) => toggleSelectAll(prev, displayItems.map((it) => it.id || '').filter(Boolean)))}
+              onRemove={() => {
+                setRemoveError('');
+                setRemoveAsk({ ids: pickedIds });
+              }}
+              onCancel={() => setSelectMode(false)}
+            />
+          ) : (
           <AddItemBar
             value={itemDraftName}
             onChangeText={(v) => {
@@ -1437,6 +1555,7 @@ export default function ShoppingScreen() {
             offerNew={!catalogRows.some((row) => normalize(row.name || '') === normalize(itemDraftName))}
             error={itemError}
           />
+          )}
           {isShoppingListEmpty ? <EmptyState icon="playlist-plus" message="Add the first item above." testID="list-empty" /> : null}
           {!isShoppingListEmpty && toBuyItems.length === 0 ? (
             <View testID="all-got" className="rounded-xl border border-emerald-300 bg-emerald-50 p-3 md:p-4 dark:border-emerald-800 dark:bg-emerald-950/30">
@@ -1454,33 +1573,35 @@ export default function ShoppingScreen() {
             </ItemSection>
           ) : null}
         </ScrollView>
-        {gotCount ? (
-          <GotItFooter
-            count={gotCount}
-            total={selectedTotal > 0 ? fmtMoney(selectedTotal) : ''}
-            onRecord={() => {
-              setRecordError('');
-              startCompletion();
-            }}
-            onReceipt={() => {
-              setReceiptNotice('');
-              setReceiptOpen(true);
-            }}
-          />
-        ) : null}
+        {undo ? <UndoNotice key={undo.key} name={undo.name} onUndo={() => void undoRemove()} onDone={() => setUndo(null)} /> : null}
       </View>
     );
   };
 
   const selectedImportCount = Object.values(importSelection).filter(Boolean).length;
   const editTarget = items.find((row) => row.id === editDraft.id);
-  const moreActions: { label: string; run: () => void; disabled?: boolean; danger?: boolean }[] = selectedList
+  // BUDG-42 AC-5: every list action lives here, in groups; nothing else on the screen offers them.
+  type MenuAction = { label: string; run: () => void; disabled?: boolean; danger?: boolean };
+  const allIds = displayItems.map((it) => it.id || '').filter(Boolean);
+  const gotIds = selectedItems.map((it) => it.id || '').filter(Boolean);
+  const moreGroups: MenuAction[][] = selectedList
     ? [
-        { label: 'Add receipt', run: () => { setReceiptNotice(''); setReceiptOpen(true); }, disabled: isShoppingListEmpty },
-        { label: 'Add from catalog', run: () => setImportOpen(true) },
-        { label: 'Paste from WhatsApp', run: () => openSmartImport('planned') },
-        { label: 'Reconcile purchases', run: () => openSmartImport('purchase'), disabled: isShoppingListEmpty },
-        ...(listItemCounts[selectedList.id || ''] === 0 ? [{ label: 'Delete list', run: () => void removeList(selectedList), danger: true }] : []),
+        [
+          { label: 'Record expense', run: () => { setRecordError(''); startCompletion(); }, disabled: isShoppingListEmpty },
+          { label: 'Add receipt', run: () => { setReceiptNotice(''); setReceiptOpen(true); }, disabled: isShoppingListEmpty },
+          { label: 'Add from catalog', run: () => setImportOpen(true) },
+        ],
+        [
+          { label: 'Select items', run: () => enterSelect(), disabled: isShoppingListEmpty },
+          ...(gotIds.length ? [{ label: `Remove got items (${gotIds.length})`, run: () => { setRemoveError(''); setRemoveAsk({ ids: gotIds }); }, danger: true }] : []),
+          { label: 'Remove all items', run: () => { setRemoveError(''); setRemoveAsk({ ids: allIds }); }, disabled: isShoppingListEmpty, danger: true },
+        ],
+        [
+          ...(!selectedList.shareId ? [{ label: 'Share with chef', run: () => { setShareError(''); setShareOpen(true); } }] : []),
+          { label: 'Paste from WhatsApp', run: () => openSmartImport('planned') },
+          { label: 'Reconcile purchases', run: () => openSmartImport('purchase'), disabled: isShoppingListEmpty },
+          ...(listItemCounts[selectedList.id || ''] === 0 ? [{ label: 'Delete list', run: () => void removeList(selectedList), danger: true }] : []),
+        ],
       ]
     : [];
 
@@ -1617,20 +1738,34 @@ export default function ShoppingScreen() {
         title={selectedList?.name || 'List options'}
         testID="list-options"
       >
-        <View className="overflow-hidden rounded-xl border border-border bg-card dark:border-zinc-800 dark:bg-zinc-900">
-          {moreActions.map((action, i) => (
-            <Pressable
-              key={action.label}
-              accessibilityRole="button"
-              disabled={action.disabled}
-              onPress={() => moreSheet.hide(action.run)}
-              className={cn('min-h-11 lg:min-h-9 justify-center px-4 hover:bg-muted/50 active:bg-muted dark:hover:bg-zinc-800/60', i > 0 && 'border-t border-border dark:border-zinc-800', action.disabled && 'opacity-50')}
-            >
-              <Text className={cn('text-sm font-medium', action.danger ? 'text-destructive dark:text-red-300' : 'text-foreground dark:text-zinc-50')}>{action.label}</Text>
-            </Pressable>
+        <View className="gap-3">
+          {moreGroups.filter((g) => g.length).map((group, gi) => (
+            <View key={gi} testID="list-options-group" className="overflow-hidden rounded-xl border border-border bg-card dark:border-zinc-800 dark:bg-zinc-900">
+              {group.map((action, i) => (
+                <Pressable
+                  key={action.label}
+                  accessibilityRole="button"
+                  disabled={action.disabled}
+                  onPress={() => moreSheet.hide(action.run)}
+                  className={cn('min-h-11 lg:min-h-9 justify-center px-4 hover:bg-muted/50 active:bg-muted dark:hover:bg-zinc-800/60', i > 0 && 'border-t border-border dark:border-zinc-800', action.disabled && 'opacity-50')}
+                >
+                  <Text className={cn('text-sm font-medium', action.danger ? 'text-destructive dark:text-red-300' : 'text-foreground dark:text-zinc-50')}>{action.label}</Text>
+                </Pressable>
+              ))}
+            </View>
           ))}
         </View>
       </AppSheet>
+
+      <RemoveConfirmDialog
+        open={Boolean(removeAsk)}
+        count={removeAsk?.ids.length || 0}
+        listName={selectedList?.name || ''}
+        busy={removing}
+        error={removeError}
+        onClose={() => setRemoveAsk(null)}
+        onConfirm={() => void confirmRemove()}
+      />
 
       <AppSheet
         open={createListOpen}

@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
-import { EVIDENCE, FIRESTORE, listIds, reseed, shot, signIn } from './helpers';
+import { EVIDENCE, FIRESTORE, listAction, listIds, reseed, shot, signIn } from './helpers';
 
 const CHEF = { email: 'chef@example.test', password: 'seed-chef-pass' };
 const LIST = 'list-party';
@@ -90,7 +90,7 @@ test('BUDG-4 shopping: catalog, duplicates, chef sharing and revoke', async ({ b
   await shot(household, testInfo, 'AC-1-list-with-new-items');
 
   // AC-4 share with the chef (separate signed-in account)
-  await household.getByText('Share with chef', { exact: true }).click();
+  await listAction(household, 'Share with chef'); // BUDG-42: moved to List options
   await household.getByLabel('Chef account ID').fill('seed-chef');
   await household.getByText('Share list', { exact: true }).click(); // BUDG-8 S11: sheet button renamed
   await expect(household.getByText('Shared with Chef')).toBeVisible();
@@ -169,7 +169,7 @@ test('BUDG-4 shopping: catalog, duplicates, chef sharing and revoke', async ({ b
   // AC-5 revoke takes effect for the chef
   await household.getByText('Stop sharing', { exact: true }).click(); // BUDG-8 S11: Revoke -> Stop sharing + confirm
   await household.getByTestId('confirm-stop-sharing').click();
-  await expect(household.getByText('Share with chef', { exact: true })).toBeVisible();
+  await expect(household.getByTestId('share-state')).toHaveCount(0);
   await expect(chefPage.getByText('Access ended')).toBeVisible();
   await expect(chefPage.getByText('Juice')).toHaveCount(0);
   await shot(chefPage, testInfo, 'AC-5-chef-access-ended');
