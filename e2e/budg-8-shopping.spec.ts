@@ -139,6 +139,10 @@ test('S10 keyboard, focus return, Back, empty list, list options', async ({ page
   await expect(page.getByPlaceholder('Add item...')).toBeVisible(); // still on the list
   // Tab order: the add field comes before the first Got-it circle.
   await page.getByPlaceholder('Add item...').focus();
+  // BUDG-40 F-5: the closed sheet's focus return used to retry for a second and pull focus back to
+  // "List options" after it had moved on, so the Tabs below started from the wrong control (1 run in 3).
+  await page.waitForTimeout(1200);
+  await expect(page.getByPlaceholder('Add item...')).toBeFocused();
   const stops: string[] = [];
   for (let i = 0; i < 4; i++) {
     await page.keyboard.press('Tab');

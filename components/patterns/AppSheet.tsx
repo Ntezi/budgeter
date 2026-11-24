@@ -5,6 +5,17 @@ import { AppModal } from '@/components/ui/AppModal';
 const WEB = Platform.OS === 'web' && typeof window !== 'undefined';
 
 /**
+ * BUDG-40 AC-4 (F-5): the focus-return retry after a sheet closes ran for up to a second and pulled focus
+ * back to the opener even after the user (or a test) had moved it to another control. Retry only while
+ * focus is still nowhere (body) or inside a closing modal; once it sits on another control, stop.
+ */
+export function focusMovedOn(trigger: HTMLElement): boolean {
+  const active = document.activeElement as HTMLElement | null;
+  if (!active || active === document.body || active === trigger) return false;
+  return !active.closest('[aria-modal="true"]');
+}
+
+/**
  * Open state for one sheet (BUDG-8 00 "Keyboard, focus, Back, touch"):
  * - on web, opening adds a history entry so browser Back closes the sheet before leaving the route;
  * - closing (Escape, close button, backdrop, Back) returns focus to the control that opened it;
@@ -29,7 +40,7 @@ export function useSheet() {
     if (!WEB || !trigger) return;
     let tries = 0;
     const tick = () => {
-      if (!document.contains(trigger) || document.activeElement === trigger || tries++ > 20) return;
+      if (!document.contains(trigger) || document.activeElement === trigger || focusMovedOn(trigger) || tries++ > 20) return;
       trigger.focus();
       setTimeout(tick, 50);
     };

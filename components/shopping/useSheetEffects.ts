@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
+import { focusMovedOn } from '@/components/patterns/AppSheet';
 
 const WEB = Platform.OS === 'web' && typeof window !== 'undefined';
 
@@ -37,7 +38,7 @@ export function useSheetEffects(open: boolean, close: () => void, opener?: { cur
       // The modal keeps focus trapped until its close animation ends, so retry until focus lands.
       let tries = 0;
       const tick = () => {
-        if (!trigger || !document.contains(trigger) || document.activeElement === trigger || tries++ > 20) return;
+        if (!trigger || !document.contains(trigger) || document.activeElement === trigger || focusMovedOn(trigger) || tries++ > 20) return;
         trigger.focus();
         setTimeout(tick, 50);
       };
