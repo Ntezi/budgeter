@@ -52,13 +52,19 @@ export const CHEF_ROUTE = '/shopping';
  * Anything else is a household user. Unknown (still loading) is null: show no navigation.
  */
 export function audienceFor(
-  s: { sharedWithMe: number | null; ownMonths: number | null; memberships: number | null },
+  s: { sharedWithMe: number | null; ownMonths: number | null; memberships: number | null; ownLists?: number | null },
   /** BUDG-8: this session already showed the chef shell. A chef whose last share ends stays a chef
    *  (and sees "Access ended") until they get a household of their own. */
-  wasChef = false
+  wasChef = false,
+  /** BUDG-6 H-1: the user chose "Start my own budget" in the chef view; they keep the household shell
+   *  (with shared lists under Shopping) even before their first month exists. */
+  ownBudgetChosen = false
 ): Audience | null {
+  if (ownBudgetChosen) return 'household';
   if (s.sharedWithMe == null || s.ownMonths == null || s.memberships == null) return null;
-  const noHousehold = s.ownMonths === 0 && s.memberships === 0;
+  if (s.ownLists === null) return null; // still loading (undefined = not watched)
+  // H-1: own shopping lists are household data too, so a share never hides a user's own lists.
+  const noHousehold = s.ownMonths === 0 && s.memberships === 0 && !(s.ownLists && s.ownLists > 0);
   return noHousehold && (s.sharedWithMe > 0 || wasChef) ? 'chef' : 'household';
 }
 

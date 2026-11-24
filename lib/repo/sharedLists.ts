@@ -5,6 +5,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  limit,
   onSnapshot,
   query,
   serverTimestamp,
@@ -104,4 +105,9 @@ export async function updateSharedItem(shareId: string, actorUid: string, itemId
 
 export async function deleteSharedItem(shareId: string, itemId: string) {
   return deleteDoc(doc(sharedItemsCol(shareId), itemId));
+}
+
+/** BUDG-6 H-1: does this user own any shopping list (household data)? One doc at most; a read error counts as none. */
+export function watchOwnListCount(myUid: string, cb: (count: number) => void) {
+  return onSnapshot(query(collection(db, 'users', myUid, 'shoppingLists'), limit(1)), (snap) => cb(snap.size), () => cb(0));
 }

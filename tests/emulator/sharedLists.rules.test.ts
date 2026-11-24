@@ -9,7 +9,8 @@ import {
   collection, collectionGroup, connectFirestoreEmulator, deleteDoc, doc, getDoc, getDocs, getFirestore, query,
   serverTimestamp, setDoc, terminate, updateDoc, where, type Firestore,
 } from 'firebase/firestore';
-import { connectAuthEmulator, getAuth, signInAnonymously, signInWithEmailAndPassword } from 'firebase/auth';
+import { connectAuthEmulator, createUserWithEmailAndPassword, getAuth, signInAnonymously, signInWithEmailAndPassword } from 'firebase/auth';
+import { audienceFor } from '../../lib/shell/nav';
 import { emulatorPorts } from '../../lib/emulatorPorts';
 import { recordShoppingExpense } from '../../lib/repo/shoppingExpense';
 import { localDateISO } from '../../lib/rules/postingMonth';
@@ -284,3 +285,51 @@ describe('C-10 existing data stays intact (pre-change shapes)', () => {
     assert.equal(after.items[added.id]?.price, undefined, 'no price invented');
   });
 });
+
+// BUDG-6 H-1 (challenge review): a share addressed to someone is never a lock. The challenger's proof
+// (stranger shares their own list naming a victim) is replayed: the lock-out is now denied, the victim
+// can leave (status only), and nothing else about the share is theirs to change.
+describe('H-1 forced share: the named chef can always leave; the share cannot lock them out', () => {
+  test('challenger H-1 replayed: victim with own list stays household, leaves the share, then loses read', async () => {
+    const app = initializeApp({ projectId: 'demo-budgeta', apiKey: 'demo-api-key' }, `rules-victim-${run}`);
+    const vdb = getFirestore(app);
+    connectFirestoreEmulator(vdb, '127.0.0.1', ports.firestore);
+    const vauth = getAuth(app);
+    connectAuthEmulator(vauth, `http://127.0.0.1:${ports.auth}`, { disableWarnings: true });
+    const victimUid = (await createUserWithEmailAndPassword(vauth, `victim-${run}@example.test`, `victim-${run}-pass`)).user.uid;
+    apps.push(app); dbs.push(vdb);
+    await allowed(setDoc(doc(vdb, 'users', victimUid, 'shoppingLists', 'mine'), { name: 'My list' }), 'victim own list');
+    await allowed(setDoc(doc(stranger.db, 'users', stranger.uid, 'shoppingLists', `bait-${run}`), { name: 'x' }), 'stranger own list');
+    const ref = doc(collection(stranger.db, 'sharedLists'));
+    // A share of a list the creator owns is valid (no consent step exists); what changes is that it can no longer lock anyone.
+    await allowed(setDoc(ref, { ownerUid: stranger.uid, listId: `bait-${run}`, listName: 'Your bank asks you to verify', chefUid: victimUid, chefLabel: 'Chef', status: 'ACTIVE', createdBy: stranger.uid, createdAt: serverTimestamp() }), 'stranger shares own list');
+    const shared = await getDocs(query(collection(vdb, 'sharedLists'), where('chefUid', '==', victimUid), where('status', '==', 'ACTIVE')));
+    const months = await getDocs(collection(vdb, 'users', victimUid, 'periods'));
+    const lists = await getDocs(collection(vdb, 'users', victimUid, 'shoppingLists'));
+    assert.equal(shared.size, 1);
+    assert.equal(months.size, 0);
+    // Lock-out denied: a user with household data of their own is never classed as a chef.
+    assert.equal(audienceFor({ sharedWithMe: shared.size, ownMonths: months.size, memberships: 0, ownLists: lists.size }), 'household');
+    // The victim may change nothing but the status: not the label, not the name, not a re-point.
+    await denied(updateDoc(doc(vdb, 'sharedLists', ref.id), { chefLabel: 'Me' }), 'victim edits label');
+    await denied(updateDoc(doc(vdb, 'sharedLists', ref.id), { status: 'REVOKED', revokedAt: serverTimestamp(), listName: 'y' }), 'victim leaves and renames');
+    await denied(updateDoc(doc(vdb, 'sharedLists', ref.id), { status: 'REVOKED' }), 'leave without revokedAt');
+    await denied(updateDoc(doc(stranger.db, 'sharedLists', shareId), { status: 'REVOKED', revokedAt: serverTimestamp() }), 'a non-chef ends someone else\'s share');
+    // Leave: status ACTIVE -> REVOKED with revokedAt, allowed for the named chef.
+    await allowed(updateDoc(doc(vdb, 'sharedLists', ref.id), { status: 'REVOKED', revokedAt: serverTimestamp() }), 'victim leaves');
+    await denied(getDoc(doc(vdb, 'sharedLists', ref.id)), 'victim reads the share after leaving');
+    await denied(updateDoc(doc(vdb, 'sharedLists', ref.id), { status: 'ACTIVE' }), 'victim re-activates');
+    await denied(setDoc(doc(vdb, 'sharedLists', ref.id, 'items', 'x'), item(victimUid)), 'victim writes items after leaving');
+    const after = await getDocs(query(collection(vdb, 'sharedLists'), where('chefUid', '==', victimUid), where('status', '==', 'ACTIVE')));
+    assert.equal(after.size, 0);
+    // A user with no data of their own who left keeps the chef view only until "Start my own budget".
+    assert.equal(audienceFor({ sharedWithMe: 0, ownMonths: 0, memberships: 0, ownLists: 0 }, true), 'chef');
+    assert.equal(audienceFor({ sharedWithMe: 0, ownMonths: 0, memberships: 0, ownLists: 0 }, true, true), 'household');
+  });
+
+  test('a share is valid only for a list of the creator\'s own household', async () => {
+    await denied(setDoc(doc(collection(stranger.db, 'sharedLists')), { ...shareDoc(chef.uid), createdBy: stranger.uid }), 'stranger shares the owner\'s list');
+    await denied(setDoc(doc(collection(stranger.db, 'sharedLists')), { ...shareDoc(chef.uid), ownerUid: stranger.uid, listId: `no-such-${run}`, createdBy: stranger.uid }), 'share of a list that does not exist');
+  });
+});
+

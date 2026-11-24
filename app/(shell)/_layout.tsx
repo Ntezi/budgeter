@@ -15,7 +15,9 @@ import { activeAreaId, activeItem, audienceFor, layoutFor, pageTitleFor, shellVi
 import { useAuthUser } from '@/providers/AuthProvider';
 import { useWorkspace } from '@/providers/WorkspaceProvider';
 import { watchPeriods } from '@/lib/repo/periods';
-import { watchSharedWithMe } from '@/lib/repo/sharedLists';
+import { watchOwnListCount, watchSharedWithMe } from '@/lib/repo/sharedLists';
+import { AppButton } from '@/components/ui/AppButton';
+import { chooseOwnBudget, OWN_BUDGET_ROUTE, takeOwnBudgetRoute, useOwnBudgetChosen } from '@/lib/shell/ownBudget';
 
 /**
  * BUDG-8 S2 navigation shell (briefs/redesign/00 "Shell"): bottom bar below 768 px, rail
@@ -36,17 +38,24 @@ function useAudience(): Audience | null {
   const { workspaceOptions, ready } = useWorkspace();
   const [shared, setShared] = useState<number | null>(null);
   const [months, setMonths] = useState<number | null>(null);
+  const [lists, setLists] = useState<number | null>(null);
+  const ownChosen = useOwnBudgetChosen(myUid);
+  useEffect(() => {
+    if (!myUid) return;
+    return watchOwnListCount(myUid, setLists);
+  }, [myUid]);
   useEffect(() => {
     if (!myUid) return;
     return watchSharedWithMe(myUid, (rows) => setShared(rows.length), () => setShared(0));
   }, [myUid]);
   useEffect(() => {
     if (!myUid) return;
-    return watchPeriods(myUid, (rows) => setMonths(rows.length));
+    // H-1 / R-1: a read error must not leave the blank loading frame; it counts as no month.
+    return watchPeriods(myUid, (rows) => setMonths(rows.length), () => setMonths(0));
   }, [myUid]);
   const memberships = ready ? workspaceOptions.filter((w) => w.ownerUid !== myUid).length : null;
   const chefFor = useRef(''); // uid that has seen the chef shell in this session
-  const audience = audienceFor({ sharedWithMe: shared, ownMonths: months, memberships }, chefFor.current === myUid && !!myUid);
+  const audience = audienceFor({ sharedWithMe: shared, ownMonths: months, memberships, ownLists: lists }, chefFor.current === myUid && !!myUid, ownChosen);
   if (audience === 'chef') chefFor.current = myUid;
   if (audience === 'household') rememberHousehold(myUid);
   // D-5: only a household seen earlier in this tab skips the wait (so its screens show their own
@@ -92,6 +101,7 @@ function ShellLoading() {
  * entry behind it in the stack.
  */
 function ChefShell() {
+  const myUid = useAuthUser()?.uid || '';
   const pathname = usePathname();
   const nav = useNavigationContainerRef();
   const view = shellViewFor('chef', pathname);
@@ -104,6 +114,10 @@ function ChefShell() {
       <SafeAreaView edges={['top', 'left', 'right', 'bottom']} className="flex-1">
         <View role="main" testID="chef-shell" className="min-h-0 flex-1 px-4 pb-4 pt-3 md:px-6 md:pt-4 lg:px-8 lg:pt-6">
           <View className="mx-auto w-full max-w-[1200px] flex-1">{view === 'chef' ? <Slot /> : null}</View>
+          {/* H-1: a share never keeps anyone out of their own budget; this creates nothing by itself. */}
+          <View className="mx-auto w-full max-w-[1200px] pt-3">
+            <AppButton label="Start my own budget" variant="outline" size="touch" testID="chef-own-budget" accessibilityLabel="Start my own budget" onPress={() => chooseOwnBudget(myUid)} />
+          </View>
         </View>
       </SafeAreaView>
     </View>
@@ -116,6 +130,10 @@ function HouseholdShell({ ready }: { ready: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
   const more = useSheet();
+  // H-1: arriving from "Start my own budget" opens Plan with the New month sheet (nothing is created until Save).
+  useEffect(() => {
+    if (takeOwnBudgetRoute()) router.replace(OWN_BUDGET_ROUTE as never);
+  }, [router]);
 
   const items = useMemo(() => visibleItems('household'), []);
   const primary = useMemo(() => items.filter((it) => it.group === 'primary'), [items]);

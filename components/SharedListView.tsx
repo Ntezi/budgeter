@@ -11,6 +11,9 @@ import { AddItemBar } from '@/components/shopping/AddItemBar';
 import { ItemRow, ItemSection, qtyLabel } from '@/components/shopping/ItemRow';
 import { ItemSheet } from '@/components/shopping/ItemSheet';
 import { AppButton } from '@/components/ui/AppButton';
+import { db } from '@/lib/firebase';
+import { displayListName } from '@/lib/repo/sharedListsCore';
+import { leaveShareIn } from '@/lib/repo/sharedListsOps';
 import { useSheetEffects } from '@/components/shopping/useSheetEffects';
 import {
   addSharedItem,
@@ -31,6 +34,7 @@ export function SharedListView({ shareId, myUid, onBack, showBack = true }: { sh
   const [newName, setNewName] = useState('');
   const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState('');
+  const [confirmLeave, setConfirmLeave] = useState(false);
   useSheetEffects(Boolean(draft), () => setDraft(null));
 
   useEffect(() => {
@@ -124,7 +128,7 @@ export function SharedListView({ shareId, myUid, onBack, showBack = true }: { sh
       <ScrollView className="flex-1" contentContainerClassName="gap-6 pb-6" keyboardShouldPersistTaps="handled">
         <View className="gap-1">
           {back}
-          <Text role="heading" aria-level={2} className="text-xl font-bold text-foreground dark:text-zinc-50" numberOfLines={2}>{share.listName || 'Shared list'}</Text>
+          <Text role="heading" aria-level={2} className="text-xl font-bold text-foreground dark:text-zinc-50" numberOfLines={2}>{displayListName(share.listName) || 'Shared list'}</Text>
           <Text className="text-sm text-muted-foreground dark:text-zinc-400">Shared by the household · you can add items and tick them off</Text>
         </View>
         <AddItemBar value={newName} onChangeText={setNewName} onSubmit={() => void addQuick()} error={error} />
@@ -136,6 +140,21 @@ export function SharedListView({ shareId, myUid, onBack, showBack = true }: { sh
         ) : null}
         {toBuy.length ? <ItemSection title="To buy" count={toBuy.length}>{toBuy.map(row)}</ItemSection> : null}
         {got.length ? <ItemSection title="Got it" count={got.length}>{got.map(row)}</ItemSection> : null}
+        {share.chefUid === myUid ? (
+          <View className="gap-2" testID="chef-leave">
+            {confirmLeave ? (
+              <>
+                <Text className="text-sm text-foreground dark:text-zinc-50">Leave this list? The household keeps it; you lose access.</Text>
+                <View className="flex-row flex-wrap gap-2">
+                  <AppButton label="Leave" variant="destructive" size="touch" accessibilityLabel="Confirm leave this list" onPress={() => void run(() => leaveShareIn(db, shareId))} />
+                  <AppButton label="Cancel" variant="ghost" size="touch" accessibilityLabel="Keep this list" onPress={() => setConfirmLeave(false)} />
+                </View>
+              </>
+            ) : (
+              <AppButton label="Leave this list" variant="ghost" size="touch" className="self-start px-1" accessibilityLabel="Leave this list" onPress={() => setConfirmLeave(true)} />
+            )}
+          </View>
+        ) : null}
       </ScrollView>
 
       <ItemSheet

@@ -70,3 +70,15 @@ export function validateChefUid(chefUid: string, ownerUid: string, actorUid: str
   if (memberUids.includes(id)) return 'That account is a household member and already sees everything.';
   return '';
 }
+
+/** BUDG-6 H-1 (c): the list name a chef is shown comes from another account, so show it as one plain,
+ *  short line: control and bidi-override characters removed, whitespace collapsed, at most 60 characters. */
+export const SHARED_LIST_NAME_MAX = 60;
+export function displayListName(name: unknown): string {
+  const clean = String(name ?? '')
+    .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const chars = Array.from(clean);
+  return chars.length > SHARED_LIST_NAME_MAX ? `${chars.slice(0, SHARED_LIST_NAME_MAX - 1).join('').trimEnd()}…` : clean;
+}

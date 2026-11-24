@@ -128,7 +128,7 @@ export async function createPeriod(userId: string, periodId: string, title: stri
   return ref;
 }
 
-export function watchPeriods(userId: string, cb: (rows: (PeriodDoc & { id: string })[]) => void) {
+export function watchPeriods(userId: string, cb: (rows: (PeriodDoc & { id: string })[]) => void, onError?: (e: Error) => void) {
   const col = collection(db, 'users', userId, 'periods');
   return onSnap(col, (snap) => {
     const out: (PeriodDoc & { id: string })[] = [];
@@ -147,7 +147,7 @@ export function watchPeriods(userId: string, cb: (rows: (PeriodDoc & { id: strin
       return String(b.id || '').localeCompare(String(a.id || ''));
     });
     cb(out);
-  });
+  }, (e) => onError?.(e));
 }
 
 export function watchPeriod(userId: string, periodId: string, cb: (p: PeriodDoc) => void) {

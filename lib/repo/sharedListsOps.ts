@@ -1,7 +1,7 @@
 // Share / revoke writes (BUDG-4, ADR-3, C-10). Takes the Firestore instance so emulator
 // tests can run them. C-10: the private list stays the source of truth; sharing only
 // adds docs under sharedLists and two fields on the list doc; nothing is moved or deleted.
-import { collection, deleteField, doc, getDocs, serverTimestamp, setDoc, writeBatch, type Firestore } from 'firebase/firestore';
+import { collection, deleteField, doc, getDocs, serverTimestamp, setDoc, updateDoc, writeBatch, type Firestore } from 'firebase/firestore';
 import { SHARED_ITEM_FIELDS, toSharedItemFields, type SharedItem, type SharedList } from './sharedListsCore';
 
 export async function shareListWithChefIn(
@@ -77,4 +77,9 @@ export async function revokeShareIn(db: Firestore, ownerUid: string, listId: str
   });
   batch.update(doc(db, 'users', ownerUid, 'shoppingLists', listId), { shareId: deleteField(), sharedWithLabel: deleteField() });
   await batch.commit();
+}
+
+/** BUDG-6 H-1: the chef ends a share addressed to them (rules allow only ACTIVE -> REVOKED with revokedAt). */
+export async function leaveShareIn(db: Firestore, shareId: string) {
+  await updateDoc(doc(db, 'sharedLists', shareId), { status: 'REVOKED', revokedAt: serverTimestamp() });
 }

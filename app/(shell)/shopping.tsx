@@ -48,6 +48,7 @@ import { localDateISO, postingPeriodId } from '@/lib/rules/postingMonth';
 import { monthTitle } from '@/lib/rules/months';
 import { planCatalogWrite, searchCatalog, suggestCatalogMatches, type AddChoice } from '@/lib/rules/catalogMatch';
 import { recordShoppingExpense } from '@/lib/repo/shoppingExpense';
+import { displayListName } from '@/lib/repo/sharedListsCore';
 import {
   deleteSharedItem,
   revokeShare,
@@ -1420,7 +1421,7 @@ export default function ShoppingScreen() {
             <ListsList
               loading={!listsLoaded}
               lists={orderedLists.filter((l) => l.id).map((l) => ({ id: l.id as string, name: l.name, count: listItemCounts[l.id as string], got: listGotCounts[l.id as string], sharedWith: l.shareId ? l.sharedWithLabel || 'chef' : undefined }))}
-              shared={sharedWithMe.filter((s) => s.id).map((s) => ({ id: s.id as string, name: s.listName }))}
+              shared={sharedWithMe.filter((s) => s.id).map((s) => ({ id: s.id as string, name: displayListName(s.listName) }))}
               selectedId={chefShareId || selectedListId}
               onOpen={(id) => {
                 setChefShareId('');

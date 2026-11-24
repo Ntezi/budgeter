@@ -83,6 +83,12 @@ service cloud.firestore {
         !exists(/databases/$(database)/documents/workspaceMembers/$(membershipDocId(request.resource.data.ownerUid, request.resource.data.chefUid))) &&
         exists(/databases/$(database)/documents/users/$(request.resource.data.ownerUid)/shoppingLists/$(request.resource.data.listId));
       // Only revoke (ACTIVE -> REVOKED) or a label change; ownerUid, listId, chefUid, createdBy immutable.
+      // H-1 (BUDG-6): the named chef can always end a share addressed to them (leave): ACTIVE -> REVOKED
+      // with revokedAt, nothing else. Household update rules below are unchanged.
+      allow update: if isRealUser() && resource.data.chefUid == request.auth.uid &&
+        resource.data.status == 'ACTIVE' && request.resource.data.status == 'REVOKED' &&
+        request.resource.data.revokedAt == request.time &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'revokedAt']);
       allow update: if isHouseholdOf(resource.data.ownerUid) &&
         request.resource.data.keys().hasOnly(shareKeys()) &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'revokedAt', 'chefLabel']) &&
