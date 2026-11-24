@@ -26,7 +26,8 @@ import type { ShoppingCatalogItem, ShoppingListItem } from '@/lib/repo/shopping'
 
 export const APP_CURRENCY = process.env.EXPO_PUBLIC_APP_CURRENCY || 'GHS';
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-const UNIT_OPTIONS = RECEIPT_UNITS.map((u) => ({ label: u, value: u }));
+// D-12: show 'piece' for the stored 'pc' (the stored value is unchanged).
+const UNIT_OPTIONS = RECEIPT_UNITS.map((u) => ({ label: u === 'pc' ? 'piece' : u, value: u }));
 
 type LineDraft = {
   lineId: string; name: string; qty: string; unit: string; total: string;
@@ -122,6 +123,7 @@ export function ReceiptModal({ open, onClose, onSaved, ownerUid, actorUid, accou
   const totalMinor = parsed.every((p) => p.minor !== null)
     ? receiptTotalMinor(parsed.map((p) => ({ lineTotalMinor: p.minor as number, isReturn: p.l.isReturn })))
     : null;
+  const [moreOpen, setMoreOpen] = useState<Record<string, boolean>>({});
   const catalogOptions = useMemo(
     () => [{ label: 'Not in catalog', value: '' }, ...catalog.filter((c) => c.id).map((c) => ({ label: c.name, value: c.id as string }))],
     [catalog]
@@ -133,7 +135,7 @@ export function ReceiptModal({ open, onClose, onSaved, ownerUid, actorUid, accou
   }, [txs, totalMinor]);
 
   function chip(p: (typeof parsed)[number]) {
-    if (!p.l.catalogItemId) return 'Not in catalog';
+    if (!p.l.catalogItemId) return ''; // D-12: the catalog field already reads 'Not in catalog'
     if (p.minor === null || !(p.qty > 0)) return 'Missing quantity or price';
     const n = normalizeQuantity(p.qty, p.l.unit, p.l.variant);
     const o: PriceObservation = {
@@ -258,11 +260,21 @@ export function ReceiptModal({ open, onClose, onSaved, ownerUid, actorUid, accou
                   <IconActionButton icon="trash-can-outline" label="Remove line" variant="danger" onPress={() => setLines((prev) => prev.filter((x) => x.lineId !== p.l.lineId))} />
                 </View>
                 <DropdownField value={p.l.catalogItemId} options={catalogOptions} onChange={(v) => setLine(p.l.lineId, { catalogItemId: v })} placeholder="Catalog item" menuStrategy="inline" triggerClassName="min-h-11" />
-                <Text className="text-sm text-muted-foreground dark:text-zinc-400" testID="price-chip">{chip(p)}</Text>
-                <View className="flex-row flex-wrap gap-2">
-                  <AppButton label={p.l.promo ? 'Promo' : 'No promo'} size="touch" variant={p.l.promo ? 'primary' : 'outline'} onPress={() => setLine(p.l.lineId, { promo: !p.l.promo })} />
-                  <AppButton label={p.l.isReturn ? 'Return' : 'Bought'} size="touch" variant={p.l.isReturn ? 'primary' : 'outline'} onPress={() => setLine(p.l.lineId, { isReturn: !p.l.isReturn })} />
-                </View>
+                {chip(p) ? <Text className="text-sm text-muted-foreground dark:text-zinc-400" testID="price-chip">{chip(p)}</Text> : null}
+                {/* D-12: promo and return sit behind More so three rows fit at 390; a set flag stays visible. */}
+                {moreOpen[p.l.lineId] ? (
+                  <View className="flex-row flex-wrap gap-2">
+                    <AppButton label={p.l.promo ? 'Not a promo' : 'Mark as promo'} size="touch" variant="outline" onPress={() => setLine(p.l.lineId, { promo: !p.l.promo })} />
+                    <AppButton label={p.l.isReturn ? 'Normal item' : 'Mark as return'} size="touch" variant="outline" onPress={() => setLine(p.l.lineId, { isReturn: !p.l.isReturn })} />
+                  </View>
+                ) : (
+                  <View className="flex-row flex-wrap items-center gap-2">
+                    {p.l.promo || p.l.isReturn ? (
+                      <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{[p.l.promo ? 'Promo' : '', p.l.isReturn ? 'Return' : ''].filter(Boolean).join(' · ')}</Text>
+                    ) : null}
+                    <AppButton label="More" variant="ghost" size="touch" accessibilityLabel={`More for ${p.l.name || 'this item'}`} onPress={() => setMoreOpen((m) => ({ ...m, [p.l.lineId]: true }))} />
+                  </View>
+                )}
               </View>
             ))}
           </View>

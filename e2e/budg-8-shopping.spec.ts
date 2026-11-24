@@ -83,6 +83,10 @@ for (const theme of THEMES) {
       await expect(page.getByTestId('record-expense-sheet')).toBeVisible();
       await expect(page.getByTestId('record-summary')).toBeVisible();
       expect((await listIds('periods', pid, 'transactions')).length).toBe(txBefore);
+      // D-11: a row without a line shows the hint, and Save stays disabled while any row lacks one.
+      const hints = await page.getByTestId('record-line-hint').count();
+      results[`S10-record-hints-${key}`] = hints;
+      if (hints) await expect(page.getByTestId('record-expense-sheet').getByLabel('Save expense', { exact: true })).toBeDisabled();
       results[`S10-record-${key}`] = { scroll: await noPageScroll(page), clipped: await clippedAmounts(page) };
       await snap(page, `S10-record-expense-${key}`);
       await page.keyboard.press('Escape');
@@ -98,6 +102,12 @@ for (const theme of THEMES) {
       // Receipt sheet (S11), pre-filled from the Got-it items.
       await page.getByText('Add receipt', { exact: true }).click();
       await expect(page.getByTestId('receipt-line').first()).toBeVisible();
+      // D-12: 'Not in catalog' once per row (no repeat under the field), unit reads 'piece', promo/return behind More.
+      for (const line of await page.getByTestId('receipt-line').all()) {
+        expect(await line.getByText('Not in catalog', { exact: true }).count(), `not-in-catalog once ${key}`).toBeLessThanOrEqual(1);
+        expect(await line.getByText('pc', { exact: true }).count(), `unit word ${key}`).toBe(0);
+        await expect(line.getByRole('button', { name: /^More for / })).toBeVisible();
+      }
       results[`S11-receipt-${key}`] = { scroll: await noPageScroll(page), clipped: await clippedAmounts(page) };
       await snap(page, `S11-receipt-${key}`);
       await page.keyboard.press('Escape');
