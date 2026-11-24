@@ -49,6 +49,7 @@ import { monthTitle } from '@/lib/rules/months';
 import { planCatalogWrite, searchCatalog, suggestCatalogMatches, type AddChoice } from '@/lib/rules/catalogMatch';
 import { recordShoppingExpense } from '@/lib/repo/shoppingExpense';
 import { displayListName } from '@/lib/repo/sharedListsCore';
+import { parseMinorInput } from '@/lib/money';
 import {
   deleteSharedItem,
   revokeShare,
@@ -889,6 +890,7 @@ export default function ShoppingScreen() {
   const completionValidation = useMemo(() => {
     const missingQuantity: string[] = [];
     const missingPrice: string[] = [];
+    const invalidPrice: string[] = [];
     const missingBudget: string[] = [];
     const nonFundedBudget: string[] = [];
 
@@ -901,6 +903,8 @@ export default function ShoppingScreen() {
 
       if (!qty) missingQuantity.push(item.name || 'Unnamed item');
       if (price <= 0) missingPrice.push(item.name || 'Unnamed item');
+      // R-3: a total with more than two decimals is refused at the form, not rounded.
+      else if (parseMinorInput(input?.price || '').minor == null) invalidPrice.push(item.name || 'Unnamed item');
       if (!planItemId || !planById.has(planItemId)) missingBudget.push(item.name || 'Unnamed item');
       else if (!hasFundedAmount(fundedByPlanId, planItemId)) nonFundedBudget.push(item.name || 'Unnamed item');
     });
@@ -908,12 +912,14 @@ export default function ShoppingScreen() {
     return {
       missingQuantity,
       missingPrice,
+      invalidPrice,
       missingBudget,
       nonFundedBudget,
       ready:
         completionTargetItems.length > 0 &&
         missingQuantity.length === 0 &&
         missingPrice.length === 0 &&
+        invalidPrice.length === 0 &&
         missingBudget.length === 0 &&
         nonFundedBudget.length === 0,
     };
@@ -1000,7 +1006,7 @@ export default function ShoppingScreen() {
     if (!completionValidation.ready) {
       Alert.alert(
         'Complete required fields',
-        `Fill quantity, total amount, and funded budget item for every ${completionScopeLabel} first.`
+        `Fill quantity, total amount (at most two decimals, like 12.50), and funded budget item for every ${completionScopeLabel} first.`
       );
       return;
     }
@@ -1272,6 +1278,8 @@ export default function ShoppingScreen() {
         ? 'a quantity'
         : Math.max(0, parseMoney(input?.price || '0')) <= 0
           ? 'the amount paid'
+          : parseMinorInput(input?.price || '').minor == null
+            ? 'an amount with at most two decimals'
           : !lineId || !planById.has(lineId)
             ? 'a budget line'
             : !hasFundedAmount(fundedByPlanId, lineId)
