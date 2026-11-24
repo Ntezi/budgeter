@@ -10,7 +10,7 @@ import {
 } from 'firebase/firestore';
 import { connectAuthEmulator, getAuth, signInWithEmailAndPassword } from 'firebase/auth';
 import { removeShoppingItemsIn, restoreShoppingItemsIn } from '../../lib/repo/shoppingRemoveOps';
-import { shareListWithChefIn } from '../../lib/repo/sharedListsOps';
+import { revokeShareIn, shareListWithChefIn } from '../../lib/repo/sharedListsOps';
 
 const offset = Number(process.env.BUDGETA_EMULATOR_PORT_OFFSET || 0);
 const OWNER = 'seed-owner';
@@ -107,5 +107,20 @@ describe('BUDG-42 batched remove', () => {
     assert.equal((await getDoc(own)).exists(), false);
     await restoreShoppingItemsIn(chef, snapshots, CHEF);
     assert.equal((await getDoc(own)).data()?.createdBy, CHEF);
+  });
+
+  test('Undo after the share was revoked still brings the private item back', async () => {
+    const lid = `rm-revoke-${run}`;
+    await setDoc(doc(owner, 'users', OWNER, 'shoppingLists', lid), { name: 'Revoke test', ownerUid: OWNER, status: 'active', createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    const ref = doc(owner, 'users', OWNER, 'shoppingLists', lid, 'items', 'rv-1');
+    await setDoc(ref, { name: 'Keep me', quantity: 2, price: 4, bought: false, ownerUid: OWNER, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    const sid = await shareListWithChefIn(owner, OWNER, OWNER, { id: lid, name: 'Revoke test' }, CHEF, 'Chef');
+    const original = (await getDoc(ref)).data();
+    const { snapshots } = await removeShoppingItemsIn(owner, { ownerUid: OWNER, listId: lid, shareId: sid }, [{ id: 'rv-1', private: true, shared: true }], { snapshot: true });
+    await revokeShareIn(owner, OWNER, lid, sid);
+    const res = await restoreShoppingItemsIn(owner, snapshots, OWNER);
+    assert.equal(res.privateRestored, 1);
+    assert.equal(res.mirrorsRestored, 0);
+    assert.deepEqual(JSON.stringify((await getDoc(ref)).data()), JSON.stringify(original));
   });
 });

@@ -205,6 +205,10 @@ test('S10/S11 household and chef in two contexts, tap counts, Add sheet shopping
   await household.getByText('Stop sharing', { exact: true }).click();
   await household.getByTestId('confirm-stop-sharing').click();
   await expect(household.getByTestId('share-state')).toHaveCount(0); // BUDG-42: Share with chef moved to List options
+  await household.getByLabel('List options').click(); // review round 1: Share with chef is offered again
+  await expect(household.getByTestId('list-options').getByText('Share with chef', { exact: true })).toBeVisible();
+  await household.keyboard.press('Escape');
+  await expect(household.getByTestId('list-options')).toHaveCount(0);
   await expect(chef.getByText('Access ended')).toBeVisible();
   await expect(chef.getByText('Lemons')).toHaveCount(0);
   await snap(chef, 'S11-chef-access-ended-w390-light');

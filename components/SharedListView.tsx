@@ -46,14 +46,24 @@ export function SharedListView({ shareId, myUid, onBack, showBack = true }: { sh
   const optionsSheet = useSheet();
   const [selectMode, setSelectMode] = useState(false);
   const [picked, setPicked] = useState<string[]>([]);
-  const [removeAsk, setRemoveAsk] = useState<null | { ids: string[] }>(null);
+  const [removeAsk, setRemoveAsk] = useState<null | { kind: 'own' | 'got' | 'selected'; ids: string[] }>(null);
+  const chefOpener = useRef<HTMLElement | null>(null);
   const [removing, setRemoving] = useState(false);
   const [undo, setUndo] = useState<null | { key: number; name: string; snapshots: RemovedSnapshot[] }>(null);
   const removeAskRef = useRef(false);
   removeAskRef.current = Boolean(removeAsk);
   useSelectModeEffects(selectMode, () => {
-    if (!removeAskRef.current) setSelectMode(false);
+    if (removeAskRef.current) return false;
+    setSelectMode(false);
   });
+  /** The chef's ids as they are at confirm time (rules: own items only). */
+  const liveIds = (ask: { kind: 'own' | 'got' | 'selected'; ids: string[] }) => {
+    const own = items.filter((i) => i.id && chefCanRemove(i, myUid));
+    if (ask.kind === 'own') return own.map((i) => i.id as string);
+    if (ask.kind === 'got') return own.filter((i) => i.status === 'GOT_IT').map((i) => i.id as string);
+    const keep = new Set(own.map((i) => i.id as string));
+    return ask.ids.filter((id) => keep.has(id));
+  };
   const ownIds = items.filter((i) => i.id && chefCanRemove(i, myUid)).map((i) => i.id as string);
   const ownKey = ownIds.join('|');
   useEffect(() => {
@@ -69,7 +79,7 @@ export function SharedListView({ shareId, myUid, onBack, showBack = true }: { sh
   async function confirmRemove() {
     if (!removeAsk) return;
     setRemoving(true);
-    await run(() => removeShoppingItemsIn(db, { shareId }, removeAsk.ids.map((id) => ({ id, private: false, shared: true }))));
+    await run(() => removeShoppingItemsIn(db, { shareId }, liveIds(removeAsk).map((id) => ({ id, private: false, shared: true }))));
     setRemoving(false);
     setRemoveAsk(null);
     setSelectMode(false);
@@ -180,7 +190,11 @@ export function SharedListView({ shareId, myUid, onBack, showBack = true }: { sh
           <View className="flex-row items-start gap-2">
             <Text role="heading" aria-level={2} className="min-w-0 flex-1 text-xl font-bold text-foreground dark:text-zinc-50" numberOfLines={2}>{displayListName(share.listName) || 'Shared list'}</Text>
             {items.length ? (
-              <AppButton accessibilityLabel="List options" variant="outline" size="touch" className="w-11 lg:w-9 px-0" onPress={(e) => optionsSheet.show(e)}>
+              <AppButton accessibilityLabel="List options" variant="outline" size="touch" className="w-11 lg:w-9 px-0" onPress={(e) => {
+                const t = (e as { currentTarget?: unknown } | undefined)?.currentTarget;
+                chefOpener.current = typeof HTMLElement !== 'undefined' && t instanceof HTMLElement ? (t.closest('button, [role="button"], [tabindex]') as HTMLElement | null) ?? t : null;
+                optionsSheet.show(e);
+              }}>
                 <MaterialCommunityIcons name="dots-horizontal" size={22} color="#717182" />
               </AppButton>
             ) : null}
@@ -192,7 +206,7 @@ export function SharedListView({ shareId, myUid, onBack, showBack = true }: { sh
             count={picked.length}
             allSelected={ownIds.length > 0 && picked.length === ownIds.length}
             onSelectAll={() => setPicked((prev) => toggleSelectAll(prev, ownIds))}
-            onRemove={() => setRemoveAsk({ ids: picked })}
+            onRemove={() => setRemoveAsk({ kind: 'selected', ids: picked })}
             onCancel={() => setSelectMode(false)}
           />
         ) : (
@@ -240,9 +254,9 @@ export function SharedListView({ shareId, myUid, onBack, showBack = true }: { sh
           {[
             { label: 'Select items', run: () => { setUndo(null); setPicked([]); setSelectMode(true); }, disabled: !ownIds.length },
             ...(got.some((i) => chefCanRemove(i, myUid))
-              ? [{ label: `Remove got items you added (${got.filter((i) => chefCanRemove(i, myUid)).length})`, run: () => setRemoveAsk({ ids: got.filter((i) => chefCanRemove(i, myUid)).map((i) => i.id!) }), danger: true }]
+              ? [{ label: `Remove got items you added (${got.filter((i) => chefCanRemove(i, myUid)).length})`, run: () => setRemoveAsk({ kind: 'got', ids: [] }), danger: true }]
               : []),
-            ...(ownIds.length === items.length ? [{ label: 'Remove all items', run: () => setRemoveAsk({ ids: ownIds }), danger: true }] : []),
+            ...(ownIds.length === items.length ? [{ label: 'Remove all items', run: () => setRemoveAsk({ kind: 'own', ids: [] }), danger: true }] : []),
           ].map((action, i) => (
             <Pressable
               key={action.label}
@@ -261,8 +275,9 @@ export function SharedListView({ shareId, myUid, onBack, showBack = true }: { sh
       </AppSheet>
       <RemoveConfirmDialog
         open={Boolean(removeAsk)}
-        count={removeAsk?.ids.length || 0}
+        count={removeAsk ? liveIds(removeAsk).length : 0}
         listName={displayListName(share.listName) || 'this list'}
+        opener={removeAsk?.kind === 'selected' ? undefined : chefOpener}
         busy={removing}
         onClose={() => setRemoveAsk(null)}
         onConfirm={() => void confirmRemove()}
