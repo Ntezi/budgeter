@@ -50,7 +50,7 @@ test('AC-1: Home Accounts = Accounts headline; hand-set balance shown, none hand
   // Seed: Cash wallet has a hand-set balance of 180 for this month; Household has none (0.00, live rule).
   await expect(page.getByTestId('account-row-acc-cash')).toContainText(fmtMoney(180));
   const household = await money(page, 'account-row-acc-household');
-  expect(household, 'no hand-set balance reads 0.00 as in the live app').toBe(fmtMoney(0));
+  expect(household, 'no hand-set balance reads 0.00 as in the live app').toBe(fmtMoney(0).replace(/\s+/g, ' '));
   await snap(page, `A1-accounts-w${w}`);
   await open(page, `/dashboard?month=${CUR}`);
   await expect(page.getByTestId('home-accounts')).toContainText(`Balance in ${month}`);
