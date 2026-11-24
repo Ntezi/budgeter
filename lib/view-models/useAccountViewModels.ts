@@ -167,7 +167,10 @@ export function computeAccountPeriodMetrics(input: {
 
   const unfunded = Math.max(0, allocated - funded);
   const currentAuto = funded - spentFrom;
-  const currentManual = Number.isFinite(Number(input.currentManual)) ? Number(input.currentManual) : null;
+  // BUDG-40 F-1: "no hand-set balance" is null/undefined. Number(null) is 0, so the old check turned every
+  // account without an override into a hand-set 0 and the month's calculated balance was never shown.
+  const rawManual = input.currentManual as unknown;
+  const currentManual = rawManual == null || rawManual === '' || !Number.isFinite(Number(rawManual)) ? null : Number(rawManual);
   const currentDisplayed = currentManual ?? currentAuto;
   const unallocated = currentDisplayed - currentAuto;
   const topUpNeeded = Math.max(0, currentAuto - currentDisplayed);
@@ -185,7 +188,8 @@ export function computeAccountPeriodMetrics(input: {
   };
 }
 
-function buildAccountViewModels(params: UseAccountViewModelsParams): AccountViewModel[] {
+/** Pure builder behind useAccountViewModels (exported so tests can compute the expected figures from documents). */
+export function buildAccountViewModels(params: UseAccountViewModelsParams): AccountViewModel[] {
   const {
     accounts,
     periodId,

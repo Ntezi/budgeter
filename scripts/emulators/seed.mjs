@@ -99,6 +99,10 @@ async function main() {
     }
   }
 
+  // BUDG-40 F-1: one account with a hand-set balance for the current month (Cash wallet); the others have
+  // none, so Accounts and Home must show their calculated balance. Same id and fields as setAccountPeriodCurrentManual.
+  batch.set(u.collection('accountPeriodOverrides').doc(`acc-cash__${pid(cur)}`), { accountId: 'acc-cash', periodId: pid(cur), currentManual: 180, updatedAt: ts, updatedBy: owner });
+
   batch.set(u.collection('expenses').doc('exp-water'), { name: 'Water bill', amount: 30, group: 'NEED', active: true, createdAt: ts, updatedAt: ts });
   batch.set(u.collection('expenses').doc('exp-phone'), { name: 'Phone plan', amount: 25, group: 'NEED', active: true, createdAt: ts, updatedAt: ts });
   batch.set(u.collection('recurring').doc('rec-internet'), { flow: 'EXPENSE', name: 'Internet', amount: 45, group: 'NEED', dayOfMonth: 10, active: true });

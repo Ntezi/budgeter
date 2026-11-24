@@ -11,14 +11,13 @@ import { watchAllocations } from '@/lib/repo/allocations';
 import { addMonthsToId, isMonthId, monthIdFromDate, monthTitle } from '@/lib/rules/months';
 import { watchTransactions, type Tx } from '@/lib/repo/transactions';
 import { planGroupLabel } from '@/lib/groups';
-import { fetchAccountsReport, type AccountReport } from '@/lib/repo/reports';
+import { useAccountsData } from '@/components/accounts/useAccountsData';
 import { PageHeader } from '@/components/patterns/PageHeader';
 import { ListGroup, ListRow } from '@/components/patterns/ListRow';
-import { EmptyState, ErrorState, LoadingState } from '@/components/patterns/States';
+import { EmptyState, LoadingState } from '@/components/patterns/States';
 import { MonthSummaryCard, type SpendChip } from '@/components/home/MonthSummaryCard';
 import { HomeSection } from '@/components/home/HomeSection';
 import { homeSummary, monthName, needsYou } from '@/lib/view-models/homeSummary';
-import { watchAccounts } from '@/lib/repo/accounts';
 import { transactionSignedBudgetAmount } from '@/lib/accounting';
 
 export default function DashboardScreen() {
@@ -37,10 +36,9 @@ export default function DashboardScreen() {
   const [transactions, setTransactions] = useState<Tx[]>([]);
   const [allocationTotals, setAllocationTotals] = useState({ needs: 0, wants: 0, savings: 0, total: 0 });
   const [periodsLoaded, setPeriodsLoaded] = useState(false);
-  const [accountReport, setAccountReport] = useState<AccountReport | null>(null);
-  const [accountsError, setAccountsError] = useState(false);
-  const [retry, setRetry] = useState(0);
-  const [accountsVersion, setAccountsVersion] = useState(0);
+  // BUDG-40 F-1: the Accounts row and the overdrawn reminder read the Accounts screen's own hook and summary
+  // for the viewed month (cash.current per account), so Home and Accounts show the same numbers.
+  const accountsData = useAccountsData(uid, pid);
 
 
   useEffect(() => {
@@ -67,39 +65,6 @@ export default function DashboardScreen() {
       unList();
     };
   }, [uid, pid]);
-
-  useEffect(() => {
-    if (!uid) return;
-    return watchAccounts(
-      uid,
-      () => {
-        setAccountsVersion((prev) => prev + 1);
-      },
-      { includeArchived: true }
-    );
-  }, [uid]);
-
-  useEffect(() => {
-    if (!uid) {
-      setAccountReport(null);
-      return;
-    }
-    let cancelled = false;
-    fetchAccountsReport(uid)
-      .then((report) => {
-        if (cancelled) return;
-        setAccountReport(report);
-        setAccountsError(false);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setAccountReport(null);
-        setAccountsError(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [uid, pid, transactions, allocationTotals.total, accountsVersion, retry]);
 
   const actualTotals = useMemo(() => {
     const res = { needs: 0, wants: 0, sd: 0, shopping: 0, uncategorized: 0, uncategorizedCount: 0, total: 0 };
@@ -141,7 +106,7 @@ export default function DashboardScreen() {
       monthId: pid,
       todayMonthId,
       todayDay: now.getDate(),
-      overdraftCount: accountReport?.totals.overdraftCount ?? 0,
+      overdraftCount: accountsData.summary.overdrawn,
       unlinkedSpent: actualTotals.uncategorized,
       unlinkedCount: actualTotals.uncategorizedCount,
       nextMonthExists: periods.some((p) => p.id === addMonthsToId(pid, 1)),
@@ -187,9 +152,7 @@ export default function DashboardScreen() {
     { label: 'Saved so far (income − spent)', value: fmtMoney(incomeTotal - spentTotal) },
   ];
 
-  const accountsTotal = accountReport?.totals.current ?? 0;
-  const accountsCount = accountReport?.totals.activeCount ?? 0;
-  const overdrawn = accountReport?.totals.overdraftCount ?? 0;
+  const { total: accountsTotal, activeCount: accountsCount, overdrawn } = accountsData.summary;
 
   const needsYouSection = attention.length ? (
     <HomeSection title={`Needs you (${attention.length})`} testID="home-needs-you">
@@ -219,15 +182,14 @@ export default function DashboardScreen() {
 
   const accountsSection = (
     <HomeSection title="Accounts" testID="home-accounts">
-      {accountsError ? (
-        <ErrorState message="Balances did not load." onRetry={() => setRetry((n) => n + 1)} />
-      ) : !accountReport ? (
+      {!accountsData.accountsLoaded ? (
         <LoadingState rows={1} />
       ) : (
         <ListGroup>
           <ListRow
             title={`In ${accountsCount} ${accountsCount === 1 ? 'account' : 'accounts'}`}
-            sub={overdrawn > 0 ? `${overdrawn} overdrawn` : 'Balance today'}
+            sub={overdrawn > 0 ? `${overdrawn} overdrawn · balance in ${name}` : `Balance in ${name}`}
+            subLines={2}
             amount={fmtMoney(accountsTotal)}
             amountClassName={accountsTotal < 0 ? 'text-destructive dark:text-red-300' : undefined}
             onPress={() => router.push('/accounts' as any)}

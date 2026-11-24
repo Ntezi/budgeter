@@ -15,8 +15,6 @@ const tabular = { fontVariant: ['tabular-nums' as const] };
 
 type Props = {
   vm: AccountViewModel;
-  /** Opening balance + all-time cash movement (as Home). */
-  balance: number;
   pid: string;
   closed: boolean;
   transactions: Tx[];
@@ -32,10 +30,12 @@ function Figure({ label, value, onPress, testID }: { label: string; value: numbe
   return <ListRow title={label} amount={fmtMoney(value)} onPress={onPress} testID={testID} amountClassName={value < 0 ? 'text-destructive dark:text-red-300' : undefined} />;
 }
 
-export function AccountDetail({ vm, balance, pid, closed, transactions, onBack, onMove, onAddExpense, onEdit, onManual, onSeeAll }: Props) {
+export function AccountDetail({ vm, pid, closed, transactions, onBack, onMove, onAddExpense, onEdit, onManual, onSeeAll }: Props) {
   const [moreOpen, setMoreOpen] = useState(false);
   const f = accountFigures(vm);
-  const hint = accountHint(vm, fmtMoney, balance);
+  const hint = accountHint(vm, fmtMoney);
+  // BUDG-40 F-1: the month's balance (hand-set when set, else calculated), the figure the row and Home show.
+  const balance = vm.cash.current;
   const monthName = monthTitle(pid).split(' ')[0];
   const recent = transactions
     .filter((t) => t.paidFromAccountId === vm.accountId || t.accountId === vm.accountId || t.toAccountId === vm.accountId)
@@ -58,7 +58,7 @@ export function AccountDetail({ vm, balance, pid, closed, transactions, onBack, 
       </View>
 
       <View className="gap-1">
-        <Text className="text-sm text-muted-foreground dark:text-zinc-400">Balance today</Text>
+        <Text className="text-sm text-muted-foreground dark:text-zinc-400">{`Balance in ${monthName}`}</Text>
         <Text testID="account-balance" className={balance < 0 ? 'text-3xl font-bold text-destructive dark:text-red-300' : 'text-3xl font-bold text-foreground dark:text-zinc-50'} style={tabular}>
           {fmtMoney(balance)}
         </Text>
