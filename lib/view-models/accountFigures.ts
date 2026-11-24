@@ -42,15 +42,43 @@ export function accountFigures(vm: Vm): AccountFigures {
 export type AccountHint = { tone: 'danger' | 'warning' | 'muted'; text: string };
 
 /**
- * One hint line per account, most urgent first (spec 05 "Hint line priority"). `balanceToday` is the
- * opening balance + all-time cash movement (the figure Home shows), not the period's cash.current.
+ * One hint line per account, most urgent first (spec 05 "Hint line priority"). Overdrawn reads the month's
+ * balance, cash.current (BUDG-40 F-1: the same figure the row, the headline and Home show).
  */
-export function accountHint(vm: Vm, money: (n: number) => string, balanceToday: number): AccountHint {
+export function accountHint(vm: Vm, money: (n: number) => string): AccountHint {
   const f = accountFigures(vm);
-  if (balanceToday < 0) return { tone: 'danger', text: `Overdrawn by ${money(-balanceToday)}` };
+  const balance = vm.cash.current;
+  if (balance < 0) return { tone: 'danger', text: `Overdrawn by ${money(-balance)}` };
   if (f.stillToMove > 0) return { tone: 'warning', text: `${money(f.stillToMove)} still to move here` };
   if (f.notPlanned < 0) return { tone: 'danger', text: `${money(-f.notPlanned)} more planned than you have` };
   return { tone: 'muted', text: 'All set' };
+}
+
+export type AccountsBalanceSummary = {
+  /** Sum of cash.current over active accounts: the "Balance in <month>" headline (Accounts and Home). */
+  total: number;
+  activeCount: number;
+  /** Active accounts whose cash.current is below 0. */
+  overdrawn: number;
+};
+
+/**
+ * BUDG-40 F-1: the month's balances as the old Accounts screen showed them: per account cash.current
+ * (the hand-set balance when one exists, else the month's calculated balance). Accounts and Home both
+ * read this one function through useAccountsData, so the two screens cannot disagree.
+ */
+export function accountsBalanceSummary(rows: readonly (Pick<AccountViewModel, 'cash' | 'archived'> & { accountId: string })[]): AccountsBalanceSummary {
+  let total = 0;
+  let activeCount = 0;
+  let overdrawn = 0;
+  for (const r of rows) {
+    if (!r.accountId || r.archived) continue;
+    const current = Number(r.cash.current) || 0;
+    total += current;
+    activeCount += 1;
+    if (current < 0) overdrawn += 1;
+  }
+  return { total: Math.round(total * 100) / 100, activeCount, overdrawn };
 }
 
 /** Default source for moving money into `toId`: the other active account with the most free to move. */

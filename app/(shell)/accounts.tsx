@@ -14,7 +14,7 @@ import { AppSheet, useSheet } from '@/components/patterns/AppSheet';
 import { FormField } from '@/components/patterns/FormLayout';
 import { ListGroup, ListRow } from '@/components/patterns/ListRow';
 import { PageHeader } from '@/components/patterns/PageHeader';
-import { EmptyState, ErrorState, LoadingState } from '@/components/patterns/States';
+import { EmptyState, LoadingState } from '@/components/patterns/States';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppInput } from '@/components/ui/AppInput';
 import { AppSegmented } from '@/components/ui/AppSegmented';
@@ -97,9 +97,8 @@ export default function AccountsScreen() {
 
   const active = useMemo(() => data.accountRows.filter((r) => r.accountId && !r.archived), [data.accountRows]);
   const archived = useMemo(() => data.accountRows.filter((r) => r.accountId && r.archived), [data.accountRows]);
-  // Same figures as Home's Accounts row (fetchAccountsReport): total over every account, overdrawn count.
-  const total = data.report?.totals.current ?? 0;
-  const overdrawn = data.report?.totals.overdraftCount ?? 0;
+  // BUDG-40 F-1: the month's balance (cash.current, as the old screen); Home reads the same summary.
+  const { total, overdrawn } = data.summary;
   const toMove = active.filter((r) => r.budget.unfunded > 0);
 
   const phoneId = typeof params.id === 'string' ? params.id : '';
@@ -204,7 +203,6 @@ export default function AccountsScreen() {
   const detail = selected ? (
     <AccountDetail
       vm={selected}
-      balance={data.balanceOf(selected.accountId)}
       pid={pid}
       closed={data.closed}
       transactions={data.transactions}
@@ -217,9 +215,7 @@ export default function AccountsScreen() {
     />
   ) : null;
 
-  const balances = data.reportError ? (
-    <ErrorState message="Balances did not load." onRetry={data.retryReport} testID="accounts-error" />
-  ) : !data.accountsLoaded || !data.report ? (
+  const balances = !data.accountsLoaded ? (
     <LoadingState rows={4} testID="accounts-loading" />
   ) : !active.length ? (
     <View className="gap-3">
@@ -229,7 +225,7 @@ export default function AccountsScreen() {
   ) : (
     <View className="gap-5">
       <View className="gap-1" testID="accounts-total">
-        <Text className="text-sm text-muted-foreground dark:text-zinc-400">You have</Text>
+        <Text className="text-sm text-muted-foreground dark:text-zinc-400">{`Balance in ${month.split(' ')[0]}`}</Text>
         <Text className={cn('text-3xl font-bold', total < 0 ? 'text-destructive dark:text-red-300' : 'text-foreground dark:text-zinc-50')} style={tabular}>
           {fmtMoney(total)}
         </Text>
@@ -256,7 +252,7 @@ export default function AccountsScreen() {
 
       <ListGroup testID="accounts-list">
         {active.map((r) => (
-          <AccountRow key={r.accountId} vm={r} balance={data.balanceOf(r.accountId)} selected={desktop && r.accountId === selectedId} onPress={() => select(r.accountId)} />
+          <AccountRow key={r.accountId} vm={r} balance={r.cash.current} selected={desktop && r.accountId === selectedId} onPress={() => select(r.accountId)} />
         ))}
       </ListGroup>
     </View>
@@ -273,7 +269,7 @@ export default function AccountsScreen() {
           {archivedOpen ? (
             <ListGroup testID="accounts-archived">
               {archived.map((r) => (
-                <AccountRow key={r.accountId} vm={r} balance={data.balanceOf(r.accountId)} selected={desktop && r.accountId === selectedId} onPress={() => select(r.accountId)} />
+                <AccountRow key={r.accountId} vm={r} balance={r.cash.current} selected={desktop && r.accountId === selectedId} onPress={() => select(r.accountId)} />
               ))}
             </ListGroup>
           ) : null}

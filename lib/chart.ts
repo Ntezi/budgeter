@@ -26,3 +26,24 @@ export function uniqueMonthLabels(ids: string[], title: (id: string) => string):
   const dup = short.some((s, i) => short.indexOf(s) !== i);
   return dup ? ids.map((id, i) => `${short[i]} ${id.slice(2, 4)}`) : short;
 }
+
+/**
+ * BUDG-40 F-6: y-axis tick label short enough to stay whole at 320 px ("120k", "1.5M", "250").
+ * The full figure stays in the sentence above the chart and in the cards; ticks only give scale.
+ */
+export function compactAxisLabel(n: number): string {
+  if (!Number.isFinite(n)) return '';
+  const abs = Math.abs(n);
+  const sign = n < 0 ? '-' : '';
+  const trim = (v: number) => String(Math.round(v * 10) / 10);
+  if (abs >= 1e9) return `${sign}${trim(abs / 1e9)}B`;
+  if (abs >= 1e6) return `${sign}${trim(abs / 1e6)}M`;
+  if (abs >= 1e3) return `${sign}${trim(abs / 1e3)}k`;
+  return `${sign}${trim(abs)}`;
+}
+
+/** Left gutter (px) that fits the widest tick label at `fontSize`, plus room for the tick. */
+export function axisGutter(labels: string[], fontSize = 10): number {
+  const widest = Math.max(1, ...labels.map((l) => l.length));
+  return Math.max(36, Math.ceil(widest * fontSize * 0.62) + 18);
+}

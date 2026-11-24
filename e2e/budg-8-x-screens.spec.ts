@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { addMonthsToId, monthIdFromDate, monthTitle } from '../lib/rules/months';
-import { getAccountCurrentAmount, sumCashMovementByAccount } from '../lib/accounting';
+import { accountsBalanceSummary } from '../lib/view-models/accountFigures';
+import { buildAccountViewModels } from '../lib/view-models/useAccountViewModels';
 import { fmtMoney } from '../lib/format';
 import { EVIDENCE, listIds, noPageScroll, reseed, signIn } from './helpers';
 
@@ -178,9 +179,10 @@ test('S8 Accounts: balances, detail, Move money (pre-fill, cap, explicit Save), 
     await expect(p.getByTestId('account-detail').first()).toBeVisible();
   });
 
-  // Equality, the direct way. Expected "Balance today" per account = opening + all-time cash movement from the
-  // emulator's documents (lib/accounting, the functions Home's report uses); expected "Actual this month" =
-  // the old screen's "Current (Actual)" = the period override or 0 (useAccountViewModels, unchanged).
+  // Equality, the direct way (BUDG-40 F-1). Expected balance per account = the month's cash.current as the old
+  // screen showed it: the hand-set balance (accountPeriodOverrides) when one exists, else the month's calculated
+  // balance. Computed here from the emulator's documents with the view-model builder; the seed has one hand-set
+  // account (Cash wallet) and calculated ones, and both kinds must be non-zero so a 0.00 regression fails.
   const val = (v: any): any => {
     if (!v) return undefined;
     if ('stringValue' in v) return v.stringValue;
@@ -189,20 +191,29 @@ test('S8 Accounts: balances, detail, Move money (pre-fill, cap, explicit Save), 
     return null;
   };
   const plain = (fields: Record<string, any>) => Object.fromEntries(Object.entries(fields || {}).map(([k, v]) => [k, val(v)]));
-  const accDocs = (await listIds('accounts')).map((d) => ({ id: d.id, ...plain(d.fields) })) as any[];
+  const docs = async (...seg: string[]) => (await listIds(...seg)).map((d) => ({ id: d.id, ...plain(d.fields) })) as any[];
+  const accDocs = await docs('accounts');
   const allTx: any[] = [];
-  for (const p of await listIds('periods')) allTx.push(...(await listIds('periods', p.id, 'transactions')).map((d) => ({ id: d.id, ...plain(d.fields) })));
-  const moves = sumCashMovementByAccount(allTx);
-  const overrides = (await listIds('accountPeriodOverrides')).map((d) => plain(d.fields)) as any[];
-  const expected = accDocs.map((acc) => ({
-    id: acc.id,
-    archived: acc.archived === true,
-    balance: getAccountCurrentAmount(acc, moves.get(acc.id) || 0),
-    actual: Number(overrides.find((o) => o.accountId === acc.id && o.periodId === CUR)?.currentManual ?? 0),
-  }));
+  for (const p of await listIds('periods')) allTx.push(...(await docs('periods', p.id, 'transactions')));
+  const manual: Record<string, number> = {};
+  for (const o of await docs('accountPeriodOverrides')) if (o.periodId === CUR) manual[o.accountId] = Number(o.currentManual);
+  const vms = buildAccountViewModels({
+    accounts: accDocs,
+    periodId: CUR,
+    planItems: await docs('periods', CUR, 'planItems'),
+    allocations: await docs('periods', CUR, 'allocations'),
+    periodTransactions: allTx.filter((t) => t.periodId === CUR),
+    allTransactions: allTx,
+    incomeTotal: (await docs('periods', CUR, 'incomeItems')).filter((i) => i.active !== false).reduce((n, i) => n + Number(i.amount || 0), 0),
+    currentManualByAccountId: manual,
+  });
+  const expected = vms.map((vm) => ({ id: vm.accountId, archived: vm.archived, manual: manual[vm.accountId] ?? null, balance: vm.cash.current, allTime: vm.cash.opening + vm.cash.movementAllTime }));
   results.S8equality = expected;
   const active = expected.filter((e) => !e.archived);
-  const total = expected.reduce((s, e) => s + e.balance, 0);
+  const { total, overdrawn } = accountsBalanceSummary(vms);
+  expect(active.some((e) => e.manual != null && e.balance !== 0), 'seed: one active account with a hand-set balance').toBe(true);
+  expect(active.some((e) => e.manual == null && e.balance !== 0), 'seed: one active account with a calculated, non-zero balance').toBe(true);
+  expect(total, 'the month figure is not the all-time report figure').not.toBe(active.reduce((n, e) => n + e.allTime, 0));
 
   await open(page, '/accounts', 390);
   const rows = page.getByTestId('accounts-list').locator('[data-testid^="account-row-"]');
@@ -210,6 +221,7 @@ test('S8 Accounts: balances, detail, Move money (pre-fill, cap, explicit Save), 
   await page.getByRole('button', { name: /^Archived \(/ }).click();
   for (const e of expected) await expect(page.getByTestId(`account-row-${e.id}`), `balance ${e.id}`).toContainText(fmtMoney(e.balance));
   await expect(page.getByTestId('accounts-total')).toContainText(fmtMoney(total));
+  await expect(page.getByTestId('accounts-total')).toContainText(`Balance in ${monthTitle(CUR).split(' ')[0]}`);
   // All four seeded accounts (archived expanded) fit on one 390 x 844 screen.
   for (const bottom of await page.locator('[data-testid^="account-row-"]').evaluateAll((els) => els.map((el) => el.getBoundingClientRect().bottom))) expect(bottom).toBeLessThanOrEqual(844);
   expect(await page.locator('[data-testid^="account-row-"]').count()).toBe(expected.length);
@@ -217,10 +229,13 @@ test('S8 Accounts: balances, detail, Move money (pre-fill, cap, explicit Save), 
   for (const e of expected) {
     await open(page, `/accounts?id=${e.id}`, 390);
     await expect(page.getByTestId('account-balance')).toHaveText(fmtMoney(e.balance));
-    await expect(page.getByTestId('detail-actual')).toContainText(fmtMoney(e.actual));
+    await expect(page.getByTestId('detail-actual')).toContainText(fmtMoney(e.balance));
   }
   await open(page, `/dashboard?month=${CUR}`, 390);
   await expect(page.getByTestId('home-accounts')).toContainText(fmtMoney(total));
+  await expect(page.getByTestId('home-accounts')).toContainText(`In ${active.length} accounts`);
+  await expect(page.getByTestId('home-accounts')).toContainText(`Balance in ${monthTitle(CUR).split(' ')[0]}`);
+  if (overdrawn === 0) await expect(page.getByTestId('home-needs-you').getByText(/overdrawn/)).toHaveCount(0);
 
   // Seed has nothing free to move (old screen: no Transfer button either); set Household's actual by hand
   // through the existing manual-balance sheet so a move is possible.

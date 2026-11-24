@@ -2,7 +2,7 @@ import React from 'react';
 import { Text, View, useWindowDimensions } from 'react-native';
 import { VictoryChart, VictoryLine, VictoryTheme, VictoryAxis, VictoryScatter } from 'victory-native';
 import { fmtMoney } from '@/lib/format';
-import { trendKind, trendTicks, type TrendPoint } from '@/lib/chart';
+import { axisGutter, compactAxisLabel, trendKind, trendTicks, type TrendPoint } from '@/lib/chart';
 
 const plain = (n: number) => fmtMoney(n).replace('GHS', '').trim();
 
@@ -36,6 +36,8 @@ export function LineChart({ data, lineColor, axisColor }: { data: TrendPoint[]; 
   }
 
   const ticks = trendTicks(data.map((d) => d.y));
+  // BUDG-40 F-6: compact tick labels and a gutter sized to them, so six-figure amounts are not cut at 320 px.
+  const tickLabels = ticks.map(compactAxisLabel);
   const points = data.map((d, i) => ({ x: i + 1, y: d.y }));
   return (
     <View testID="trend-line" style={{ alignSelf: 'center' }}>
@@ -43,7 +45,7 @@ export function LineChart({ data, lineColor, axisColor }: { data: TrendPoint[]; 
         width={chartWidth}
         height={chartHeight}
         theme={VictoryTheme.material}
-        padding={{ top: 20, bottom: 40, left: 56, right: 20 }}
+        padding={{ top: 20, bottom: 40, left: axisGutter(tickLabels), right: 20 }}
         domain={{ x: [0.5, data.length + 0.5], y: [0, ticks[ticks.length - 1] || 1] }}
       >
         <VictoryAxis
@@ -55,7 +57,7 @@ export function LineChart({ data, lineColor, axisColor }: { data: TrendPoint[]; 
         <VictoryAxis
           dependentAxis
           tickValues={ticks}
-          tickFormat={(t: number) => plain(t)}
+          tickFormat={(t: number) => compactAxisLabel(t)}
           style={{ axis: { stroke: axis }, tickLabels: { fill: axis, fontSize: 10 }, grid: { stroke: `${axis}33`, strokeDasharray: '4, 4' } }}
         />
         <VictoryLine data={points} style={{ data: { stroke, strokeWidth: 2 } }} />
