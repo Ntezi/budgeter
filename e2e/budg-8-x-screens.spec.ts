@@ -180,9 +180,9 @@ test('S8 Accounts: balances, detail, Move money (pre-fill, cap, explicit Save), 
   });
 
   // Equality, the direct way (BUDG-40 F-1). Expected balance per account = the month's cash.current as the old
-  // screen showed it: the hand-set balance (accountPeriodOverrides) when one exists, else the month's calculated
-  // balance. Computed here from the emulator's documents with the view-model builder; the seed has one hand-set
-  // account (Cash wallet) and calculated ones, and both kinds must be non-zero so a 0.00 regression fails.
+  // screen showed it: the hand-set balance (accountPeriodOverrides) when one exists, else 0 (live rule, kept).
+  // Computed here from the emulator's documents with the view-model builder; the seed has one hand-set
+  // account (Cash wallet), which must be non-zero so an all-zero regression fails.
   const val = (v: any): any => {
     if (!v) return undefined;
     if ('stringValue' in v) return v.stringValue;
@@ -212,7 +212,7 @@ test('S8 Accounts: balances, detail, Move money (pre-fill, cap, explicit Save), 
   const active = expected.filter((e) => !e.archived);
   const { total, overdrawn } = accountsBalanceSummary(vms);
   expect(active.some((e) => e.manual != null && e.balance !== 0), 'seed: one active account with a hand-set balance').toBe(true);
-  expect(active.some((e) => e.manual == null && e.balance !== 0), 'seed: one active account with a calculated, non-zero balance').toBe(true);
+  expect(active.filter((e) => e.manual == null).every((e) => e.balance === 0), 'no hand-set balance reads 0 (live rule)').toBe(true);
   expect(total, 'the month figure is not the all-time report figure').not.toBe(active.reduce((n, e) => n + e.allTime, 0));
 
   await open(page, '/accounts', 390);

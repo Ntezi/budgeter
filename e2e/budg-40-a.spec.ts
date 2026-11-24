@@ -1,6 +1,6 @@
 // BUDG-40 lane A. Runs in w320 / w390 / w1440 (one viewport per project).
 // AC-1 (F-1): Home's Accounts figure equals the Accounts headline for the same month; the seeded hand-set
-// account shows its hand-set balance, a calculated account shows a non-zero month balance (not 0.00).
+// account shows its hand-set balance, an account with none shows 0.00 as in the live app (rule kept).
 // AC-5 (F-6): with six-figure months the Reports trend chart's y-axis labels are whole (not cut on the left).
 import fs from 'node:fs';
 import path from 'node:path';
@@ -40,17 +40,17 @@ async function put(docPath: string, fields: Record<string, string | number>) {
   expect(res.ok, `write ${docPath}`).toBe(true);
 }
 
-test('AC-1: Home Accounts = Accounts headline; hand-set and calculated balances both shown', async ({ page }, info) => {
+test('AC-1: Home Accounts = Accounts headline; hand-set balance shown, none hand-set reads 0.00', async ({ page }, info) => {
   const guard = await signIn(page, info);
   const w = page.viewportSize()!.width;
   const month = monthTitle(CUR).split(' ')[0];
   await open(page, '/accounts');
   await expect(page.getByTestId('accounts-total')).toContainText(`Balance in ${month}`);
   const accountsTotal = await money(page, 'accounts-total');
-  // Seed: Cash wallet has a hand-set balance of 180 for this month; Household has none (calculated).
+  // Seed: Cash wallet has a hand-set balance of 180 for this month; Household has none (0.00, live rule).
   await expect(page.getByTestId('account-row-acc-cash')).toContainText(fmtMoney(180));
   const household = await money(page, 'account-row-acc-household');
-  expect(household, 'calculated balance is not the old 0.00').not.toBe(fmtMoney(0));
+  expect(household, 'no hand-set balance reads 0.00 as in the live app').toBe(fmtMoney(0));
   await snap(page, `A1-accounts-w${w}`);
   await open(page, `/dashboard?month=${CUR}`);
   await expect(page.getByTestId('home-accounts')).toContainText(`Balance in ${month}`);

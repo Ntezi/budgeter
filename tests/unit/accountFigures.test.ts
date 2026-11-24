@@ -51,9 +51,9 @@ test('BUDG-8 S8: Move money pre-fill picks the richest other account and caps at
   assert.equal(prefillAmount(null, rows[3]), 0);
 });
 
-// BUDG-40 F-1 (AC-1): the month's balance is cash.current = the hand-set balance when set, else the month's
-// calculated balance (funded minus spent); never the all-time report figure (opening + every movement).
-test('BUDG-40 F-1: balances use the hand-set figure when set, else the calculated one; Home and Accounts share the summary', () => {
+// BUDG-40 F-1 (AC-1): the month's balance is cash.current as the live app shows it: the hand-set balance when
+// set, else 0 (the live rule, kept); never the all-time report figure (opening + every movement).
+test('BUDG-40 F-1: balances use the hand-set figure when set, else 0 as the live app; Home and Accounts share the summary', () => {
   const PID = '2026-11';
   const accounts = [
     { id: 'bank', name: 'Bank', type: 'BANK', openingBalance: 1000, archived: false },
@@ -76,17 +76,28 @@ test('BUDG-40 F-1: balances use the hand-set figure when set, else the calculate
     currentManualByAccountId: { cash: 180.5 },
   });
   const by = new Map(rows.map((r) => [r.accountId, r]));
-  // bank: none hand-set -> calculated 800 - 300 = 500 (the all-time figure would be 1000 - 300 = 700)
-  assert.equal(by.get('bank')!.cash.current, 500);
-  assert.equal(by.get('bank')!.cash.currentManual, null);
+  // bank: none hand-set -> 0 as in the live app; the calculated figure 800 - 300 = 500 stays in currentAuto
+  assert.equal(by.get('bank')!.cash.current, 0);
+  assert.equal(by.get('bank')!.cash.currentAuto, 500);
   assert.notEqual(by.get('bank')!.cash.current, by.get('bank')!.cash.opening + by.get('bank')!.cash.movementAllTime);
   // cash: hand-set wins over calculated 150 - 50 = 100
   assert.equal(by.get('cash')!.cash.current, 180.5);
   assert.equal(by.get('cash')!.cash.currentAuto, 100);
-  // momo: overspent -> -150, overdrawn
-  assert.equal(by.get('momo')!.cash.current, -150);
-  assert.deepEqual(accountsBalanceSummary(rows), { total: 530.5, activeCount: 3, overdrawn: 1 });
-  assert.equal(accountHint(by.get('momo')!, m).text, 'Overdrawn by GHS 150.00');
+  // momo: none hand-set -> 0, so an overspent account is not shown as overdrawn (live rule)
+  assert.equal(by.get('momo')!.cash.current, 0);
+  assert.equal(by.get('momo')!.cash.currentAuto, -150);
+  assert.deepEqual(accountsBalanceSummary(rows), { total: 180.5, activeCount: 3, overdrawn: 0 });
+  // an explicit hand-set 0 and a hand-set negative stay hand-set
+  const rows2 = buildAccountViewModels({
+    accounts, periodId: PID, planItems, allocations: [], periodTransactions: tx, allTransactions: tx, incomeTotal: 5000,
+    currentManualByAccountId: { bank: 0, momo: -40 },
+  });
+  const by2 = new Map(rows2.map((r) => [r.accountId, r]));
+  assert.equal(by2.get('bank')!.cash.currentManual, 0);
+  assert.equal(by2.get('bank')!.cash.current, 0);
+  assert.equal(by2.get('momo')!.cash.current, -40);
+  assert.equal(accountHint(by2.get('momo')!, m).text, 'Overdrawn by GHS 40.00');
+  assert.deepEqual(accountsBalanceSummary(rows2), { total: -40, activeCount: 3, overdrawn: 1 });
 });
 
 test('BUDG-40 F-1: summary ignores archived accounts and rows without an id', () => {
