@@ -45,7 +45,10 @@ const SIZE_CLASS: Record<AppButtonSize, string> = {
 
 /** BUDG-41: the touch sizes are responsive in this one place (lib/shell/density). */
 function sizeClass(size: AppButtonSize, dense: boolean) {
-  if (dense && (size === 'touch' || size === 'touch-lg')) return SIZE_CLASS.md;
+  if (dense) return size === 'touch' || size === 'touch-lg' ? SIZE_CLASS.md : SIZE_CLASS[size];
+  // Below 1024 px every button is at least 44 px (BUDG-41 review): sm/md/lg grow to h-11, icon to 44 x 44.
+  if (size === 'sm' || size === 'md' || size === 'lg') return SIZE_CLASS[size].replace(/\bh-(8|9|10)\b/, 'h-11');
+  if (size === 'icon') return 'h-11 w-11 rounded-md items-center justify-center px-0';
   return SIZE_CLASS[size];
 }
 

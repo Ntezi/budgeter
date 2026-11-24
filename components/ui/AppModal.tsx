@@ -69,7 +69,7 @@ export function AppModal({ open, onClose, title, children, contentClassName, pre
         <View role="dialog" aria-modal aria-label={title} testID={testID} className={cn('z-10 w-full max-w-xl rounded-xl border border-border bg-card p-3 md:p-4 dark:border-zinc-800 dark:bg-zinc-900', contentClassName)}>
           <View className="mb-3 flex-row items-center justify-between">
             <Text className="text-base font-semibold text-foreground dark:text-zinc-50">{title || ''}</Text>
-            <Pressable onPress={onClose} className="h-8 w-8 items-center justify-center rounded-md bg-muted dark:bg-zinc-800">
+            <Pressable onPress={onClose} className="h-11 w-11 lg:h-8 lg:w-8 items-center justify-center rounded-md bg-muted dark:bg-zinc-800">
               <Text className="text-lg leading-none text-muted-foreground">×</Text>
             </Pressable>
           </View>

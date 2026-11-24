@@ -151,3 +151,71 @@ test('BUDG-41 no page-level horizontal scroll on the five screens (AC-4)', async
   expect(bad).toEqual([]);
   guard.assertOnlyLoopback();
 });
+
+/** Leaf text sizes in a row, icon glyphs excluded: first is the primary text. */
+async function rowSizes(page: Page, selector: string) {
+  const row = page.locator(selector).first();
+  await row.waitFor({ timeout: 30_000 });
+  return row.evaluate((el) => {
+    const texts = Array.from(el.querySelectorAll('div[dir="auto"], span')).filter(
+      (t) => (t.textContent || '').trim() && !t.querySelector('div[dir="auto"]') && !/material/i.test(getComputedStyle(t).fontFamily)
+    );
+    return texts.map((t) => getComputedStyle(t).fontSize);
+  });
+}
+
+async function boxH(page: Page, selector: string) {
+  return page.locator(selector).evaluateAll((els) =>
+    els.filter((el) => (el as HTMLElement).offsetParent !== null).map((el) => Math.round(el.getBoundingClientRect().height))
+  );
+}
+
+test('BUDG-41 review: inputs, list rows and the Accounts switcher per width (AC-1, AC-2)', async ({ page }, info) => {
+  test.skip(info.project.name !== 'w1440', 'sets its own widths; runs once');
+  test.setTimeout(600_000);
+  const guard = await signIn(page, info);
+  const out: Record<string, unknown> = {};
+  for (const width of [1440, 1024, 768, 390]) {
+    const dense = width >= 1024;
+    const key = `w${width}`;
+    const got: Record<string, unknown> = {};
+    // Add expense amount, Move money amount and the split amounts.
+    await go(page, width, SCREENS[0]);
+    await page.getByTestId('add-button').first().click();
+    await page.getByTestId('expense-amount').waitFor();
+    got.expenseAmount = await boxH(page, '[data-testid="expense-amount"]');
+    await page.getByRole('button', { name: 'Move money', exact: true }).or(page.getByRole('tab', { name: 'Move money' })).first().click();
+    await page.getByTestId('move-amount').waitFor();
+    got.moveAmount = await boxH(page, '[data-testid="move-amount"]');
+    await page.getByRole('button', { name: 'Split to several accounts' }).click();
+    await page.getByTestId('move-split').waitFor();
+    got.splitAmounts = await boxH(page, '[data-testid="move-split"] input');
+    const inputs = [...(got.expenseAmount as number[]), ...(got.moveAmount as number[]), ...(got.splitAmounts as number[])];
+    expect((got.splitAmounts as number[]).length, `split inputs at ${width}`).toBeGreaterThan(0);
+    for (const h of inputs) {
+      if (dense) expect(h, `input height at ${width}`).toBe(36);
+      else expect(h, `input height at ${width}`).toBeGreaterThanOrEqual(44);
+    }
+    // Accounts: switcher and rows.
+    await go(page, width, SCREENS[2]);
+    got.switcher = await boxH(page, '[data-testid="accounts-segment"]');
+    got.tabs = await boxH(page, '[data-testid="accounts-segment"] [role="tab"]');
+    if (dense) for (const h of got.switcher as number[]) expect(h, `accounts switcher at ${width}`).toBeLessThanOrEqual(38);
+    else for (const h of got.tabs as number[]) expect(h, `accounts tabs at ${width}`).toBeGreaterThanOrEqual(44);
+    got.accountRow = await rowSizes(page, '[data-testid^="account-row-"]');
+    await go(page, width, SCREENS[3]);
+    got.activityRow = await rowSizes(page, '[data-testid^="activity-row-"]');
+    await go(page, width, SCREENS[4]);
+    got.shoppingRow = await rowSizes(page, '[data-testid="shopping-item"]');
+    for (const name of ['accountRow', 'activityRow', 'shoppingRow']) {
+      const sizes = got[name] as string[];
+      expect(sizes[0], `${name} primary text at ${width}`).toBe('14px');
+      expect(sizes, `${name} has a 12 px meta line at ${width}`).toContain('12px');
+      for (const s of sizes) expect(['12px', '14px'], `${name} sizes at ${width}`).toContain(s);
+    }
+    out[key] = got;
+  }
+  fs.mkdirSync(EVIDENCE, { recursive: true });
+  fs.writeFileSync(path.join(EVIDENCE, 'budg41-review-heights.json'), JSON.stringify(out, null, 2));
+  guard.assertOnlyLoopback();
+});

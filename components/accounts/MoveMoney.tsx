@@ -178,7 +178,7 @@ export function MoveMoneyFields({ m }: { m: MoveMoneyState }) {
               keyboardType="decimal-pad"
               inputMode="decimal"
               accessibilityLabel="Amount to move"
-              className="h-14 text-3xl font-semibold"
+              className="font-semibold"
             />
           </FormField>
         </>
@@ -198,7 +198,7 @@ export function MoveMoneyFields({ m }: { m: MoveMoneyState }) {
                 keyboardType="decimal-pad"
                 inputMode="decimal"
                 accessibilityLabel={`Amount to ${r.accountName}`}
-                style={{ height: 44, width: 112 }}
+                style={{ width: 112 }}
               />
             </View>
           ))}
