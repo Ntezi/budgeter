@@ -35,13 +35,13 @@ test('BUDG-5 receipts: review, compare, save one expense, link existing, catalog
   // AC-5: Rice 5 kg as 5 kg at 65.00 vs last receipt 60.00 for a 5 kg pack -> per kg, up.
   const rice = lines.nth(0);
   await rice.getByLabel('Receipt quantity').fill('5');
-  await pick(rice, 'pc', 'kg');
+  await pick(rice, 'piece', 'kg');
   await rice.getByLabel('Price paid').fill('65.00');
   await pick(rice, 'Not in catalog', 'Rice 5 kg');
   await expect(rice.getByTestId('price-chip')).toContainText(/Last .*12\.00 \/ kg · \d{4}-\d{2}-05 · Test Market · up 8\.3%/);
   // AC-6: the only earlier Rice 1 kg price is in another currency -> labelled, not a decrease.
   const small = lines.nth(1);
-  await pick(small, 'pc', 'kg');
+  await pick(small, 'piece', 'kg');
   await pick(small, 'Not in catalog', 'Rice 1 kg');
   await expect(small.getByTestId('price-chip')).toHaveText('Other currency');
   await shot(page, testInfo, 'AC-1-AC-5-AC-6-review-lines');

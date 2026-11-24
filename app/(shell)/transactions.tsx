@@ -503,7 +503,8 @@ export default function TransactionsScreen() {
 
   // Q-1 rule: every sheet closes on Escape and Back from anywhere, focus back on its opener.
   useSheetEffects(Boolean(mobileDetailId), () => closeMobileDetail());
-  useSheetEffects(Boolean(receiptFor), () => setReceiptFor(null));
+  // The receipt sheet opens from the detail sheet in one render; a second history entry here would be
+  // popped by the detail sheet's own Back cleanup and close the receipt at once (attach-receipt e2e).
 
   function closeMobileDetail() {
     setConfirmDelete(false);
