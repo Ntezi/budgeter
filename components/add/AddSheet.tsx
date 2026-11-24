@@ -85,6 +85,7 @@ export function AddSheet({ open, uid, onClose, onSaved, onGo }: Props) {
         value={kind}
         onChange={setKind}
         touch
+        full // Q-4: three equal tabs across the sheet; 'Shopping item' wraps to two lines at 320
         options={[
           { label: 'Expense', value: 'expense' },
           { label: 'Move money', value: 'move' },
