@@ -74,7 +74,7 @@ import { ItemRow, ItemSection, qtyLabel } from '@/components/shopping/ItemRow';
 import { ItemSheet } from '@/components/shopping/ItemSheet';
 import { ListsList } from '@/components/shopping/ListsList';
 import { RecordExpenseSheet, type RecordRow } from '@/components/shopping/RecordExpenseSheet';
-import { RemoveConfirmDialog, SelectBar, UndoNotice } from '@/components/shopping/RemoveControls';
+import { RemoveConfirmDialog, SelectBar, UndoNotice, useSelectModeEffects } from '@/components/shopping/RemoveControls';
 import { removeShoppingItemsIn, restoreShoppingItemsIn, type RemovedSnapshot } from '@/lib/repo/shoppingRemoveOps';
 import { pruneSelected, toggleSelectAll, toggleSelected, type RemoveTarget } from '@/lib/rules/shoppingRemoval';
 import { ShareSheet, StopSharingDialog } from '@/components/shopping/ShareSheet';
@@ -258,7 +258,7 @@ export default function ShoppingScreen() {
   const optionsOpener = useRef<HTMLElement | null>(null);
   const removeAskRef = useRef(false);
   removeAskRef.current = Boolean(removeAsk);
-  useSheetEffects(selectMode, () => {
+  useSelectModeEffects(selectMode, () => {
     if (!removeAskRef.current) setSelectMode(false);
   });
   useSheetEffects(addOpen, () => setAddOpen(false));

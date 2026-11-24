@@ -112,9 +112,9 @@ export function UndoNotice({ name, onUndo, onDone }: { name: string; onUndo: () 
     return () => clearTimeout(t);
   }, [name]);
   return (
-    <View testID="undo-notice" className="absolute bottom-3 left-3 right-3 flex-row items-center gap-2 self-center rounded-xl bg-foreground px-4 py-1 dark:bg-zinc-100" style={{ maxWidth: 480 }}>
-      <Text accessibilityLiveRegion="polite" numberOfLines={1} className="min-w-0 flex-1 text-sm text-background dark:text-zinc-900">{`Removed ${name}`}</Text>
-      <AppButton label="Undo" variant="ghost" size="touch" className="px-2" textClassName="text-background dark:text-zinc-900" onPress={onUndo} />
+    <View testID="undo-notice" className="absolute bottom-3 left-3 right-3 flex-row items-center gap-2 self-center rounded-xl bg-primary px-4 py-1 dark:bg-zinc-100" style={{ maxWidth: 480 }}>
+      <Text accessibilityLiveRegion="polite" numberOfLines={1} className="min-w-0 flex-1 text-sm text-white dark:text-zinc-900">{`Removed ${name}`}</Text>
+      <AppButton label="Undo" variant="ghost" size="touch" className="px-2" textClassName="text-white dark:text-zinc-900" onPress={onUndo} />
     </View>
   );
 }
