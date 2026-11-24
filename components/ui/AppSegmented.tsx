@@ -21,7 +21,8 @@ type Props<T extends string> = {
 };
 
 export function AppSegmented<T extends string>({ value, options, onChange, className, compact, touch: touchProp, full }: Props<T>) {
-  const touch = touchProp && !useDense();
+  const dense = useDense(); // always called: hooks must not depend on a prop
+  const touch = touchProp && !dense;
   return (
     <View className={cn('rounded-md border border-border bg-muted p-0.5 dark:border-zinc-800 dark:bg-zinc-800/70', className)}>
       <SegmentRow full={full}>
