@@ -8,7 +8,7 @@ import { AppButton } from '@/components/ui/AppButton';
 import type { Tx } from '@/lib/repo/transactions';
 import { fmtMoney } from '@/lib/format';
 import { monthTitle } from '@/lib/rules/months';
-import { accountFigures } from '@/lib/view-models/accountFigures';
+import { accountFigures, accountHint } from '@/lib/view-models/accountFigures';
 import type { AccountViewModel } from '@/lib/view-models/useAccountViewModels';
 
 const tabular = { fontVariant: ['tabular-nums' as const] };
@@ -35,6 +35,7 @@ function Figure({ label, value, onPress, testID }: { label: string; value: numbe
 export function AccountDetail({ vm, balance, pid, closed, transactions, onBack, onMove, onAddExpense, onEdit, onManual, onSeeAll }: Props) {
   const [moreOpen, setMoreOpen] = useState(false);
   const f = accountFigures(vm);
+  const hint = accountHint(vm, fmtMoney, balance);
   const monthName = monthTitle(pid).split(' ')[0];
   const recent = transactions
     .filter((t) => t.paidFromAccountId === vm.accountId || t.accountId === vm.accountId || t.toAccountId === vm.accountId)
@@ -62,6 +63,10 @@ export function AccountDetail({ vm, balance, pid, closed, transactions, onBack, 
           {fmtMoney(balance)}
         </Text>
         {vm.archived ? <Text className="text-sm text-muted-foreground dark:text-zinc-400">Archived · its history stays.</Text> : null}
+        {/* D-8: the status line moved here from the Accounts row (one-line type only there). */}
+        <Text testID="account-hint" className={hint.tone === 'danger' ? 'text-sm text-destructive dark:text-red-300' : 'text-sm text-muted-foreground dark:text-zinc-400'}>
+          {hint.text}
+        </Text>
       </View>
 
       {closed ? (

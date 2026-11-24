@@ -24,7 +24,6 @@ import { fmtMoney, parseMoney } from '@/lib/format';
 import { addAccount, updateAccount } from '@/lib/repo/accounts';
 import { clearAccountPeriodCurrentManual, setAccountPeriodCurrentManual } from '@/lib/repo/accountPeriodOverrides';
 import { monthTitle } from '@/lib/rules/months';
-import { accountHint } from '@/lib/view-models/accountFigures';
 import type { AccountViewModel } from '@/lib/view-models/useAccountViewModels';
 import { useAuthUser } from '@/providers/AuthProvider';
 import { useWorkspaceUid } from '@/providers/WorkspaceProvider';
@@ -49,14 +48,13 @@ function railColor(type?: WalletType) {
 }
 
 function AccountRow({ vm, balance, selected, onPress }: { vm: AccountViewModel; balance: number; selected?: boolean; onPress: () => void }) {
-  const hint = accountHint(vm, fmtMoney, balance);
   return (
     <View className={selected ? 'bg-muted/60 dark:bg-zinc-800/60' : undefined}>
       <ListRow
         testID={`account-row-${vm.accountId}`}
         title={vm.accountName}
-        subLines={0}
-        sub={`${TYPE_LABEL[(vm.accountType ?? 'OTHER') as WalletType] ?? 'Other'} · ${hint.text}`}
+        titleLines={2}
+        sub={TYPE_LABEL[(vm.accountType ?? 'OTHER') as WalletType] ?? 'Other'}
         amount={fmtMoney(balance)}
         amountClassName={balance < 0 ? 'text-destructive dark:text-red-300' : undefined}
         onPress={onPress}
