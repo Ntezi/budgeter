@@ -62,8 +62,10 @@ export async function noPageScroll(page: Page) {
  * alone ignores Escape until its open animation ends, which a wait or a screenshot hides), then again
  * with focus moved to the page body; Back must close it and keep the route.
  */
-export async function expectSheetClosesFromAnywhere(page: Page, sheetId: string, trigger: Locator) {
-  const openIt = () => trigger.click();
+/** `open` overrides how the sheet is opened (a sheet reached through another sheet, like the receipt sheet
+ * from an Activity row's detail sheet); focus must still come back to `trigger`. */
+export async function expectSheetClosesFromAnywhere(page: Page, sheetId: string, trigger: Locator, open?: () => Promise<void>) {
+  const openIt = open ?? (() => trigger.click());
   const sheet = page.getByTestId(sheetId);
   const route = () => new URL(page.url()).pathname + new URL(page.url()).search;
   const r0 = route();

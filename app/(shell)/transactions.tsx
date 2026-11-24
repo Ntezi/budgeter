@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { localDateISO } from '@/lib/rules/postingMonth';
 import { isMonthId, monthTitle } from '@/lib/rules/months';
@@ -24,7 +24,7 @@ import { type PlanItem, watchPlanTotals } from '@/lib/repo/plans';
 import { delTransaction, setTransaction, type Tx, watchTransactions } from '@/lib/repo/transactions';
 import { useWorkspace, useWorkspaceUid } from '@/providers/WorkspaceProvider';
 import { ReceiptModal } from '@/components/shopping/ReceiptModal';
-import { useSheetEffects } from '@/components/shopping/useSheetEffects';
+import { afterSheetHistory, useSheetEffects } from '@/components/shopping/useSheetEffects';
 import { useAuthUser } from '@/providers/AuthProvider';
 import { watchAccounts, type Account } from '@/lib/repo/accounts';
 import { watchShoppingCatalog, type ShoppingCatalogItem } from '@/lib/repo/shopping';
@@ -496,15 +496,23 @@ export default function TransactionsScreen() {
     [fundedBudgetOptions]
   );
 
+  // The row that opened the detail sheet: focus goes back there when the receipt sheet (opened from the
+  // detail sheet) closes.
+  const detailOpenerRef = useRef<HTMLElement | null>(null);
   function openMobileDetail(id: string) {
     if (!beginEdit(id)) return;
+    if (typeof document !== 'undefined') {
+      const active = document.activeElement as HTMLElement | null;
+      detailOpenerRef.current = active && active !== document.body ? active : null;
+    }
     setMobileDetailId(id);
   }
 
   // Q-1 rule: every sheet closes on Escape and Back from anywhere, focus back on its opener.
   useSheetEffects(Boolean(mobileDetailId), () => closeMobileDetail());
-  // The receipt sheet opens from the detail sheet in one render; a second history entry here would be
-  // popped by the detail sheet's own Back cleanup and close the receipt at once (attach-receipt e2e).
+  // The receipt sheet opens only after the detail sheet's history entry is gone (afterSheetHistory), so it
+  // gets its own entry: Escape from anywhere and Back close it, focus returns to the row.
+  useSheetEffects(Boolean(receiptFor), () => setReceiptFor(null), detailOpenerRef);
 
   function closeMobileDetail() {
     setConfirmDelete(false);
@@ -684,8 +692,9 @@ export default function TransactionsScreen() {
                   icon="receipt"
                   label="Attach receipt"
                   onPress={() => {
-                    setReceiptFor(mobileDetailRow);
+                    const row = mobileDetailRow;
                     closeMobileDetail();
+                    afterSheetHistory(() => setReceiptFor(row));
                   }}
                 />
               ) : null}

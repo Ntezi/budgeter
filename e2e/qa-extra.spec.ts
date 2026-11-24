@@ -146,7 +146,8 @@ test('Q Escape and Back close every sheet type and keep the route', async ({ pag
   const phone = (page.viewportSize()?.width ?? 0) < 980;
   // Fix round: each case names its trigger; expectSheetClosesFromAnywhere presses Escape at once, again
   // with focus on the body, then Back, and checks focus returns to the trigger (Q-1 rule).
-  const cases: { id: string; url: string; trigger: () => Locator; phoneOnly?: boolean }[] = [
+  const firstRow = () => page.locator('[data-testid^="activity-row-"]').first();
+  const cases: { id: string; url: string; trigger: () => Locator; open?: () => Promise<void>; phoneOnly?: boolean }[] = [
     { id: 'add-sheet', url: '/dashboard', trigger: () => page.getByTestId('add-button').first() },
     { id: 'new-month-sheet', url: '/budgets', trigger: () => page.getByLabel('New month', { exact: true }) },
     { id: 'line-sheet', url: `/budgets/${CUR}`, trigger: () => page.getByTestId('plan-groups').getByRole('button', { name: /^Rent\b/ }).first() },
@@ -156,6 +157,16 @@ test('Q Escape and Back close every sheet type and keep the route', async ({ pag
     { id: 'invite-sheet', url: '/settings?page=people', trigger: () => page.getByRole('button', { name: 'Invite someone' }) },
     { id: 'sign-out-sheet', url: '/settings', trigger: () => page.getByRole('button', { name: 'Sign out' }) },
     { id: 'more-sheet', url: '/dashboard', trigger: () => page.getByTestId('more-button'), phoneOnly: true },
+    // Fix round 2: the receipt sheet is reached through the row's detail sheet; focus returns to the row.
+    {
+      id: 'receipt-sheet',
+      url: '/transactions',
+      trigger: firstRow,
+      open: async () => {
+        await firstRow().click();
+        await page.getByLabel('Attach receipt').first().click();
+      },
+    },
     { id: 'close-month-confirm', url: `/budgets/${CUR}`, trigger: () => page.getByTestId('finish-month').getByRole('button', { name: 'Close month' }) },
   ];
   const result: Record<string, string> = {};
@@ -165,7 +176,7 @@ test('Q Escape and Back close every sheet type and keep the route', async ({ pag
       await page.goto(c.url);
       await expect(c.trigger()).toBeVisible({ timeout: 30_000 });
       await page.waitForTimeout(800);
-      await expectSheetClosesFromAnywhere(page, c.id, c.trigger());
+      await expectSheetClosesFromAnywhere(page, c.id, c.trigger(), c.open);
       result[c.id] = 'pass';
     } catch (e) {
       result[c.id] = `FAIL ${(e as Error).message.replace(/\x1b\[[0-9;]*m/g, '').split('\n').filter((l) => /Escape|Back|route|focus/.test(l)).join(' ').slice(0, 200)}`;

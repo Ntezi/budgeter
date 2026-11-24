@@ -9,13 +9,15 @@ const WEB = Platform.OS === 'web' && typeof window !== 'undefined';
  * it before leaving the route, and focus returns to the control that opened it.
  * Same rules as patterns/AppSheet useSheet, for screens that keep their own open state.
  */
-export function useSheetEffects(open: boolean, close: () => void) {
+export function useSheetEffects(open: boolean, close: () => void, opener?: { current: HTMLElement | null }) {
   const closeRef = useRef(close);
   closeRef.current = close;
   useEffect(() => {
     if (!WEB || !open) return;
     const active = document.activeElement as HTMLElement | null;
-    const trigger = active && active !== document.body ? active : null;
+    // An explicit opener wins: a sheet opened from inside another sheet returns focus to the control that
+    // opened the first one, because its own button is gone with that sheet.
+    const trigger = opener?.current ?? (active && active !== document.body ? active : null);
     window.history.pushState(window.history.state, '', window.location.href);
     let pushed = true;
     const onPop = () => {
@@ -42,4 +44,26 @@ export function useSheetEffects(open: boolean, close: () => void) {
       setTimeout(tick, 0);
     };
   }, [open]);
+}
+
+/**
+ * Run `next` once the history entry of a sheet that is closing has been popped (its Back cleanup calls
+ * history.back(), which lands asynchronously). Opening a second sheet in the same render would push its
+ * own entry first and the late popstate would close it at once. Falls back to a timer off web or when no
+ * popstate arrives.
+ */
+export function afterSheetHistory(next: () => void) {
+  if (!WEB) {
+    next();
+    return;
+  }
+  let done = false;
+  const run = () => {
+    if (done) return;
+    done = true;
+    window.removeEventListener('popstate', run);
+    setTimeout(next, 0);
+  };
+  window.addEventListener('popstate', run);
+  setTimeout(run, 600);
 }
