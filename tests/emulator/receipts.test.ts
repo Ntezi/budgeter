@@ -97,7 +97,7 @@ describe('AC-2 / AC-3 / SEC-20 idempotent confirm, drafts never post', () => {
       const id = `new-${mode}-${run}`;
       const r = receipt(id);
       const before = await count(owner, 'users', OWNER, 'periods', pid, 'transactions');
-      const acct = { accountId: 'acc-cash' };
+      const acct = { accountId: 'acc-cash', planItemId: 'plan-groceries' };
       const results = mode === 'sequential'
         ? [await confirmReceiptAsNewExpense(owner, OWNER, r, acct), await confirmReceiptAsNewExpense(owner, OWNER, r, acct)]
         : await Promise.all([confirmReceiptAsNewExpense(owner, OWNER, r, acct), confirmReceiptAsNewExpense(member, OWNER, r, acct)]);
@@ -128,14 +128,14 @@ describe('AC-2 / AC-3 / SEC-20 idempotent confirm, drafts never post', () => {
     const afterTx = (await getDoc(doc(owner, 'users', OWNER, 'periods', pid, 'transactions', target.id))).data();
     assert.equal(JSON.stringify(afterTx), beforeTx, 'posted expense not modified');
     assert.equal((await getDoc(doc(owner, 'users', OWNER, 'receipts', `other-${run}`))).exists(), false);
-    await assert.rejects(confirmReceiptAsNewExpense(owner, OWNER, receipt(id), { accountId: 'acc-cash' }), /already linked/);
+    await assert.rejects(confirmReceiptAsNewExpense(owner, OWNER, receipt(id), { accountId: 'acc-cash', planItemId: 'plan-groceries' }), /already linked/);
     await deleteReceiptIn(owner, OWNER, id);
   });
 
   test('locked (DECIDED) month: new expense aborts with zero writes', async () => {
     const id = `locked-${run}`;
     const before = await count(owner, 'users', OWNER, 'periods', prevPid, 'transactions');
-    await assert.rejects(confirmReceiptAsNewExpense(owner, OWNER, receipt(id, `${prevPid}-10`), { accountId: 'acc-cash' }), /locked/);
+    await assert.rejects(confirmReceiptAsNewExpense(owner, OWNER, receipt(id, `${prevPid}-10`), { accountId: 'acc-cash', planItemId: 'plan-groceries' }), /locked/);
     assert.equal(await count(owner, 'users', OWNER, 'periods', prevPid, 'transactions'), before);
     assert.equal((await getDoc(doc(owner, 'users', OWNER, 'receipts', id))).exists(), false);
   });
@@ -144,7 +144,7 @@ describe('AC-2 / AC-3 / SEC-20 idempotent confirm, drafts never post', () => {
 describe('SEC-18 delete cascade', () => {
   test('deleting a confirmed receipt removes its link and observations, keeps the expense', async () => {
     const id = `del-${run}`;
-    await confirmReceiptAsNewExpense(owner, OWNER, receipt(id), { accountId: 'acc-cash' });
+    await confirmReceiptAsNewExpense(owner, OWNER, receipt(id), { accountId: 'acc-cash', planItemId: 'plan-groceries' });
     assert.equal((await listPriceObservationsIn(owner, OWNER)).filter((o) => o.receiptId === id).length, 2);
     await deleteReceiptIn(member, OWNER, id);
     assert.equal((await getDoc(doc(owner, 'users', OWNER, 'receipts', id))).exists(), false);
@@ -164,8 +164,33 @@ describe('C-10 pre-change shape', () => {
     const before = await snap();
     assert.ok(before.includes('Rice 5 kg'));
     const id = `c10-${run}`;
-    await confirmReceiptAsNewExpense(owner, OWNER, receipt(id), { accountId: 'acc-cash' });
+    await confirmReceiptAsNewExpense(owner, OWNER, receipt(id), { accountId: 'acc-cash', planItemId: 'plan-groceries' });
     await deleteReceiptIn(owner, OWNER, id);
     assert.equal(await snap(), before);
+  });
+});
+
+// BUDG-6 H-4: a receipt recorded as a new expense counts against a budget line of its month, like
+// every other expense path; without a line (or with a line of another month) nothing is written.
+describe('H-4 receipt new expense needs a budget line', () => {
+  const spent = async () => {
+    const snap = await getDocs(collection(owner, 'users', OWNER, 'periods', pid, 'transactions'));
+    return snap.docs.filter((d) => d.data().planItemId === 'plan-groceries').reduce((acc, d) => acc + Math.round(Number(d.data().amount) * 100), 0);
+  };
+  test("the line's Spent changes by the receipt amount; no line or a foreign line writes nothing", async () => {
+    const before = await spent();
+    const txBefore = await count(owner, 'users', OWNER, 'periods', pid, 'transactions');
+    await assert.rejects(confirmReceiptAsNewExpense(owner, OWNER, receipt(`h4a-${run}`), { accountId: 'acc-cash' }), /budget line/);
+    await assert.rejects(confirmReceiptAsNewExpense(owner, OWNER, receipt(`h4b-${run}`), { accountId: 'acc-cash', planItemId: `no-line-${run}` }), /not in/);
+    assert.equal(await count(owner, 'users', OWNER, 'periods', pid, 'transactions'), txBefore, 'nothing written without a valid line');
+    const r = receipt(`h4c-${run}`);
+    const res = await confirmReceiptAsNewExpense(owner, OWNER, r, { accountId: 'acc-cash', planItemId: 'plan-groceries', planItemName: 'Groceries', group: 'NEED' });
+    assert.equal(res.created, true);
+    const after = await spent();
+    assert.ok(after > before, 'Spent on the line went up');
+    const tx = (await getDocs(collection(owner, 'users', OWNER, 'periods', pid, 'transactions'))).docs.find((d) => d.id === res.link.txId)?.data();
+    assert.equal(tx?.planItemId, 'plan-groceries');
+    assert.equal(tx?.categoryId, 'plan-groceries');
+    assert.equal(after - before, Math.round(Number(tx?.amount) * 100));
   });
 });

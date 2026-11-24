@@ -16,8 +16,9 @@ import { fmtMoney } from '@/lib/format';
 import { fromMinor, minorToText, parseMinor, toMinor } from '@/lib/money';
 import { localDateISO, isDateISO, postingPeriodId } from '@/lib/rules/postingMonth';
 import { normalizeQuantity } from '@/lib/rules/units';
+import { hasFundedAmount } from '@/lib/funding';
 import { lastComparable, priceChipText, variantKeyOf, type PriceObservation } from '@/lib/rules/priceCompare';
-import { RECEIPT_UNITS, receiptTotalMinor, type Receipt, type ReceiptLine } from '@/lib/repo/receiptsCore';
+import { RECEIPT_UNITS, receiptNewExpenseProblem, receiptTotalMinor, type Receipt, type ReceiptLine } from '@/lib/repo/receiptsCore';
 import {
   confirmReceiptAsNewExpense, confirmReceiptToExisting, listPriceObservationsIn, saveReceiptDraft,
 } from '@/lib/repo/receiptsOps';
@@ -69,9 +70,13 @@ type Props = {
   sourceListId?: string;
   /** Transactions row "Attach receipt" (design-BUDG-5 entry point 2): opens on "Link existing" for this expense. */
   linkTo?: { txId: string; date: string; amount: number; name?: string };
+  /** H-4: budget lines of `planPeriodId` and their funded amounts (same source as Record expense). */
+  planLines?: { id: string; name: string; group?: string }[];
+  fundedByPlanId?: Record<string, number>;
+  planPeriodId?: string;
 };
 
-export function ReceiptModal({ open, onClose, onSaved, ownerUid, actorUid, accounts, catalog, prefill, sourceListId, linkTo }: Props) {
+export function ReceiptModal({ open, onClose, onSaved, ownerUid, actorUid, accounts, catalog, prefill, sourceListId, linkTo, planLines = [], fundedByPlanId = {}, planPeriodId = '' }: Props) {
   const [receiptId, setReceiptId] = useState('');
   const [step, setStep] = useState<1 | 2>(1);
   const [storeName, setStoreName] = useState('');
@@ -79,6 +84,7 @@ export function ReceiptModal({ open, onClose, onSaved, ownerUid, actorUid, accou
   const [lines, setLines] = useState<LineDraft[]>([]);
   const [mode, setMode] = useState<'NEW' | 'EXISTING'>('NEW');
   const [accountId, setAccountId] = useState('');
+  const [planItemId, setPlanItemId] = useState('');
   const [txId, setTxId] = useState('');
   const [txs, setTxs] = useState<TxRow[]>([]);
   const [history, setHistory] = useState<PriceObservation[]>([]);
@@ -112,6 +118,15 @@ export function ReceiptModal({ open, onClose, onSaved, ownerUid, actorUid, accou
   }, [activeAccounts, accountId]);
 
   const periodId = isDateISO(purchaseDate) ? postingPeriodId(purchaseDate) : '';
+  // H-4: the line must belong to the purchase month and be funded, as on every other expense path.
+  const fundedLines = useMemo(() => planLines.filter((l) => hasFundedAmount(fundedByPlanId, l.id)), [planLines, fundedByPlanId]);
+  const chosenLine = planLines.find((l) => l.id === planItemId);
+  const newProblem = receiptNewExpenseProblem({
+    accountId,
+    planItemId: chosenLine ? planItemId : '',
+    lineFunded: hasFundedAmount(fundedByPlanId, planItemId),
+    lineInPostingMonth: Boolean(periodId) && periodId === planPeriodId,
+  });
   useEffect(() => {
     if (!open || step !== 2 || !periodId) return;
     getDocs(collection(db, 'users', ownerUid, 'periods', periodId, 'transactions'))
@@ -184,7 +199,8 @@ export function ReceiptModal({ open, onClose, onSaved, ownerUid, actorUid, accou
     try {
       const r = toReceipt();
       if (mode === 'NEW') {
-        const res = await confirmReceiptAsNewExpense(db, ownerUid, r, { accountId });
+        if (newProblem) throw new Error(newProblem);
+        const res = await confirmReceiptAsNewExpense(db, ownerUid, r, { accountId, planItemId, planItemName: chosenLine?.name, group: chosenLine?.group });
         onSaved(res.created ? `Receipt saved and expense recorded in ${monthLabel}.` : 'Receipt was already saved.');
       } else {
         if (!txId) throw new Error('Choose the expense this receipt belongs to.');
@@ -220,7 +236,8 @@ export function ReceiptModal({ open, onClose, onSaved, ownerUid, actorUid, accou
             <Text className="text-sm font-semibold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>
               {`Posts to ${monthLabel} · ${accountName || 'choose account'} · ${totalMinor === null ? '-' : fmt(totalMinor)} · ${purchaseDate}`}
             </Text>
-            <Text className="text-sm text-muted-foreground dark:text-zinc-400">{`Date: ${purchaseDate} · Account: ${accountName || 'choose one'} · Amount: ${totalMinor === null ? '-' : fmt(totalMinor)}`}</Text>
+            <Text className="text-sm text-muted-foreground dark:text-zinc-400">{`Date: ${purchaseDate} · Account: ${accountName || 'choose one'} · Amount: ${totalMinor === null ? '-' : fmt(totalMinor)} · Line: ${chosenLine?.name || 'choose one'}`}</Text>
+            {newProblem ? <Text testID="receipt-save-problem" className="text-sm text-muted-foreground dark:text-zinc-400">{newProblem}</Text> : null}
           </View>
         ) : null}
         {error ? <Text role="alert" className="text-sm text-destructive dark:text-red-300">{error}</Text> : null}
@@ -229,7 +246,7 @@ export function ReceiptModal({ open, onClose, onSaved, ownerUid, actorUid, accou
           size="touch-lg"
           className="w-full"
           textClassName="text-base"
-          disabled={saving || (mode === 'NEW' ? !accountId : !txId)}
+          disabled={saving || (mode === 'NEW' ? Boolean(newProblem) : !txId)}
           onPress={() => void save()}
         />
         <AppButton label="Back" variant="ghost" size="touch" disabled={saving} onPress={() => setStep(1)} />
@@ -284,7 +301,10 @@ export function ReceiptModal({ open, onClose, onSaved, ownerUid, actorUid, accou
         <View className="gap-4">
           <AppSegmented value={mode} touch options={[{ label: 'Record new expense', value: 'NEW' }, { label: 'Link existing', value: 'EXISTING' }]} onChange={setMode} />
           {mode === 'NEW' ? (
-            <DropdownField value={accountId} options={activeAccounts.map((a) => ({ label: a.name, value: a.id as string }))} onChange={setAccountId} placeholder="Account that paid" menuStrategy="inline" triggerClassName="min-h-11" />
+            <>
+              <DropdownField value={accountId} options={activeAccounts.map((a) => ({ label: a.name, value: a.id as string }))} onChange={setAccountId} placeholder="Account that paid" menuStrategy="inline" triggerClassName="min-h-11" />
+              <DropdownField value={planItemId} options={fundedLines.map((l) => ({ label: l.name, value: l.id }))} onChange={setPlanItemId} placeholder="Budget line" menuStrategy="inline" triggerClassName="min-h-11" />
+            </>
           ) : (
             <DropdownField
               value={txId}

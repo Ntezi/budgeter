@@ -1630,6 +1630,9 @@ export default function ShoppingScreen() {
         catalog={catalogRows}
         prefill={receiptOpen ? lineDraftsFromItems(items.some((it) => it.bought) ? items.filter((it) => it.bought) : items, catalogRows) : []}
         sourceListId={selectedListId || undefined}
+        planLines={planOptions}
+        fundedByPlanId={fundedByPlanId}
+        planPeriodId={targetPid}
       />
 
       <AppSheet

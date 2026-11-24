@@ -61,6 +61,13 @@ test('BUDG-5 receipts: review, compare, save one expense, link existing, catalog
   await expect(summary).toContainText('Account: ');
   await expect(summary).toContainText(/Amount: .*80\.00/);
   await expect(summary).toContainText('Posts to ');
+  // BUDG-6 H-4: no Save without a budget line; the line is shown in the Save summary.
+  await expect(summary).toContainText('Line: choose one');
+  await expect(page.getByTestId('receipt-save-problem')).toHaveText('Choose the budget line.');
+  await page.getByText('Budget line', { exact: true }).click();
+  await page.getByText('Groceries', { exact: true }).last().click();
+  await expect(summary).toContainText('Line: Groceries');
+  await expect(page.getByTestId('receipt-save-problem')).toHaveCount(0);
   await shot(page, testInfo, 'AC-1-save-shows-date-account-amount');
   await page.getByText('Save expense', { exact: true }).click();
   await expect(page.getByText(/Receipt saved and expense recorded in/)).toBeVisible();
@@ -68,6 +75,7 @@ test('BUDG-5 receipts: review, compare, save one expense, link existing, catalog
   // AC-2: exactly one new expense, exact amount, linked once.
   const created = await rcptTxs();
   expect(created.length).toBe(1);
+  expect(created[0].fields.planItemId?.stringValue).toBe('plan-groceries'); // H-4: counts against the line
   expect(Number(created[0].fields.amount.doubleValue ?? created[0].fields.amount.integerValue)).toBe(80);
   expect((await listIds('periods', pid, 'transactions')).length).toBe(txBefore + 1);
   const receiptId = created[0].id.slice('rcpt_'.length);

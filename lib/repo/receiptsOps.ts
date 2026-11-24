@@ -88,6 +88,9 @@ export async function confirmReceiptAsNewExpense(
 ): Promise<ConfirmResult> {
   const r = cleanReceipt(input);
   if (!expense.accountId) throw new Error('Choose the account that paid.');
+  // H-4: like every other expense path, the expense counts against a budget line of its month.
+  const planItemId = String(expense.planItemId || '').trim();
+  if (!planItemId) throw new Error('Choose the budget line.');
   const amount = fromMinor(expenseMinorOf(r));
   const periodId = receiptPeriodId(r);
   const txId = receiptTxId(r.id);
@@ -98,20 +101,22 @@ export async function confirmReceiptAsNewExpense(
     const ps = await t.get(periodRef);
     const ts = await t.get(txRef);
     const rs = await t.get(receiptRef(db, owner, r.id));
+    const line = await t.get(doc(db, 'users', owner, 'periods', periodId, 'planItems', planItemId));
     if (ts.exists()) return false; // same transaction wrote receipt + link: retry is a no-op
     if (rs.exists() && rs.data()?.status === 'CONFIRMED') throw new Error('This receipt is already linked to an expense.');
     if (!ps.exists()) throw new Error(`No budget for ${periodId}. Create that month first.`);
     if (ps.data()?.status === 'DECIDED') throw new Error(`${periodId} is locked. Nothing was recorded.`);
+    if (!line.exists()) throw new Error(`That budget line is not in ${periodId}. Nothing was recorded.`);
     const name = r.storeName ? `Receipt: ${r.storeName}` : 'Receipt';
     t.set(txRef, {
       type: 'EXPENSE',
-      name: expense.planItemName || name,
+      name: expense.planItemName || String(line.data()?.name || '') || name,
       amount,
       group: expense.group || 'NEED',
       date: r.purchaseDate,
       note: `${name} · ${r.lines.length} item${r.lines.length === 1 ? '' : 's'}`,
-      planItemId: expense.planItemId || '',
-      categoryId: expense.planItemId || '',
+      planItemId,
+      categoryId: planItemId,
       accountId: expense.accountId,
       paidFromAccountId: expense.accountId,
       receiptId: r.id,

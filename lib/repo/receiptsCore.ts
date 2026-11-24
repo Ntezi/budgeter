@@ -161,3 +161,15 @@ export function expenseMinorOf(r: Receipt) {
   if (r.totalMinor <= 0) throw new Error('This receipt has no amount to record. Link it to an existing expense instead.');
   return r.totalMinor;
 }
+
+/**
+ * H-4 (BUDG-6): a receipt recorded as a new expense goes through the same checks as every other expense
+ * path: an account, a budget line of the posting month, and that line funded. '' when Save may be pressed.
+ */
+export function receiptNewExpenseProblem(s: { accountId: string; planItemId: string; lineFunded: boolean; lineInPostingMonth: boolean }): string {
+  if (!s.accountId) return 'Choose the account that paid.';
+  if (!s.planItemId) return 'Choose the budget line.';
+  if (!s.lineInPostingMonth) return 'That budget line is not in the month of the purchase date.';
+  if (!s.lineFunded) return 'That budget line has no money in it yet.';
+  return '';
+}
