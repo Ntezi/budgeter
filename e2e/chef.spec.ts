@@ -170,6 +170,10 @@ test('BUDG-4 shopping: catalog, duplicates, chef sharing and revoke', async ({ b
   await household.getByText('Stop sharing', { exact: true }).click(); // BUDG-8 S11: Revoke -> Stop sharing + confirm
   await household.getByTestId('confirm-stop-sharing').click();
   await expect(household.getByTestId('share-state')).toHaveCount(0);
+  await household.getByLabel('List options').click(); // review round 1: Share with chef is offered again
+  await expect(household.getByTestId('list-options').getByText('Share with chef', { exact: true })).toBeVisible();
+  await household.keyboard.press('Escape');
+  await expect(household.getByTestId('list-options')).toHaveCount(0);
   await expect(chefPage.getByText('Access ended')).toBeVisible();
   await expect(chefPage.getByText('Juice')).toHaveCount(0);
   await shot(chefPage, testInfo, 'AC-5-chef-access-ended');

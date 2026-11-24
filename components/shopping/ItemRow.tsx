@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, PanResponder, Platform, Pressable, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { cn } from '@/lib/cn';
@@ -92,6 +92,7 @@ export function ItemRow(props: Props) {
     if (lp.current.t) clearTimeout(lp.current.t);
     lp.current.t = null;
   };
+  useEffect(() => () => lpCancel(), []);
   const webLongPress =
     Platform.OS === 'web' && onLongPress && !dense
       ? ({
@@ -163,11 +164,11 @@ export function ItemRow(props: Props) {
     >
       {swipeOn ? (
         <View className="absolute bottom-0 right-0 top-0 flex-row items-stretch justify-end bg-destructive" style={{ width: '100%' }} aria-hidden={!revealed}>
+          {revealed ? (
           <Pressable
             testID="swipe-delete"
             accessibilityRole="button"
             accessibilityLabel={`Delete ${name}`}
-            focusable={revealed}
             onPress={() => {
               settle(0);
               onRemove?.();
@@ -177,6 +178,7 @@ export function ItemRow(props: Props) {
           >
             <Text className="text-sm font-semibold text-white">Delete</Text>
           </Pressable>
+          ) : null}
         </View>
       ) : null}
       <Animated.View

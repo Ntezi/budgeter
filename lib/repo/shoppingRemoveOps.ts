@@ -53,14 +53,25 @@ export async function removeShoppingItemsIn(db: Firestore, scope: RemoveScope, t
  * chef-visible fields; firestore.rules require createdBy/updatedBy = the actor and the times = now on create.
  */
 export async function restoreShoppingItemsIn(db: Firestore, snapshots: RemovedSnapshot[], actorUid: string) {
+  // Step 1: the private items, alone, so a refused mirror can never cost the item itself.
+  const priv = writeBatch(db);
+  let privateRestored = 0;
+  for (const s of snapshots) {
+    if (!s.privateData) continue;
+    priv.set(refFor(db, s.scope, 'private', s.id), s.privateData);
+    privateRestored += 1;
+  }
+  if (privateRestored) await priv.commit();
+  // Step 2: mirrors only while the share is still ACTIVE (rules refuse them after Stop sharing / Leave).
   const batch = writeBatch(db);
   let writes = 0;
+  const active = new Map<string, boolean>();
   for (const s of snapshots) {
-    if (s.privateData) {
-      batch.set(refFor(db, s.scope, 'private', s.id), s.privateData);
-      writes += 1;
+    if (s.sharedData && s.scope.shareId && !active.has(s.scope.shareId)) {
+      const share = await getDoc(doc(db, 'sharedLists', s.scope.shareId)).catch(() => null);
+      active.set(s.scope.shareId, share?.data()?.status === 'ACTIVE');
     }
-    if (s.sharedData) {
+    if (s.sharedData && active.get(s.scope.shareId || '')) {
       const fields: Record<string, unknown> = {};
       for (const key of SHARED_ITEM_FIELDS) if (s.sharedData[key] !== undefined) fields[key] = s.sharedData[key];
       batch.set(refFor(db, s.scope, 'shared', s.id), {
@@ -73,6 +84,15 @@ export async function restoreShoppingItemsIn(db: Firestore, snapshots: RemovedSn
       writes += 1;
     }
   }
-  if (writes) await batch.commit();
-  return writes;
+  let mirrorsRestored = 0;
+  if (writes) {
+    try {
+      await batch.commit();
+      mirrorsRestored = writes;
+    } catch (e: unknown) {
+      if ((e as { code?: string })?.code !== 'permission-denied') throw e;
+      // The share ended in between: the private item is back, the chef no longer sees the list.
+    }
+  }
+  return { privateRestored, mirrorsRestored };
 }

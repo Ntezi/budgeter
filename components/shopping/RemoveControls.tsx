@@ -13,7 +13,7 @@ let ownBackPending = false; // the popstate of our own history.back() must not c
  * Select mode on web: Escape and browser Back leave it (items kept). Like useSheetEffects, but the late
  * popstate of a select mode that just ended (Cancel, then a long-press at once) is ignored.
  */
-export function useSelectModeEffects(active: boolean, leave: () => void) {
+export function useSelectModeEffects(active: boolean, leave: () => boolean | void) {
   const leaveRef = useRef(leave);
   leaveRef.current = leave;
   useEffect(() => {
@@ -27,7 +27,11 @@ export function useSelectModeEffects(active: boolean, leave: () => void) {
       }
       if (!pushed) return;
       pushed = false;
-      leaveRef.current();
+      if (leaveRef.current() === false) {
+        // Back closed a dialog on top (it handles its own entry): select mode stays, so keep its entry.
+        window.history.pushState(window.history.state, '', window.location.href);
+        pushed = true;
+      }
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') leaveRef.current();
@@ -79,7 +83,9 @@ export function RemoveConfirmDialog({
   error,
   onClose,
   onConfirm,
+  opener,
 }: {
+  opener?: { current: HTMLElement | null };
   open: boolean;
   count: number;
   listName: string;
@@ -88,7 +94,7 @@ export function RemoveConfirmDialog({
   onClose: () => void;
   onConfirm: () => void;
 }) {
-  useSheetEffects(open, () => !busy && onClose());
+  useSheetEffects(open, () => !busy && onClose(), opener);
   return (
     <AppModal open={open} onClose={() => !busy && onClose()} title={removeConfirmTitle(count, listName)}>
       <View className="gap-4" testID="remove-confirm">

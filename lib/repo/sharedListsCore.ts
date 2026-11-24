@@ -22,6 +22,8 @@ export type SharedItem = {
   unit?: string;
   category?: string;
   note?: string;
+  /** Item tags (words only; never a price or a budget line). */
+  tags?: string[];
   status: SharedItemStatus;
   createdBy?: string;
   updatedBy?: string;
@@ -30,11 +32,16 @@ export type SharedItem = {
 };
 
 /** The only item fields that ever leave users/{owner}/** (mirrors firestore.rules itemEditableKeys). */
-export const SHARED_ITEM_FIELDS = ['name', 'quantity', 'unit', 'category', 'note', 'status'] as const;
+export const SHARED_ITEM_FIELDS = ['name', 'quantity', 'unit', 'category', 'note', 'tags', 'status'] as const;
+
+/** Tags as shared: at most 12 short strings. */
+export function sharedTags(tags: unknown): string[] {
+  return (Array.isArray(tags) ? tags : []).map((t) => String(t || '').trim().slice(0, 40)).filter(Boolean).slice(0, 12);
+}
 
 /** Chef-visible fields of a private shopping item; drops price, actuals, plan and tx links. */
 export function toSharedItemFields(item: {
-  name?: string; quantity?: number; unit?: string; category?: string; note?: string; bought?: boolean; status?: string;
+  name?: string; quantity?: number; unit?: string; category?: string; note?: string; tags?: string[]; bought?: boolean; status?: string;
 }): Omit<SharedItem, 'id' | 'createdBy' | 'updatedBy' | 'createdAt' | 'updatedAt'> {
   const out: Record<string, unknown> = {
     name: String(item.name || '').trim().slice(0, 120),
@@ -44,19 +51,21 @@ export function toSharedItemFields(item: {
   if (item.unit) out.unit = item.unit;
   if (item.category) out.category = String(item.category).slice(0, 60);
   if (item.note) out.note = String(item.note).slice(0, 500);
+  if (sharedTags(item.tags).length) out.tags = sharedTags(item.tags);
   return out as any;
 }
 
 /** Chef-visible part of a household patch to a private item (status from `bought`); empty when nothing is shared. */
 export function toSharedPatch(patch: {
-  name?: string; quantity?: number; unit?: string; category?: string; note?: string; bought?: boolean;
-}): Partial<Pick<SharedItem, 'name' | 'quantity' | 'unit' | 'category' | 'note' | 'status'>> {
+  name?: string; quantity?: number; unit?: string; category?: string; note?: string; tags?: string[]; bought?: boolean;
+}): Partial<Pick<SharedItem, 'name' | 'quantity' | 'unit' | 'category' | 'note' | 'tags' | 'status'>> {
   const out: Record<string, unknown> = {};
   if (patch.name !== undefined) out.name = String(patch.name || '').trim().slice(0, 120);
   if (patch.quantity !== undefined) out.quantity = Math.min(9999, Math.max(0, Number(patch.quantity) || 0));
   if (patch.unit !== undefined) out.unit = patch.unit || '';
   if (patch.category !== undefined) out.category = String(patch.category || '').slice(0, 60);
   if (patch.note !== undefined) out.note = String(patch.note || '').slice(0, 500);
+  if (patch.tags !== undefined) out.tags = sharedTags(patch.tags);
   if (patch.bought !== undefined) out.status = patch.bought ? 'GOT_IT' : 'TO_BUY';
   return out as any;
 }
