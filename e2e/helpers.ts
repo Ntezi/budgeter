@@ -86,3 +86,11 @@ export async function expectSheetClosesFromAnywhere(page: Page, sheetId: string,
   await expect(sheet, `${sheetId}: Back closes`).toHaveCount(0, { timeout: 3000 });
   expect(route(), `${sheetId}: Back keeps route`).toBe(r0);
 }
+
+/** BUDG-42: every list action lives in the three-dots "List options" sheet. */
+export async function listAction(page: Page, label: string) {
+  await page.getByLabel('List options').first().click();
+  const sheet = page.getByTestId('list-options');
+  await expect(sheet).toBeVisible();
+  await sheet.getByText(label, { exact: true }).click();
+}

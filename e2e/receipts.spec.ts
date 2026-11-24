@@ -3,7 +3,7 @@
 // new expense through a Save that shows date, account and amount; a second receipt linked to
 // an existing expense; receipt prices on the catalog item. Nothing posts before Save.
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { listIds, noPageScroll, reseed, shot, signIn } from './helpers';
+import { listAction, listIds, noPageScroll, reseed, shot, signIn } from './helpers';
 
 const pid = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; })();
 
@@ -25,7 +25,7 @@ test('BUDG-5 receipts: review, compare, save one expense, link existing, catalog
 
   // AC-1: start from the finished list; bought items are pre-filled (nothing retyped).
   await openList(page, 'Weekly groceries');
-  await page.getByText('Add receipt', { exact: true }).click();
+  await listAction(page, 'Add receipt'); // BUDG-42: from List options
   const lines = page.getByTestId('receipt-line');
   await expect(lines).toHaveCount(2);
   await expect(lines.nth(0).getByLabel('Receipt item name')).toHaveValue('Rice 5 kg');
@@ -84,8 +84,7 @@ test('BUDG-5 receipts: review, compare, save one expense, link existing, catalog
 
   // AC-1: second receipt linked to an existing expense; the expense is not changed.
   await openList(page, 'Weekend party');
-  await page.getByLabel('List options').click(); // BUDG-8 S10: no Got-it items, so Add receipt is under the list's options
-  await page.getByText('Add receipt', { exact: true }).click();
+  await listAction(page, 'Add receipt');
   await expect(page.getByTestId('receipt-line')).toHaveCount(1);
   await page.getByText('Next', { exact: true }).click();
   await page.getByText('Link existing', { exact: true }).click();
