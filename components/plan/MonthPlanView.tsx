@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Platform, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -38,7 +38,8 @@ import { cn } from '@/lib/cn';
 import { parseTagsInput, tagsToInput } from '@/lib/tags';
 import { transactionSignedBudgetAmount } from '@/lib/accounting';
 
-import { addTransaction, watchTransactions, type Tx } from '@/lib/repo/transactions';
+import { addTransactionOnce, newClientId, watchTransactions, type Tx } from '@/lib/repo/transactions';
+import { localDateISO } from '@/lib/rules/postingMonth';
 import { AppSheet, useSheet } from '@/components/patterns/AppSheet';
 import { ListGroup, ListRow } from '@/components/patterns/ListRow';
 import { LoadingState } from '@/components/patterns/States';
@@ -765,6 +766,7 @@ export function MonthPlanView({ pid }: { pid: string }) {
     await updatePlanItem(uid, pid, item.id, { plannedAccountId: accountId } as any);
   }
 
+  const markSpentIdRef = useRef('');
   async function markSpent(row: ReconcileRow) {
     if (!uid || !pid || !row.id) return;
     const allocation = allocationByItemId[row.id];
@@ -783,18 +785,23 @@ export function MonthPlanView({ pid }: { pid: string }) {
 
     setMarkingSpent(row.id);
     try {
-      await addTransaction(uid, pid, {
+      // BUDG-40 AC-3 (F-4, F-7): written once under this line sheet's id (a double tap or retry is a no-op),
+      // never into a DECIDED month, dated the local day (not the UTC day) into the viewed month.
+      if (!markSpentIdRef.current) markSpentIdRef.current = newClientId();
+      const created = await addTransactionOnce(uid, pid, markSpentIdRef.current, {
         name: row.name,
         amount: spentAmount,
         group: row.group,
-        date: new Date().toISOString().slice(0, 10),
+        date: localDateISO(),
         paidFromAccountId: allocation.accountId,
         accountId: allocation.accountId,
         planItemId: row.id,
         categoryId: row.id,
         note: `Spent from budget: ${row.name}`,
       } as any);
-      if (spentAmount >= remainingToPlanned) Alert.alert('Transaction recorded', `${row.name} marked as spent.`);
+      markSpentIdRef.current = newClientId(); // recorded: a further tap in this sheet is a new expense
+      if (!created) Alert.alert('Already recorded', `${row.name} was already marked as spent.`);
+      else if (spentAmount >= remainingToPlanned) Alert.alert('Transaction recorded', `${row.name} marked as spent.`);
       else Alert.alert('Transaction recorded', `${row.name} marked as partial spent.`);
     } catch (e: unknown) {
       Alert.alert('Error', e instanceof Error ? e.message : 'Could not record transaction.');
@@ -913,6 +920,7 @@ export function MonthPlanView({ pid }: { pid: string }) {
     : 0;
 
   function openLine(id: string, e?: unknown) {
+    markSpentIdRef.current = newClientId(); // one Mark as spent id per opened line sheet
     resetPlanEditFromSource(id);
     setPlanEditingId(id);
     setPlanFormError('');
@@ -1191,7 +1199,7 @@ export function MonthPlanView({ pid }: { pid: string }) {
             ? {
                 amount: markAmount,
                 accountName: accountName(lineAllocation.accountId),
-                date: new Date().toISOString().slice(0, 10),
+                date: localDateISO(),
                 busy: markingSpent === lineReconcile.id,
                 onPress: () => void markSpent(lineReconcile),
               }

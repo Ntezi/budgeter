@@ -77,14 +77,15 @@ export async function confirmReceiptToExisting(
 }
 
 /**
- * Records ONE new expense for the receipt (explicit Save showing date, account, amount)
- * in the posting month of the purchase date, and links it. Period must exist and be DRAFT.
+ * Records ONE new expense for the receipt (explicit Save showing budget, date, account, amount)
+ * in the chosen budget (default: the month of the purchase date), and links it. Period must exist and be DRAFT;
+ * the line must be in that budget; the purchase date is stored unchanged.
  */
 export async function confirmReceiptAsNewExpense(
   db: Firestore,
   owner: string,
   input: Receipt,
-  expense: { accountId: string; planItemId?: string; planItemName?: string; group?: string }
+  expense: { accountId: string; planItemId?: string; planItemName?: string; group?: string; periodId?: string }
 ): Promise<ConfirmResult> {
   const r = cleanReceipt(input);
   if (!expense.accountId) throw new Error('Choose the account that paid.');
@@ -92,7 +93,10 @@ export async function confirmReceiptAsNewExpense(
   const planItemId = String(expense.planItemId || '').trim();
   if (!planItemId) throw new Error('Choose the budget line.');
   const amount = fromMinor(expenseMinorOf(r));
-  const periodId = receiptPeriodId(r);
+  // BUDG-40 AC-2: the budget the user chose overrides the month of the purchase date (same id check as shopping).
+  const chosen = expense.periodId ? String(expense.periodId) : '';
+  if (chosen && !/^\d{4}-(0[1-9]|1[0-2])$/.test(chosen)) throw new Error('Invalid budget month.');
+  const periodId = chosen || receiptPeriodId(r);
   const txId = receiptTxId(r.id);
   const link: ReceiptLink = { periodId, txId, mode: 'NEW' };
   const periodRef = doc(db, 'users', owner, 'periods', periodId);

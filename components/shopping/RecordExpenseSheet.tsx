@@ -29,6 +29,10 @@ type Props = {
   onAccount: (id: string) => void;
   date: string;
   onDate: (v: string) => void;
+  /** BUDG-40 AC-2: the budget this expense goes to (default: the month of the date) and the open months. */
+  budgetId?: string;
+  budgetOptions?: Option[];
+  onBudget?: (id: string) => void;
   /** "Posts to November 2026 · Household account · GHS 41.00 · 2026-11-23" or what is missing. */
   summary: string;
   ready: boolean;
@@ -123,6 +127,21 @@ export function RecordExpenseSheet(p: Props) {
         <FormRow label="Date">
           <AppInput value={p.date} onChangeText={p.onDate} placeholder="YYYY-MM-DD" accessibilityLabel="Expense date" className="h-11 w-36 text-base" />
         </FormRow>
+        {p.onBudget ? (
+          <FormRow label="Budget">
+            <View testID="record-budget" className="w-full">
+              <DropdownField
+                value={p.budgetId || ''}
+                options={p.budgetOptions || []}
+                onChange={p.onBudget}
+                placeholder="Enter a date first"
+                className="w-full"
+                triggerClassName="min-h-11"
+                menuStrategy="inline"
+              />
+            </View>
+          </FormRow>
+        ) : null}
       </View>
     </AppSheet>
   );

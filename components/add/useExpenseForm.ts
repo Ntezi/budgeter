@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { parseMoney } from '@/lib/format';
 import { computeFundedBudgetByItemId, hasFundedAmount } from '@/lib/funding';
-import { isDateISO, localDateISO, postingPeriodId } from '@/lib/rules/postingMonth';
+import { isDateISO, localDateISO } from '@/lib/rules/postingMonth';
 import { monthTitle } from '@/lib/rules/months';
 import { createPeriodIfAbsent, watchPeriodState, type PeriodState } from '@/lib/repo/periodCreate';
 import { type PlanItem, watchPlanTotals } from '@/lib/repo/plans';
@@ -9,12 +9,15 @@ import { watchIncomeItems } from '@/lib/repo/income';
 import { type Allocation, watchAllocations } from '@/lib/repo/allocations';
 import { type Account, watchAccounts } from '@/lib/repo/accounts';
 import { addTransactionOnce, newClientId, type Tx, watchTransactions } from '@/lib/repo/transactions';
+import { useBudgetChoice } from '@/components/add/useBudgetChoice';
 
 /**
  * Expense form logic (BUDG-1 AC-5), moved unchanged from components/ExpenseFormModal.tsx for the
  * BUDG-8 Add sheet: initialised once when opened, posts to the month of its own date (never the
  * viewed month), missing month -> explicit create, closed month -> blocked, one write on Save.
  * Added read-only: the posting month's transactions, to order line chips by last use and show Left.
+ * BUDG-40 AC-2: the budget is chosen (useBudgetChoice): default = month of the date, the user may pick another
+ * open month; lines, funding, account suggestion and Left all come from the chosen budget; the date is saved as typed.
  */
 export function useExpenseForm(open: boolean, uid: string | null | undefined, onSaved?: (periodId: string) => void) {
   const [date, setDateState] = useState(localDateISO());
@@ -46,7 +49,8 @@ export function useExpenseForm(open: boolean, uid: string | null | undefined, on
   }, [open]);
 
   const dateValid = isDateISO(date);
-  const postingPid = dateValid ? postingPeriodId(date) : '';
+  const budget = useBudgetChoice(open, uid, date);
+  const postingPid = budget.budgetId;
 
   useEffect(() => {
     if (!open || !uid || !postingPid) return;
@@ -95,7 +99,14 @@ export function useExpenseForm(open: boolean, uid: string | null | undefined, on
 
   function setDate(value: string) {
     setDateState(value.trim());
+    if (!budget.manual) setPlanItemId(''); // the budget follows the date, so its lines may change
+  }
+
+  function chooseBudget(id: string) {
+    if (id === postingPid) return;
+    budget.choose(id);
     setPlanItemId('');
+    setError('');
   }
 
   function choosePlan(id: string) {
@@ -161,7 +172,7 @@ export function useExpenseForm(open: boolean, uid: string | null | undefined, on
   const ready = dateValid && !!periodState?.exists && !locked && !!selectedPlan?.id && !!selectedAccount?.id && amount > 0 && !pending;
 
   return {
-    date, setDate, dateValid, postingPid, planItemId, choosePlan, accountId, setAccountId, amountText, setAmountText, note, setNote,
+    date, setDate, dateValid, postingPid, budgetOptions: budget.options, chooseBudget, planItemId, choosePlan, accountId, setAccountId, amountText, setAmountText, note, setNote,
     error, pending, periodState, locked, missing, ready, lines, recentLines, leftFor, accounts, selectedPlan, selectedAccount, amount,
     createPostingMonth, save,
   };

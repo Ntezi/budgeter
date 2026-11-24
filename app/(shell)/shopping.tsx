@@ -44,7 +44,8 @@ import { useAuthUser } from '@/providers/AuthProvider';
 import { db } from '@/lib/firebase';
 import { watchAccounts, type Account } from '@/lib/repo/accounts';
 import { watchOwnedWorkspaceMembers } from '@/lib/repo/collaboration';
-import { localDateISO, postingPeriodId } from '@/lib/rules/postingMonth';
+import { isDateISO, localDateISO } from '@/lib/rules/postingMonth';
+import { useBudgetChoice } from '@/components/add/useBudgetChoice';
 import { monthTitle } from '@/lib/rules/months';
 import { planCatalogWrite, searchCatalog, suggestCatalogMatches, type AddChoice } from '@/lib/rules/catalogMatch';
 import { recordKeyFor, recordShoppingExpense } from '@/lib/repo/shoppingExpense';
@@ -314,17 +315,22 @@ export default function ShoppingScreen() {
     return watchShoppingListItems(uid, selectedListId, setItems);
   }, [uid, selectedListId]);
 
-  useEffect(() => {
-    if (!uid || !targetPid) return;
-    return watchPlanTotals(uid, targetPid, (_totals, nextRows) => setPlanItems(nextRows));
-  }, [uid, targetPid]);
+  // BUDG-40 AC-2: while Record expense is open, lines and funding come from the budget chosen there
+  // (default: the month of the expense date); otherwise from the list's month as before.
+  const recordBudget = useBudgetChoice(completing, uid, expenseDate);
+  const planPid = completing ? recordBudget.budgetId || targetPid : targetPid;
 
   useEffect(() => {
-    if (!uid || !targetPid) return;
-    return watchIncomeItems(uid, targetPid, (_rows, activeTotal) => {
+    if (!uid || !planPid) return;
+    return watchPlanTotals(uid, planPid, (_totals, nextRows) => setPlanItems(nextRows));
+  }, [uid, planPid]);
+
+  useEffect(() => {
+    if (!uid || !planPid) return;
+    return watchIncomeItems(uid, planPid, (_rows, activeTotal) => {
       setActiveIncomeTotal(activeTotal);
     });
-  }, [uid, targetPid]);
+  }, [uid, planPid]);
 
   const selectedList = useMemo(() => lists.find((row) => row.id === selectedListId) || null, [lists, selectedListId]);
   const shareId = selectedList?.shareId || '';
@@ -1016,16 +1022,13 @@ export default function ShoppingScreen() {
   );
 
   const expenseReview = useMemo(() => {
-    let periodLabel = '';
-    try {
-      periodLabel = monthTitle(postingPeriodId(expenseDate.trim()));
-    } catch {
-      return { ready: false, problem: 'Enter the date as YYYY-MM-DD.', periodLabel: '', accountName: '' };
-    }
+    if (!isDateISO(expenseDate.trim())) return { ready: false, problem: 'Enter the date as YYYY-MM-DD.', periodLabel: '', accountName: '' };
+    const periodLabel = recordBudget.budgetId ? monthTitle(recordBudget.budgetId) : '';
+    if (!recordBudget.isOpen) return { ready: false, problem: `${periodLabel} is closed or has no budget yet. Choose an open budget.`, periodLabel, accountName: '' };
     const account = accounts.find((row) => row.id === expenseAccountId);
     if (!account) return { ready: false, problem: 'Choose the account that paid.', periodLabel, accountName: '' };
     return { ready: true, problem: '', periodLabel, accountName: account.name };
-  }, [accounts, expenseAccountId, expenseDate]);
+  }, [accounts, expenseAccountId, expenseDate, recordBudget.budgetId, recordBudget.isOpen]);
 
   // AC-7 / SEC-20 / SEC-22: one explicit Save after reviewing date, amount and account.
   // Replaces the old per-item addTransaction loop; ids are shop_{listId}_{itemId}, so a retry never duplicates.
@@ -1078,6 +1081,7 @@ export default function ShoppingScreen() {
           planItemName: plan.name,
           group: plan.group,
           householdKey,
+          periodId: recordBudget.budgetId,
         });
         if (!res.created) {
           already.push(`${item.name || 'Unnamed item'} (${res.periodId})`);
@@ -1571,6 +1575,9 @@ export default function ShoppingScreen() {
         onAccount={setExpenseAccountId}
         date={expenseDate}
         onDate={setExpenseDate}
+        budgetId={recordBudget.budgetId}
+        budgetOptions={recordBudget.options}
+        onBudget={recordBudget.choose}
         summary={recordSummary}
         ready={completionValidation.ready && expenseReview.ready}
         busy={savingCompletion || finalizingCompletion}
@@ -1664,9 +1671,6 @@ export default function ShoppingScreen() {
         catalog={catalogRows}
         prefill={receiptOpen ? lineDraftsFromItems(items.some((it) => it.bought) ? items.filter((it) => it.bought) : items, catalogRows) : []}
         sourceListId={selectedListId || undefined}
-        planLines={planOptions}
-        fundedByPlanId={fundedByPlanId}
-        planPeriodId={targetPid}
       />
 
       <AppSheet
