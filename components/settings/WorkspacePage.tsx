@@ -109,7 +109,7 @@ export function WorkspacePage(p: {
       >
         <View className="gap-4">
           <FormField label="Name">
-            <AppInput accessibilityLabel="Workspace name" value={c.name} onChangeText={c.setName} placeholder="Wedding 2027" style={{ height: 44 }} />
+            <AppInput accessibilityLabel="Workspace name" value={c.name} onChangeText={c.setName} placeholder="Wedding 2027" />
           </FormField>
           <SettingsSection title="Starting setup">
             {SETUPS.map((s) => (
@@ -117,25 +117,25 @@ export function WorkspacePage(p: {
             ))}
           </SettingsSection>
           <FormField label="Currency">
-            <AppInput accessibilityLabel="Currency" value={c.currency} onChangeText={c.setCurrency} placeholder="GHS" autoCapitalize="characters" style={{ height: 44 }} />
+            <AppInput accessibilityLabel="Currency" value={c.currency} onChangeText={c.setCurrency} placeholder="GHS" autoCapitalize="characters" />
           </FormField>
           {c.needsDates ? (
             <View className="flex-row flex-wrap gap-3">
               <View className="min-w-36 flex-1">
                 <FormField label="Starts (YYYY-MM-DD)">
-                  <AppInput accessibilityLabel="Start date" value={c.start} onChangeText={c.setStart} placeholder="YYYY-MM-DD" autoCapitalize="none" style={{ height: 44 }} />
+                  <AppInput accessibilityLabel="Start date" value={c.start} onChangeText={c.setStart} placeholder="YYYY-MM-DD" autoCapitalize="none" />
                 </FormField>
               </View>
               <View className="min-w-36 flex-1">
                 <FormField label="Ends (YYYY-MM-DD)">
-                  <AppInput accessibilityLabel="End date" value={c.end} onChangeText={c.setEnd} placeholder="YYYY-MM-DD" autoCapitalize="none" style={{ height: 44 }} />
+                  <AppInput accessibilityLabel="End date" value={c.end} onChangeText={c.setEnd} placeholder="YYYY-MM-DD" autoCapitalize="none" />
                 </FormField>
               </View>
             </View>
           ) : null}
           {c.needsGroups ? (
             <FormField label="Groups, separated by commas">
-              <AppInput accessibilityLabel="Groups" value={c.groups} onChangeText={c.setGroups} placeholder="Venue, Catering, Attire" autoCapitalize="words" style={{ height: 44 }} />
+              <AppInput accessibilityLabel="Groups" value={c.groups} onChangeText={c.setGroups} placeholder="Venue, Catering, Attire" autoCapitalize="words" />
             </FormField>
           ) : null}
           <Notice kind="error" text={c.error} />

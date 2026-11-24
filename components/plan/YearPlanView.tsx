@@ -88,15 +88,15 @@ export function YearPlanView({ uid, periods }: Props) {
     const canAdd = showOpen && where.variant === 'warning' && period && (period.status ?? 'DRAFT') === 'DRAFT';
     const state = statusOf(item);
     return (
-      <View key={item.id} className="gap-1 border-t border-border px-4 py-3 dark:border-zinc-800" testID={`year-item-${item.id}`}>
-        <Pressable onPress={(e) => openForm(item, e)} accessibilityRole="button" accessibilityLabel={`Edit ${item.title}`} className="min-h-11 justify-center">
+      <View key={item.id} className="gap-1 border-t border-border px-4 py-2.5 lg:px-3 lg:py-2 dark:border-zinc-800" testID={`year-item-${item.id}`}>
+        <Pressable onPress={(e) => openForm(item, e)} accessibilityRole="button" accessibilityLabel={`Edit ${item.title}`} className="min-h-11 lg:min-h-9 justify-center">
           <View className="flex-row items-center gap-3">
-            <Text className="min-w-0 flex-1 text-base font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>{item.title}</Text>
-            <Text className="shrink-0 text-base font-semibold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>
+            <Text className="min-w-0 flex-1 text-sm font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>{item.title}</Text>
+            <Text className="shrink-0 text-sm font-semibold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>
               {hasEstimate(item) ? fmtMoney(fromMinor(item.estimateMinor!)) : '—'}
             </Text>
           </View>
-          <Text className="text-sm text-muted-foreground dark:text-zinc-400">{`Due ${dueLabel(item.dueDate)}${state !== 'ACTIVE' ? ` · ${state.toLowerCase()}` : ''}`}</Text>
+          <Text className="text-xs text-muted-foreground dark:text-zinc-400">{`Due ${dueLabel(item.dueDate)}${state !== 'ACTIVE' ? ` · ${state.toLowerCase()}` : ''}`}</Text>
         </Pressable>
         <View className="flex-row flex-wrap items-center gap-2">
           <AppBadge label={where.label} variant={where.variant} />
@@ -126,22 +126,22 @@ export function YearPlanView({ uid, periods }: Props) {
     <View className="gap-4" testID="year-plan-view">
       <View className="flex-row flex-wrap items-center justify-between gap-2">
         <View className="z-20 w-32">
-          <DropdownField value={String(year)} options={yearOptions} onChange={(v) => setYear(Number(v))} menuStrategy="inline" triggerClassName="h-11" />
+          <DropdownField value={String(year)} options={yearOptions} onChange={(v) => setYear(Number(v))} menuStrategy="inline" triggerClassName="h-11 lg:h-9" />
         </View>
         <AppButton label="Add dated item" size="touch" onPress={(e) => openForm(null, e)} />
       </View>
 
       <View className="gap-2">
-        <Text className="px-1 text-base font-semibold text-foreground dark:text-zinc-50">{`Upcoming · next ${UPCOMING_DAYS} days`}</Text>
+        <Text className="px-1 text-sm font-semibold text-foreground dark:text-zinc-50">{`Upcoming · next ${UPCOMING_DAYS} days`}</Text>
         <View className="overflow-hidden rounded-xl border border-border bg-card dark:border-zinc-800 dark:bg-zinc-900">
           {soon.length ? soon.map((item) => renderItem(item, true)) : (
-            <Text className="px-4 py-4 text-base text-muted-foreground dark:text-zinc-400">Nothing due in the next {UPCOMING_DAYS} days.</Text>
+            <Text className="px-4 py-4 text-xs text-muted-foreground dark:text-zinc-400">Nothing due in the next {UPCOMING_DAYS} days.</Text>
           )}
         </View>
       </View>
 
       <View className="gap-2" testID="year-months">
-        <Text className="px-1 text-base font-semibold text-foreground dark:text-zinc-50">{`${year} by month`}</Text>
+        <Text className="px-1 text-sm font-semibold text-foreground dark:text-zinc-50">{`${year} by month`}</Text>
         <View className="overflow-hidden rounded-xl border border-border bg-card dark:border-zinc-800 dark:bg-zinc-900">
           {Object.entries(byMonth)
             .filter(([, rows]) => rows.length)
@@ -154,10 +154,10 @@ export function YearPlanView({ uid, periods }: Props) {
                     accessibilityRole="button"
                     aria-expanded={!isClosed}
                     onPress={() => setClosedMonths((prev) => ({ ...prev, [pid]: !isClosed }))}
-                    className="min-h-12 flex-row items-center gap-3 px-4"
+                    className="min-h-11 lg:min-h-9 flex-row items-center gap-3 px-4"
                   >
-                    <Text className="min-w-0 flex-1 text-base font-semibold text-foreground dark:text-zinc-50" numberOfLines={1}>{monthTitle(pid)}</Text>
-                    <Text className="shrink-0 text-sm text-muted-foreground dark:text-zinc-400">{`${rows.length} ${rows.length === 1 ? 'item' : 'items'} · ${fmtMoney(sum)}`}</Text>
+                    <Text className="min-w-0 flex-1 text-sm font-semibold text-foreground dark:text-zinc-50" numberOfLines={1}>{monthTitle(pid)}</Text>
+                    <Text className="shrink-0 text-xs text-muted-foreground dark:text-zinc-400">{`${rows.length} ${rows.length === 1 ? 'item' : 'items'} · ${fmtMoney(sum)}`}</Text>
                     <MaterialCommunityIcons name={isClosed ? 'chevron-down' : 'chevron-up'} size={20} color="#717182" />
                   </Pressable>
                   {isClosed ? null : rows.map((item) => renderItem(item))}
@@ -165,7 +165,7 @@ export function YearPlanView({ uid, periods }: Props) {
               );
             })}
           {freeMonths.length === 12 ? (
-            <Text className="px-4 py-4 text-base text-muted-foreground dark:text-zinc-400">Add dates you must not forget, like renewals.</Text>
+            <Text className="px-4 py-4 text-xs text-muted-foreground dark:text-zinc-400">Add dates you must not forget, like renewals.</Text>
           ) : null}
         </View>
       </View>
@@ -180,7 +180,7 @@ export function YearPlanView({ uid, periods }: Props) {
           multiline
           placeholder="Goals and big moments for this year"
           accessibilityLabel={`Outline ${year}`}
-          className="min-h-20 py-2 text-base"
+          className="min-h-20 py-2 text-sm"
         />
         <View className="flex-row items-center justify-end gap-2">
           {outlineMsg ? <Text className="text-xs text-muted-foreground">{outlineMsg}</Text> : null}

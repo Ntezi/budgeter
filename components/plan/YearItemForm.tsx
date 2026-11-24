@@ -195,12 +195,12 @@ export function YearItemForm({ uid, open, onClose, item, defaultDueDate, account
         <View className="gap-3">
           <View className="gap-1">
             <Text className="text-sm font-medium text-foreground dark:text-zinc-50">Title</Text>
-            <AppInput className="text-base" style={{ height: 44 }} value={title} onChangeText={setTitle} placeholder="e.g. Residence card renewal" accessibilityLabel="Title" maxLength={80} />
+            <AppInput className="" value={title} onChangeText={setTitle} placeholder="e.g. Residence card renewal" accessibilityLabel="Title" maxLength={80} />
           </View>
           <View className="z-20 flex-col gap-3 md:flex-row">
             <View className="gap-1 md:flex-1">
               <Text className="text-sm font-medium text-foreground dark:text-zinc-50">Due date</Text>
-              <AppInput className="text-base" style={{ height: 44 }} value={dueDate} onChangeText={setDueDate} placeholder="YYYY-MM-DD" accessibilityLabel="Due date" maxLength={10} />
+              <AppInput className="" value={dueDate} onChangeText={setDueDate} placeholder="YYYY-MM-DD" accessibilityLabel="Due date" maxLength={10} />
             </View>
             <View className="z-20 gap-1 md:flex-1">
               <Text className="text-sm font-medium text-foreground dark:text-zinc-50">Budget in</Text>
@@ -209,7 +209,7 @@ export function YearItemForm({ uid, open, onClose, item, defaultDueDate, account
                 options={monthOptions}
                 onChange={setBudgetIn}
                 placeholder="Due month"
-                menuStrategy="inline" triggerClassName="h-11"
+                menuStrategy="inline" triggerClassName="h-11 lg:h-9"
                 menuClassName="max-h-44"
                 disabled={!monthOptions.length}
               />
@@ -217,7 +217,7 @@ export function YearItemForm({ uid, open, onClose, item, defaultDueDate, account
           </View>
           <View className="gap-1">
             <Text className="text-sm font-medium text-foreground dark:text-zinc-50">Estimate (leave empty for date only)</Text>
-            <AppInput className="text-base" style={{ height: 44 }} value={estimate} onChangeText={setEstimate} placeholder="Date only" keyboardType="decimal-pad" accessibilityLabel="Estimate" />
+            <AppInput className="" value={estimate} onChangeText={setEstimate} placeholder="Date only" keyboardType="decimal-pad" accessibilityLabel="Estimate" />
           </View>
           {estimate.trim() ? (
             <>
@@ -228,17 +228,17 @@ export function YearItemForm({ uid, open, onClose, item, defaultDueDate, account
                   options={[{ label: 'No category', value: '' }, ...expenses.filter((e) => e.id).map((e) => ({ label: e.name, value: e.id! }))]}
                   onChange={onCategory}
                   placeholder="No category"
-                  menuStrategy="inline" triggerClassName="h-11"
+                  menuStrategy="inline" triggerClassName="h-11 lg:h-9"
                   menuClassName="max-h-44"
                 />
               </View>
               <View className="gap-1">
                 <Text className="text-sm font-medium text-foreground dark:text-zinc-50">Group</Text>
-                <DropdownField value={group} options={PLAN_GROUP_OPTIONS as any} onChange={setGroup} menuStrategy="inline" triggerClassName="h-11" />
+                <DropdownField value={group} options={PLAN_GROUP_OPTIONS as any} onChange={setGroup} menuStrategy="inline" triggerClassName="h-11 lg:h-9" />
               </View>
               <View className="gap-1">
                 <Text className="text-sm font-medium text-foreground dark:text-zinc-50">Funding account (optional)</Text>
-                <DropdownField value={accountId} options={accountOptions} onChange={setAccountId} placeholder="No account" menuStrategy="inline" triggerClassName="h-11" menuClassName="max-h-44" />
+                <DropdownField value={accountId} options={accountOptions} onChange={setAccountId} placeholder="No account" menuStrategy="inline" triggerClassName="h-11 lg:h-9" menuClassName="max-h-44" />
                 {category && suggestion.accountId ? (
                   <Text className="text-xs text-muted-foreground">{`Default for ${category.name}: ${accounts.find((a) => a.id === suggestion.accountId)?.name ?? ''}`}</Text>
                 ) : null}
@@ -248,7 +248,7 @@ export function YearItemForm({ uid, open, onClose, item, defaultDueDate, account
           {item ? (
             <View className="gap-1">
               <Text className="text-xs text-muted-foreground">Status</Text>
-              <DropdownField value={status} options={STATUS_OPTIONS} onChange={setStatus} menuStrategy="inline" triggerClassName="h-11" />
+              <DropdownField value={status} options={STATUS_OPTIONS} onChange={setStatus} menuStrategy="inline" triggerClassName="h-11 lg:h-9" />
             </View>
           ) : null}
           <Text className="text-xs text-muted-foreground">Nothing is added to a month until you add it from that month&apos;s draft.</Text>

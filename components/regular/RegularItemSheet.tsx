@@ -66,11 +66,11 @@ export function RegularItemFields({ p, form }: { p: FormProps; form: ReturnType<
   return (
     <View className="gap-5">
       <FormField label="Name">
-        <AppInput accessibilityLabel="Name" autoFocus={!p.item} value={draft.name} onChangeText={(v) => set({ name: v })} placeholder="e.g. Water bill" className="h-11 text-base" style={{ height: 44 }} />
+        <AppInput accessibilityLabel="Name" autoFocus={!p.item} value={draft.name} onChangeText={(v) => set({ name: v })} placeholder="e.g. Water bill" className="" />
       </FormField>
       <FormField label="Amount">
         <View className="flex-row items-center gap-2">
-          <Text className="text-base text-muted-foreground dark:text-zinc-400">{APP_CURRENCY}</Text>
+          <Text className="text-xs text-muted-foreground dark:text-zinc-400">{APP_CURRENCY}</Text>
           <View className="min-w-0 flex-1">
             <AppInput
               accessibilityLabel="Amount per month"
@@ -78,11 +78,10 @@ export function RegularItemFields({ p, form }: { p: FormProps; form: ReturnType<
               onChangeText={(v) => set({ amount: v })}
               keyboardType="decimal-pad"
               placeholder="0.00"
-              className="h-11 text-right text-base"
-              style={{ height: 44 }}
+              className="h-11 lg:h-9 text-right text-sm"
             />
           </View>
-          <Text className="text-base text-muted-foreground dark:text-zinc-400">per month</Text>
+          <Text className="text-xs text-muted-foreground dark:text-zinc-400">per month</Text>
         </View>
       </FormField>
       <FormField label="Group">
@@ -97,12 +96,12 @@ export function RegularItemFields({ p, form }: { p: FormProps; form: ReturnType<
             value={p.item.defaultAccountId}
             label="Paid from"
             hint="Used as the suggestion in new months. Months already planned keep their account."
-            triggerClassName="h-11"
+            triggerClassName="h-11 lg:h-9"
           />
         </View>
       ) : (
         <FormField label="Paid from">
-          <Text className="text-sm text-muted-foreground dark:text-zinc-400">Choose the account after you save, by opening the {nounFor(p.kind)} again.</Text>
+          <Text className="text-xs text-muted-foreground dark:text-zinc-400">Choose the account after you save, by opening the {nounFor(p.kind)} again.</Text>
         </FormField>
       )}
       <ToggleRow
@@ -113,10 +112,10 @@ export function RegularItemFields({ p, form }: { p: FormProps; form: ReturnType<
       />
       {showTags ? (
         <FormField label="Tags">
-          <AppInput accessibilityLabel="Tags" value={draft.tagsInput} onChangeText={(v) => set({ tagsInput: v })} placeholder="utilities, groceries" className="h-11 text-base" style={{ height: 44 }} />
+          <AppInput accessibilityLabel="Tags" value={draft.tagsInput} onChangeText={(v) => set({ tagsInput: v })} placeholder="utilities, groceries" className="" />
         </FormField>
       ) : (
-        <Pressable accessibilityRole="button" accessibilityLabel="Add tags" onPress={() => setShowTags(true)} className="min-h-11 flex-row items-center gap-2 self-start rounded-md px-1">
+        <Pressable accessibilityRole="button" accessibilityLabel="Add tags" onPress={() => setShowTags(true)} className="min-h-11 lg:min-h-9 flex-row items-center gap-2 self-start rounded-md px-1">
           <MaterialCommunityIcons name="plus" size={18} color="#717182" />
           <Text className="text-sm font-medium text-foreground dark:text-zinc-50">Tags</Text>
         </Pressable>
@@ -164,7 +163,7 @@ export function RegularItemSheet(p: FormProps & { open: boolean; onClose: () => 
 export function RegularItemPanel(p: FormProps) {
   const form = useRegularForm(p);
   return (
-    <View testID="regular-item-panel" className="gap-5 rounded-xl border border-border bg-card p-5 dark:border-zinc-800 dark:bg-zinc-900">
+    <View testID="regular-item-panel" className="gap-5 rounded-xl border border-border bg-card p-3 md:p-4 dark:border-zinc-800 dark:bg-zinc-900">
       <Text role="heading" aria-level={2} className="text-lg font-semibold text-foreground dark:text-zinc-50" numberOfLines={1}>
         {p.item ? p.item.name : `New ${nounFor(p.kind)}`}
       </Text>

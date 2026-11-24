@@ -29,13 +29,13 @@ function Row({ title, sub, active, onPress, shared, progress }: { title: string;
       accessibilityRole="button"
       aria-current={active ? 'page' : undefined}
       onPress={onPress}
-      className={cn('min-h-14 flex-row items-center gap-3 px-4 py-2 hover:bg-muted/50 active:bg-muted dark:hover:bg-zinc-800/60', active && 'bg-muted dark:bg-zinc-800')}
+      className={cn('min-h-11 lg:min-h-9 flex-row items-center gap-3 px-4 py-2 hover:bg-muted/50 active:bg-muted dark:hover:bg-zinc-800/60', active && 'bg-muted dark:bg-zinc-800')}
     >
       <View className="min-w-0 flex-1">
-        <Text className="text-base font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>{title}</Text>
+        <Text className="text-sm font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>{title}</Text>
         <View className="flex-row items-center gap-1">
           {shared ? <MaterialCommunityIcons name="account-multiple-outline" size={14} color="#717182" /> : null}
-          <Text className="min-w-0 shrink text-sm text-muted-foreground dark:text-zinc-400" numberOfLines={1}>{sub}</Text>
+          <Text className="min-w-0 shrink text-xs text-muted-foreground dark:text-zinc-400" numberOfLines={1}>{sub}</Text>
         </View>
         {progress !== undefined ? <AppProgressBar value={progress} className="mt-1 h-1" /> : null}
       </View>

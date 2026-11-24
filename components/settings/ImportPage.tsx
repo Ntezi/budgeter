@@ -88,7 +88,7 @@ export function ImportPage({ uid, initialKind, onBack }: { uid: string | null; i
 
       {kind === 'regular' ? (
         <View className="gap-4">
-          <Text className="text-sm text-muted-foreground dark:text-zinc-400" selectable>{`First line must be: ${recurringCsvHeader}`}</Text>
+          <Text className="text-xs text-muted-foreground dark:text-zinc-400" selectable>{`First line must be: ${recurringCsvHeader}`}</Text>
           {Platform.OS === 'web' ? <AppButton label="Choose a .csv file" variant="outline" size="touch" className="self-start" onPress={chooseFile} /> : null}
           <FormField label="Or paste the rows">
             <AppInput accessibilityLabel="CSV rows" value={csvText} onChangeText={edit} multiline numberOfLines={6} className="items-start py-2" style={{ height: 144 }} autoCapitalize="none" />
@@ -100,21 +100,21 @@ export function ImportPage({ uid, initialKind, onBack }: { uid: string | null; i
             <View className="gap-3">
               <SettingsSection title={`${preview.length} row${preview.length === 1 ? '' : 's'} to add`} testID="import-preview">
                 {preview.map((row, i) => (
-                  <View key={i} className="min-h-14 flex-row flex-wrap items-center gap-x-3 px-4 py-2">
+                  <View key={i} className="min-h-11 lg:min-h-9 flex-row flex-wrap items-center gap-x-3 px-4 py-2">
                     <View className="min-w-0 flex-1">
-                      <Text className="text-base font-medium text-foreground dark:text-zinc-50">{row.name}</Text>
-                      <Text className="text-sm text-muted-foreground dark:text-zinc-400">
+                      <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{row.name}</Text>
+                      <Text className="text-xs text-muted-foreground dark:text-zinc-400">
                         {[row.flow === 'INCOME' ? 'Income' : GROUP[row.group ?? ''] ?? row.group, `day ${row.dayOfMonth}`, row.active === false ? 'paused' : null].filter(Boolean).join(' · ')}
                       </Text>
                     </View>
                     <View className="items-end">
-                      <Text className="text-base font-semibold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>{row.amount.toFixed(2)}</Text>
+                      <Text className="text-sm font-semibold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>{row.amount.toFixed(2)}</Text>
                       <Text className="text-sm text-emerald-600 dark:text-emerald-300">Will add</Text>
                     </View>
                   </View>
                 ))}
               </SettingsSection>
-              <Text className="text-sm text-muted-foreground dark:text-zinc-400">Each row becomes a new repeat. Existing repeats are not changed.</Text>
+              <Text className="text-xs text-muted-foreground dark:text-zinc-400">Each row becomes a new repeat. Existing repeats are not changed.</Text>
               <AppButton
                 label={busy ? 'Importing…' : `Import ${preview.length} row${preview.length === 1 ? '' : 's'}`}
                 size="touch-lg"

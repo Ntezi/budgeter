@@ -43,9 +43,9 @@ type Props = {
 function Figure({ label, value, tone }: { label: string; value: string; tone?: 'over' }) {
   return (
     <View className="min-h-8 flex-row items-center gap-3">
-      <Text className="min-w-0 flex-1 text-sm text-muted-foreground dark:text-zinc-400">{label}</Text>
+      <Text className="min-w-0 flex-1 text-xs text-muted-foreground dark:text-zinc-400">{label}</Text>
       <Text
-        className={cn('shrink-0 text-base font-semibold', tone === 'over' ? 'text-destructive dark:text-red-300' : 'text-foreground dark:text-zinc-50')}
+        className={cn('shrink-0 text-sm font-semibold', tone === 'over' ? 'text-destructive dark:text-red-300' : 'text-foreground dark:text-zinc-50')}
         style={{ fontVariant: ['tabular-nums'] }}
       >
         {value}
@@ -81,7 +81,7 @@ export function LineSheet(props: Props) {
 
         <FormField label="Paid from">
           {readOnly ? (
-            <Text className="text-base text-foreground dark:text-zinc-50">{props.accountLabel}</Text>
+            <Text className="text-sm text-foreground dark:text-zinc-50">{props.accountLabel}</Text>
           ) : (
             <View className="z-10">
               <DropdownField
@@ -90,17 +90,17 @@ export function LineSheet(props: Props) {
                 onChange={props.onPickAccount}
                 placeholder="Choose account"
                 menuStrategy="inline"
-                triggerClassName="h-11"
+                triggerClassName="h-11 lg:h-9"
               />
             </View>
           )}
           {props.repairText ? (
             <View className="flex-row flex-wrap items-center gap-2">
               <AppBadge label="Choose account" variant="warning" />
-              <Text className="min-w-0 flex-1 text-sm text-muted-foreground dark:text-zinc-400">{props.repairText}</Text>
+              <Text className="min-w-0 flex-1 text-xs text-muted-foreground dark:text-zinc-400">{props.repairText}</Text>
             </View>
           ) : props.accountHint ? (
-            <Text className="text-sm text-muted-foreground dark:text-zinc-400">{props.accountHint}</Text>
+            <Text className="text-xs text-muted-foreground dark:text-zinc-400">{props.accountHint}</Text>
           ) : null}
         </FormField>
 
@@ -113,14 +113,14 @@ export function LineSheet(props: Props) {
                 onChangeText={(value) => onEdit({ amount: value })}
                 keyboardType="decimal-pad"
                 placeholder="0.00"
-                className="h-11 text-base" style={{ height: 44 }}
+                className="h-11 lg:h-9 text-sm"
               />
             </FormField>
             <Pressable
               accessibilityRole="button"
               aria-expanded={more}
               onPress={() => setMore((v) => !v)}
-              className="-mx-2 h-11 flex-row items-center gap-1 self-start rounded-md px-2"
+              className="-mx-2 h-11 lg:h-9 flex-row items-center gap-1 self-start rounded-md px-2"
             >
               <Text className="text-sm font-medium text-foreground dark:text-zinc-50">Name and tags</Text>
               <MaterialCommunityIcons name={more ? 'chevron-up' : 'chevron-down'} size={20} color="#717182" />
@@ -128,7 +128,7 @@ export function LineSheet(props: Props) {
             {more ? (
               <View className="gap-4">
                 <FormField label="Name">
-                  <AppInput accessibilityLabel="Line name" value={edit.name} onChangeText={(value) => onEdit({ name: value })} className="h-11 text-base" style={{ height: 44 }} />
+                  <AppInput accessibilityLabel="Line name" value={edit.name} onChangeText={(value) => onEdit({ name: value })} className="" />
                 </FormField>
                 <FormField label="Tags">
                   <AppInput
@@ -136,7 +136,7 @@ export function LineSheet(props: Props) {
                     value={edit.tagsInput}
                     onChangeText={(value) => onEdit({ tagsInput: value })}
                     placeholder="utilities, vegetables"
-                    className="h-11 text-base" style={{ height: 44 }}
+                    className="h-11 lg:h-9 text-sm"
                   />
                 </FormField>
               </View>
@@ -148,15 +148,15 @@ export function LineSheet(props: Props) {
           accessibilityRole="link"
           accessibilityLabel={`Spent so far, ${spentCount} ${spentCount === 1 ? 'payment' : 'payments'}, open Activity`}
           onPress={props.onOpenActivity}
-          className="min-h-12 flex-row items-center gap-3 border-t border-border pt-2 dark:border-zinc-800"
+          className="min-h-11 lg:min-h-9 flex-row items-center gap-3 border-t border-border pt-2 dark:border-zinc-800"
         >
-          <Text className="min-w-0 flex-1 text-base text-foreground dark:text-zinc-50">{`Spent so far (${spentCount})`}</Text>
+          <Text className="min-w-0 flex-1 text-sm text-foreground dark:text-zinc-50">{`Spent so far (${spentCount})`}</Text>
           <MaterialCommunityIcons name="chevron-right" size={20} color="#717182" />
         </Pressable>
 
         {!readOnly && props.markSpent ? (
           <View className="gap-2">
-            <Text className="text-sm text-muted-foreground dark:text-zinc-400">
+            <Text className="text-xs text-muted-foreground dark:text-zinc-400">
               {`Posts to ${monthLabel} · ${props.markSpent.accountName} · ${fmtMoney(props.markSpent.amount)} · ${props.markSpent.date}`}
             </Text>
             <AppButton

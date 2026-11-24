@@ -71,7 +71,6 @@ export function AddSheet({ open, uid, onClose, onSaved, onGo }: Props) {
           className="w-full"
           disabled={!f.ready}
           onPress={() => void f.save().then((ok) => ok && onClose())}
-          textClassName="text-base"
         />
         <AppButton label="Cancel" variant="ghost" size="touch" onPress={onClose} />
       </>
@@ -137,7 +136,7 @@ export function AddSheet({ open, uid, onClose, onSaved, onGo }: Props) {
                       aria-pressed={active}
                       onPress={() => f.choosePlan(String(line.id))}
                       className={cn(
-                        'h-11 max-w-full justify-center rounded-full border px-4',
+                        'h-11 lg:h-9 max-w-full justify-center rounded-full border px-4',
                         active ? 'border-primary bg-primary dark:border-zinc-800 dark:bg-zinc-50' : 'border-border bg-card dark:border-zinc-800 dark:bg-zinc-900'
                       )}
                     >
@@ -148,7 +147,7 @@ export function AddSheet({ open, uid, onClose, onSaved, onGo }: Props) {
                   );
                 })}
                 {f.lines.length > CHIP_COUNT ? (
-                  <Pressable accessibilityRole="button" aria-expanded={allLines} onPress={() => setAllLines((v) => !v)} className="h-11 justify-center rounded-full px-3">
+                  <Pressable accessibilityRole="button" aria-expanded={allLines} onPress={() => setAllLines((v) => !v)} className="h-11 lg:h-9 justify-center rounded-full px-3">
                     <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{allLines ? 'Fewer lines' : 'All lines ›'}</Text>
                   </Pressable>
                 ) : null}
@@ -185,15 +184,15 @@ export function AddSheet({ open, uid, onClose, onSaved, onGo }: Props) {
               onChange={f.setAccountId}
               placeholder="Choose account"
               className="w-full"
-              triggerClassName="min-h-11"
+              triggerClassName="min-h-11 lg:min-h-9"
               menuStrategy="inline"
               menuClassName="max-h-44"
             />
           </FormRow>
           <FormRow label="Date">
             <View className="w-full flex-row items-center justify-end gap-2">
-              {isToday ? <Text className="text-sm text-muted-foreground dark:text-zinc-400">Today</Text> : null}
-              <AppInput value={f.date} onChangeText={f.setDate} placeholder="YYYY-MM-DD" accessibilityLabel="Date" className="h-11 w-36 text-base" />
+              {isToday ? <Text className="text-xs text-muted-foreground dark:text-zinc-400">Today</Text> : null}
+              <AppInput value={f.date} onChangeText={f.setDate} placeholder="YYYY-MM-DD" accessibilityLabel="Date" className="w-36" />
             </View>
           </FormRow>
           {/* BUDG-40 AC-2: the budget this expense goes to; follows the date until chosen here. */}
@@ -205,7 +204,7 @@ export function AddSheet({ open, uid, onClose, onSaved, onGo }: Props) {
                 onChange={f.chooseBudget}
                 placeholder="Enter a date first"
                 className="w-full"
-                triggerClassName="min-h-11"
+                triggerClassName="min-h-11 lg:min-h-9"
                 menuStrategy="inline"
                 menuClassName="max-h-44"
               />
@@ -213,7 +212,7 @@ export function AddSheet({ open, uid, onClose, onSaved, onGo }: Props) {
           </FormRow>
           {noteOpen ? (
             <FormField label="Note">
-              <AppInput autoFocus value={f.note} onChangeText={f.setNote} placeholder="Note (optional)" className="h-11" />
+              <AppInput autoFocus value={f.note} onChangeText={f.setNote} placeholder="Note (optional)" className="" />
             </FormField>
           ) : (
             <AppButton label="+ Add a note" variant="ghost" size="touch" className="self-start" onPress={() => setNoteOpen(true)} />

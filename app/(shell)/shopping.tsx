@@ -1366,13 +1366,13 @@ export default function ShoppingScreen() {
             <Text role="heading" aria-level={2} className="text-xl font-bold text-foreground dark:text-zinc-50" numberOfLines={2}>
               {selectedList.name}
             </Text>
-            <Text className="text-sm text-muted-foreground dark:text-zinc-400">{sub}</Text>
+            <Text className="text-xs text-muted-foreground dark:text-zinc-400">{sub}</Text>
           </View>
           <AppButton
             accessibilityLabel="List options"
             variant="outline"
             size="touch"
-            className="w-11 px-0"
+            className="w-11 lg:w-9 px-0"
             onPress={(e) => moreSheet.show(e)}
           >
             <MaterialCommunityIcons name="dots-horizontal" size={22} color="#717182" />
@@ -1439,8 +1439,8 @@ export default function ShoppingScreen() {
           />
           {isShoppingListEmpty ? <EmptyState icon="playlist-plus" message="Add the first item above." testID="list-empty" /> : null}
           {!isShoppingListEmpty && toBuyItems.length === 0 ? (
-            <View testID="all-got" className="rounded-xl border border-emerald-300 bg-emerald-50 p-4 dark:border-emerald-800 dark:bg-emerald-950/30">
-              <Text className="text-base font-medium text-foreground dark:text-zinc-50">{`All ${displayItems.length} item${displayItems.length === 1 ? '' : 's'} got.`}</Text>
+            <View testID="all-got" className="rounded-xl border border-emerald-300 bg-emerald-50 p-3 md:p-4 dark:border-emerald-800 dark:bg-emerald-950/30">
+              <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{`All ${displayItems.length} item${displayItems.length === 1 ? '' : 's'} got.`}</Text>
             </View>
           ) : null}
           {toBuyItems.length ? (
@@ -1624,9 +1624,9 @@ export default function ShoppingScreen() {
               accessibilityRole="button"
               disabled={action.disabled}
               onPress={() => moreSheet.hide(action.run)}
-              className={cn('min-h-14 justify-center px-4 hover:bg-muted/50 active:bg-muted dark:hover:bg-zinc-800/60', i > 0 && 'border-t border-border dark:border-zinc-800', action.disabled && 'opacity-50')}
+              className={cn('min-h-11 lg:min-h-9 justify-center px-4 hover:bg-muted/50 active:bg-muted dark:hover:bg-zinc-800/60', i > 0 && 'border-t border-border dark:border-zinc-800', action.disabled && 'opacity-50')}
             >
-              <Text className={cn('text-base font-medium', action.danger ? 'text-destructive dark:text-red-300' : 'text-foreground dark:text-zinc-50')}>{action.label}</Text>
+              <Text className={cn('text-sm font-medium', action.danger ? 'text-destructive dark:text-red-300' : 'text-foreground dark:text-zinc-50')}>{action.label}</Text>
             </Pressable>
           ))}
         </View>
@@ -1639,19 +1639,19 @@ export default function ShoppingScreen() {
         footer={
           <>
             {listError ? <Text role="alert" className="text-sm text-destructive dark:text-red-300">{listError}</Text> : null}
-            <AppButton label="Create list" size="touch-lg" className="w-full" textClassName="text-base" onPress={() => void createList()} />
+            <AppButton label="Create list" size="touch-lg" className="w-full" onPress={() => void createList()} />
             <AppButton label="Cancel" variant="ghost" size="touch" onPress={() => setCreateListOpen(false)} />
           </>
         }
       >
         <FormField label="Name">
-          <AppInput autoFocus value={listDraftName} onChangeText={setListDraftName} placeholder="Weekly groceries" accessibilityLabel="List name" className="h-11 text-base" onSubmitEditing={() => void createList()} />
+          <AppInput autoFocus value={listDraftName} onChangeText={setListDraftName} placeholder="Weekly groceries" accessibilityLabel="List name" className="" onSubmitEditing={() => void createList()} />
         </FormField>
       </AppSheet>
 
       <AppModal open={Boolean(deleteListDraft)} onClose={() => !deletingList && setDeleteListDraft(null)} title="Delete this list?">
         <View className="gap-4">
-          <Text className="text-base text-foreground dark:text-zinc-50">
+          <Text className="text-sm text-foreground dark:text-zinc-50">
             {`"${deleteListDraft?.name || ''}" has no items. Deleting it cannot be undone.`}
           </Text>
           <View className="flex-row gap-2">
@@ -1679,14 +1679,14 @@ export default function ShoppingScreen() {
         title="Add from catalog"
         footer={
           <>
-            <AppButton label={`Add selected (${selectedImportCount})`} size="touch-lg" className="w-full" textClassName="text-base" onPress={importSelected} disabled={selectedImportCount === 0} />
+            <AppButton label={`Add selected (${selectedImportCount})`} size="touch-lg" className="w-full" onPress={importSelected} disabled={selectedImportCount === 0} />
             <AppButton label="Cancel" variant="ghost" size="touch" onPress={() => setImportOpen(false)} />
           </>
         }
       >
         <View className="gap-3">
-          <AppInput value={importSearch} onChangeText={setImportSearch} placeholder="Search by item name or category" accessibilityLabel="Search catalog" className="h-11 text-base" />
-          <DropdownField value={importCategoryFilter} options={categoryOptions} onChange={setImportCategoryFilter} placeholder="Filter category" menuStrategy="inline" triggerClassName="min-h-11" />
+          <AppInput value={importSearch} onChangeText={setImportSearch} placeholder="Search by item name or category" accessibilityLabel="Search catalog" className="" />
+          <DropdownField value={importCategoryFilter} options={categoryOptions} onChange={setImportCategoryFilter} placeholder="Filter category" menuStrategy="inline" triggerClassName="min-h-11 lg:min-h-9" />
           <View className="overflow-hidden rounded-xl border border-border bg-card dark:border-zinc-800 dark:bg-zinc-900">
             {importCandidates.map((row, i) => (
               <Pressable
@@ -1694,18 +1694,18 @@ export default function ShoppingScreen() {
                 accessibilityRole="checkbox"
                 aria-checked={Boolean(importSelection[row.id!])}
                 onPress={() => setImportSelection((prev) => ({ ...prev, [row.id!]: !prev[row.id!] }))}
-                className={cn('min-h-14 flex-row items-center gap-3 px-4 py-2', i > 0 && 'border-t border-border dark:border-zinc-800')}
+                className={cn('min-h-11 lg:min-h-9 flex-row items-center gap-3 px-4 py-2', i > 0 && 'border-t border-border dark:border-zinc-800')}
               >
                 <View className="min-w-0 flex-1">
-                  <Text className="text-base text-foreground dark:text-zinc-50" numberOfLines={1}>{row.name}</Text>
-                  <Text className="text-sm text-muted-foreground dark:text-zinc-400" numberOfLines={1}>
+                  <Text className="text-sm text-foreground dark:text-zinc-50" numberOfLines={1}>{row.name}</Text>
+                  <Text className="text-xs text-muted-foreground dark:text-zinc-400" numberOfLines={1}>
                     {(row.category || 'No category') + (row.assignedPlanItemName ? ` · ${row.assignedPlanItemName}` : '')}
                   </Text>
                 </View>
                 <MaterialCommunityIcons name={importSelection[row.id!] ? 'checkbox-marked' : 'checkbox-blank-outline'} size={22} color={importSelection[row.id!] ? '#22C55E' : '#717182'} />
               </Pressable>
             ))}
-            {!importCandidates.length ? <Text className="p-4 text-center text-sm text-muted-foreground dark:text-zinc-400">No items found for this filter.</Text> : null}
+            {!importCandidates.length ? <Text className="p-3 md:p-4 text-center text-sm text-muted-foreground dark:text-zinc-400">No items found for this filter.</Text> : null}
           </View>
         </View>
       </AppSheet>
@@ -1861,7 +1861,7 @@ export default function ShoppingScreen() {
 
       <AppModal open={closeConfirmOpen} onClose={() => setCloseConfirmOpen(false)} title="Close shopping list">
         <View className="gap-3">
-          <Text className="text-sm text-muted-foreground">
+          <Text className="text-xs text-muted-foreground">
             Close this shopping list now? Planned items missing from the purchase import will stay on the list as not purchased.
           </Text>
           <View className="flex-row justify-end gap-2">

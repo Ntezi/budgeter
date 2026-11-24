@@ -21,7 +21,7 @@ export function AccountsSegment({ active, month }: { active: 'balances' | 'activ
             role="tab"
             aria-selected={on}
             onPress={() => (on ? undefined : router.replace(it.href as any))}
-            className={cn('h-11 min-w-24 flex-1 items-center justify-center rounded-md px-4', on ? 'bg-card shadow-soft dark:bg-zinc-950' : '')}
+            className={cn('h-11 lg:h-9 min-w-24 flex-1 items-center justify-center rounded-md px-4', on ? 'bg-card shadow-soft dark:bg-zinc-950' : '')}
           >
             <Text className={cn('text-sm font-medium', on ? 'text-foreground dark:text-zinc-50' : 'text-muted-foreground dark:text-zinc-400')}>{it.label}</Text>
           </Pressable>

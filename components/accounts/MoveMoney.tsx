@@ -130,7 +130,7 @@ function AccountChips({ label, rows, value, onPick, testID }: { label: string; r
             accessibilityLabel={`${label} ${r.accountName}`}
             onPress={() => onPick(r.accountId)}
             className={cn(
-              'h-11 max-w-full justify-center rounded-full border px-4',
+              'h-11 lg:h-9 max-w-full justify-center rounded-full border px-4',
               on ? 'border-primary bg-primary dark:border-zinc-700 dark:bg-zinc-800' : 'border-border bg-background hover:bg-muted dark:border-zinc-800 dark:bg-zinc-950 dark:hover:bg-zinc-800'
             )}
           >
@@ -144,13 +144,13 @@ function AccountChips({ label, rows, value, onPick, testID }: { label: string; r
   );
 }
 
-const muted = 'text-sm text-muted-foreground dark:text-zinc-400';
+const muted = 'text-xs text-muted-foreground dark:text-zinc-400';
 const tabular = { fontVariant: ['tabular-nums' as const] };
 
 export function MoveMoneyFields({ m }: { m: MoveMoneyState }) {
   const month = monthTitle(m.pid);
   if (m.loaded && m.rows.length < 2) {
-    return <Text className="text-base text-foreground dark:text-zinc-50">Add a second account to move money between accounts.</Text>;
+    return <Text className="text-sm text-foreground dark:text-zinc-50">Add a second account to move money between accounts.</Text>;
   }
   return (
     <View className="gap-4" testID="move-money-form">
@@ -188,7 +188,7 @@ export function MoveMoneyFields({ m }: { m: MoveMoneyState }) {
           {m.destinations.map((r) => (
             <View key={r.accountId} className="flex-row items-center gap-3">
               <View className="min-w-0 flex-1">
-                <Text numberOfLines={1} className="text-base text-foreground dark:text-zinc-50">{r.accountName}</Text>
+                <Text numberOfLines={1} className="text-sm text-foreground dark:text-zinc-50">{r.accountName}</Text>
                 {r.budget.unfunded > 0 ? <Text className={muted} style={tabular}>Still needs {fmtMoney(r.budget.unfunded)}</Text> : null}
               </View>
               <AppInput
@@ -205,7 +205,7 @@ export function MoveMoneyFields({ m }: { m: MoveMoneyState }) {
           <Text className="text-sm font-medium text-foreground dark:text-zinc-50" style={tabular}>Total {fmtMoney(m.total)}</Text>
         </View>
       )}
-      <View className="min-h-11 flex-row items-center justify-between gap-3">
+      <View className="min-h-11 lg:min-h-9 flex-row items-center justify-between gap-3">
         <Text className="text-sm font-medium text-foreground dark:text-zinc-50">Date</Text>
         <Text className="text-sm text-foreground dark:text-zinc-50" style={tabular}>Today · {m.date}</Text>
       </View>
@@ -213,7 +213,7 @@ export function MoveMoneyFields({ m }: { m: MoveMoneyState }) {
         accessibilityRole="button"
         aria-expanded={m.split}
         onPress={() => m.setSplit(!m.split)}
-        className="min-h-11 flex-row items-center gap-2 self-start rounded-lg px-1"
+        className="min-h-11 lg:min-h-9 flex-row items-center gap-2 self-start rounded-lg px-1"
       >
         <MaterialCommunityIcons name={m.split ? 'minus' : 'plus'} size={18} color="#717182" />
         <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{m.split ? 'Move to one account' : 'Split to several accounts'}</Text>
@@ -243,7 +243,6 @@ export function MoveMoneyFooter({ m, onDone, onCancel }: { m: MoveMoneyState; on
         className="w-full"
         disabled={!m.ready}
         onPress={() => void m.save().then((ok) => ok && onDone())}
-        textClassName="text-base"
       />
       <AppButton label="Cancel" variant="ghost" size="touch" onPress={onCancel} />
     </>

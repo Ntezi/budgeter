@@ -13,9 +13,9 @@ type Detail = { label: string; value: string };
 export function MonthSummaryCard({ summary, amount, chips, details }: { summary: HomeSummary; amount: string; chips: SpendChip[]; details: Detail[] }) {
   const [open, setOpen] = useState(false);
   return (
-    <View testID="home-summary" className="gap-3 rounded-xl border border-border bg-card p-4 shadow-card dark:border-zinc-800 dark:bg-zinc-900 md:p-6">
+    <View testID="home-summary" className="gap-3 rounded-xl border border-border bg-card p-3 md:p-4 shadow-card dark:border-zinc-800 dark:bg-zinc-900">
       <View className="flex-row items-center gap-2">
-        <Text className="min-w-0 flex-1 text-sm text-muted-foreground dark:text-zinc-400" numberOfLines={1}>
+        <Text className="min-w-0 flex-1 text-xs text-muted-foreground dark:text-zinc-400" numberOfLines={1}>
           {summary.label}
         </Text>
         {summary.tone === 'closed' ? <AppBadge label="Closed" variant="secondary" /> : null}
@@ -41,13 +41,13 @@ export function MonthSummaryCard({ summary, amount, chips, details }: { summary:
             accessibilityRole="link"
             accessibilityLabel={c.accessibilityLabel}
             onPress={c.onPress}
-            className="min-h-11 min-w-0 grow basis-[40%] gap-0.5 rounded-lg border border-border bg-background px-3 py-2 hover:bg-muted active:bg-muted dark:border-zinc-800 dark:bg-zinc-950 dark:hover:bg-zinc-800 xl:basis-0"
+            className="min-h-11 lg:min-h-9 min-w-0 grow basis-[40%] gap-0.5 rounded-lg border border-border bg-background px-3 py-2 hover:bg-muted active:bg-muted dark:border-zinc-800 dark:bg-zinc-950 dark:hover:bg-zinc-800 xl:basis-0"
           >
             <View className="flex-row items-center gap-2">
               <View className={cn('h-2 w-2 rounded-full', c.dotClassName)} />
               <Text className="min-w-0 flex-1 text-sm font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>{c.label}</Text>
             </View>
-            <Text className="text-sm text-muted-foreground dark:text-zinc-400" style={{ fontVariant: ['tabular-nums'] }} numberOfLines={1}>
+            <Text className="text-xs text-muted-foreground dark:text-zinc-400" style={{ fontVariant: ['tabular-nums'] }} numberOfLines={1}>
               {c.amount}
             </Text>
           </Pressable>
@@ -59,7 +59,7 @@ export function MonthSummaryCard({ summary, amount, chips, details }: { summary:
             accessibilityRole="button"
             aria-expanded={open}
             onPress={() => setOpen((v) => !v)}
-            className="-mx-2 h-11 flex-row items-center gap-1 self-start rounded-md px-2"
+            className="-mx-2 h-11 lg:h-9 flex-row items-center gap-1 self-start rounded-md px-2"
           >
             <Text className="text-sm font-medium text-foreground dark:text-zinc-50">Details</Text>
             <MaterialCommunityIcons name={open ? 'chevron-up' : 'chevron-down'} size={20} color="#717182" />
@@ -68,7 +68,7 @@ export function MonthSummaryCard({ summary, amount, chips, details }: { summary:
             <View className="gap-2" testID="home-summary-details">
               {details.map((d) => (
                 <View key={d.label} className="flex-row items-center justify-between gap-3">
-                  <Text className="min-w-0 flex-1 text-sm text-muted-foreground dark:text-zinc-400" numberOfLines={1}>{d.label}</Text>
+                  <Text className="min-w-0 flex-1 text-xs text-muted-foreground dark:text-zinc-400" numberOfLines={1}>{d.label}</Text>
                   <Text className="shrink-0 text-sm font-semibold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>{d.value}</Text>
                 </View>
               ))}

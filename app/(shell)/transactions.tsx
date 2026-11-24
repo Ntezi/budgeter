@@ -529,9 +529,9 @@ export default function TransactionsScreen() {
           aria-expanded={totalsOpen}
           onPress={() => setTotalsOpen((v) => !v)}
           testID="activity-spent"
-          className="min-h-11 flex-row items-center gap-2 rounded-lg px-1"
+          className="min-h-11 lg:min-h-9 flex-row items-center gap-2 rounded-lg px-1"
         >
-          <Text className="min-w-0 flex-1 text-base font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>
+          <Text className="min-w-0 flex-1 text-sm font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>
             Spent in {monthTitle(selectedPid).split(' ')[0]}
           </Text>
           <Text className="shrink-0 text-xl font-bold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>
@@ -548,7 +548,7 @@ export default function TransactionsScreen() {
               ['Shopping', transactionSummary.shoppingTotal],
             ].map(([label, value]) => (
               <View key={String(label)} className="flex-row items-center justify-between gap-3">
-                <Text className="text-sm text-muted-foreground dark:text-zinc-400">{label}</Text>
+                <Text className="text-xs text-muted-foreground dark:text-zinc-400">{label}</Text>
                 <Text className="text-sm font-semibold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>{fmtMoney(Number(value))}</Text>
               </View>
             ))}
@@ -569,7 +569,7 @@ export default function TransactionsScreen() {
               aria-pressed={on}
               onPress={() => pickChip(c.id)}
               className={cn(
-                'h-11 justify-center rounded-full border px-4',
+                'h-11 lg:h-9 justify-center rounded-full border px-4',
                 on ? 'border-primary bg-primary dark:border-zinc-700 dark:bg-zinc-800' : 'border-border bg-background hover:bg-muted dark:border-zinc-800 dark:bg-zinc-950 dark:hover:bg-zinc-800'
               )}
             >
@@ -589,7 +589,7 @@ export default function TransactionsScreen() {
           {transactionSummary.filteredCount} of {transactionSummary.count} {transactionSummary.count === 1 ? 'cost' : 'costs'} shown
         </Text>
       ) : null}
-      <AppInput value={searchText} onChangeText={setSearchText} placeholder="Search" accessibilityLabel="Search costs" className="h-11" />
+      <AppInput value={searchText} onChangeText={setSearchText} placeholder="Search" accessibilityLabel="Search costs" className="" />
 
       {!txLoaded ? (
         <LoadingState rows={3} testID="activity-loading" />
@@ -627,7 +627,7 @@ export default function TransactionsScreen() {
         </View>
       )}
 
-      {receiptNotice ? <Text className="text-sm text-muted-foreground">{receiptNotice}</Text> : null}
+      {receiptNotice ? <Text className="text-xs text-muted-foreground">{receiptNotice}</Text> : null}
       <AppModal open={Boolean(mobileDetailId)} onClose={closeMobileDetail} title="Expense" presentation="sheet">
         {mobileDetailRow && mobileDetailEdit ? (
           <View className="gap-3">

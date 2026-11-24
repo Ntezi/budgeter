@@ -21,13 +21,13 @@ export function ReminderPage(p: {
 }) {
   return (
     <SettingsPage testID="settings-reminder" title="Daily reminder" intro="One email a day asking you to update what is left in each account." onBack={p.onBack}>
-      <View className="gap-4 rounded-xl border border-border bg-card p-4 dark:border-zinc-800 dark:bg-zinc-900">
+      <View className="gap-4 rounded-xl border border-border bg-card p-3 md:p-4 dark:border-zinc-800 dark:bg-zinc-900">
         <ToggleRow label="Send the daily reminder" value={p.enabled} onChange={p.setEnabled} />
         <FormField label="Email">
-          <AppInput accessibilityLabel="Reminder email" value={p.email} onChangeText={p.setEmail} placeholder="you@example.com" autoCapitalize="none" keyboardType="email-address" style={{ height: 44 }} />
+          <AppInput accessibilityLabel="Reminder email" value={p.email} onChangeText={p.setEmail} placeholder="you@example.com" autoCapitalize="none" keyboardType="email-address" />
         </FormField>
         <FormField label="Hour (UTC, 0 to 23)">
-          <AppInput accessibilityLabel="Reminder hour (UTC)" value={p.hour} onChangeText={p.setHour} placeholder="7" keyboardType="number-pad" style={{ height: 44 }} />
+          <AppInput accessibilityLabel="Reminder hour (UTC)" value={p.hour} onChangeText={p.setHour} placeholder="7" keyboardType="number-pad" />
         </FormField>
         <Notice kind="error" text={p.error} />
         <Notice kind="ok" text={p.saved} />

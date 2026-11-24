@@ -129,13 +129,13 @@ export function SharedListView({ shareId, myUid, onBack, showBack = true }: { sh
         <View className="gap-1">
           {back}
           <Text role="heading" aria-level={2} className="text-xl font-bold text-foreground dark:text-zinc-50" numberOfLines={2}>{displayListName(share.listName) || 'Shared list'}</Text>
-          <Text className="text-sm text-muted-foreground dark:text-zinc-400">Shared by the household · you can add items and tick them off</Text>
+          <Text className="text-xs text-muted-foreground dark:text-zinc-400">Shared by the household · you can add items and tick them off</Text>
         </View>
         <AddItemBar value={newName} onChangeText={setNewName} onSubmit={() => void addQuick()} error={error} />
         {!items.length ? <EmptyState icon="playlist-plus" message="Add the first item above." testID="list-empty" /> : null}
         {items.length && !toBuy.length ? (
-          <View className="rounded-xl border border-emerald-300 bg-emerald-50 p-4 dark:border-emerald-800 dark:bg-emerald-950/30">
-            <Text className="text-base font-medium text-foreground dark:text-zinc-50">{`All ${items.length} item${items.length === 1 ? '' : 's'} got.`}</Text>
+          <View className="rounded-xl border border-emerald-300 bg-emerald-50 p-3 md:p-4 dark:border-emerald-800 dark:bg-emerald-950/30">
+            <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{`All ${items.length} item${items.length === 1 ? '' : 's'} got.`}</Text>
           </View>
         ) : null}
         {toBuy.length ? <ItemSection title="To buy" count={toBuy.length}>{toBuy.map(row)}</ItemSection> : null}

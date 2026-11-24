@@ -32,13 +32,13 @@ export function PlanGroupList({ groups, wide, readOnly, onOpenLine, onAddLine }:
               aria-expanded={!isCollapsed}
               accessibilityLabel={`${group.label}, ${fmtMoney(planned)} planned`}
               onPress={() => setCollapsed((prev) => ({ ...prev, [group.value]: !isCollapsed }))}
-              className="min-h-11 flex-row items-center gap-2 rounded-md px-1"
+              className="min-h-11 lg:min-h-9 flex-row items-center gap-2 rounded-md px-1"
             >
               <View className={cn('h-2.5 w-2.5 rounded-full', group.dotClass)} />
-              <Text className="min-w-0 flex-1 text-base font-semibold text-foreground dark:text-zinc-50" numberOfLines={1}>
+              <Text className="min-w-0 flex-1 text-sm font-semibold text-foreground dark:text-zinc-50" numberOfLines={1}>
                 {group.label}
               </Text>
-              <Text className="shrink-0 text-base font-semibold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>
+              <Text className="shrink-0 text-sm font-semibold text-foreground dark:text-zinc-50" style={{ fontVariant: ['tabular-nums'] }}>
                 {fmtMoney(planned)}
               </Text>
               <MaterialCommunityIcons name={isCollapsed ? 'chevron-down' : 'chevron-up'} size={20} color="#717182" />
@@ -65,12 +65,12 @@ export function PlanGroupList({ groups, wide, readOnly, onOpenLine, onAddLine }:
                     accessibilityLabel={group.addLabel}
                     onPress={(e) => onAddLine(group.value, e)}
                     className={cn(
-                      'min-h-12 flex-row items-center gap-2 px-4 hover:bg-muted/50 active:bg-muted dark:hover:bg-zinc-800/60',
+                      'min-h-11 lg:min-h-9 flex-row items-center gap-2 px-4 hover:bg-muted/50 active:bg-muted dark:hover:bg-zinc-800/60',
                       group.rows.length ? 'border-t border-border dark:border-zinc-800' : undefined
                     )}
                   >
                     <MaterialCommunityIcons name="plus" size={20} color="#717182" />
-                    <Text className="text-base text-muted-foreground dark:text-zinc-400">{group.addLabel}</Text>
+                    <Text className="text-xs text-muted-foreground dark:text-zinc-400">{group.addLabel}</Text>
                   </Pressable>
                 )}
               </View>

@@ -595,7 +595,7 @@ export default function ShoppingItemsScreen() {
 
         <View className="gap-3">
           <View className="flex-row flex-wrap items-center gap-2">
-            <AppInput value={search} onChangeText={setSearch} placeholder="Search items" accessibilityLabel="Search catalog" className="h-11 min-w-48 flex-1 text-base" />
+            <AppInput value={search} onChangeText={setSearch} placeholder="Search items" accessibilityLabel="Search catalog" className="min-w-48 flex-1" />
           </View>
           {categoryNames.length ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerClassName="gap-2">
@@ -607,7 +607,7 @@ export default function ShoppingItemsScreen() {
                     accessibilityRole="button"
                     aria-pressed={on}
                     onPress={() => setCategoryFilter(name)}
-                    className={cn('h-11 justify-center rounded-full border px-4', on ? 'border-primary bg-primary dark:border-zinc-100 dark:bg-zinc-50' : 'border-border bg-card dark:border-zinc-800 dark:bg-zinc-900')}
+                    className={cn('h-11 lg:h-9 justify-center rounded-full border px-4', on ? 'border-primary bg-primary dark:border-zinc-100 dark:bg-zinc-50' : 'border-border bg-card dark:border-zinc-800 dark:bg-zinc-900')}
                   >
                     <Text className={cn('text-sm font-medium', on ? 'text-white dark:text-zinc-900' : 'text-foreground dark:text-zinc-50')}>{name === 'ALL' ? 'All' : name}</Text>
                   </Pressable>
@@ -637,23 +637,23 @@ export default function ShoppingItemsScreen() {
               const chip = chipFor(row);
               const picked = Boolean(selectedIds[row.id]);
               return (
-                <View key={row.id} className={cn('min-h-14 flex-row items-center', i > 0 && 'border-t border-border dark:border-zinc-800')}>
+                <View key={row.id} className={cn('min-h-11 lg:min-h-9 flex-row items-center', i > 0 && 'border-t border-border dark:border-zinc-800')}>
                   {selectMode ? (
-                    <Pressable accessibilityRole="checkbox" aria-checked={picked} accessibilityLabel={`Select ${row.name}`} onPress={() => toggleSelected(row.id)} className="h-11 w-11 items-center justify-center">
+                    <Pressable accessibilityRole="checkbox" aria-checked={picked} accessibilityLabel={`Select ${row.name}`} onPress={() => toggleSelected(row.id)} className="h-11 lg:h-9 w-11 lg:w-9 items-center justify-center">
                       <MaterialCommunityIcons name={picked ? 'checkbox-marked' : 'checkbox-blank-outline'} size={22} color={picked ? '#22C55E' : '#717182'} />
                     </Pressable>
                   ) : null}
                   <Pressable
                     accessibilityRole="button"
                     onPress={() => (selectMode ? toggleSelected(row.id) : openItemDetail(row))}
-                    className={cn('min-h-14 min-w-0 flex-1 flex-row items-center gap-3 py-2 pr-4 hover:bg-muted/50 active:bg-muted dark:hover:bg-zinc-800/60', selectMode ? 'pl-1' : 'pl-4')}
+                    className={cn('min-h-11 lg:min-h-9 min-w-0 flex-1 flex-row items-center gap-3 py-2 pr-4 hover:bg-muted/50 active:bg-muted dark:hover:bg-zinc-800/60', selectMode ? 'pl-1' : 'pl-4')}
                   >
                     <View className="min-w-0 flex-1">
-                      <Text className="text-base font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>{row.name}</Text>
-                      <Text className="text-sm text-muted-foreground dark:text-zinc-400" numberOfLines={1}>
+                      <Text className="text-sm font-medium text-foreground dark:text-zinc-50" numberOfLines={1}>{row.name}</Text>
+                      <Text className="text-xs text-muted-foreground dark:text-zinc-400" numberOfLines={1}>
                         {[row.category || 'No category', row.assignedPlanItemName || 'No line'].join(' · ')}
                       </Text>
-                      <Text testID="catalog-price-chip" className={cn('text-sm', chip.muted ? 'text-muted-foreground dark:text-zinc-400' : 'font-medium text-foreground dark:text-zinc-50')} numberOfLines={2}>
+                      <Text testID="catalog-price-chip" className={cn('text-xs', chip.muted ? 'text-muted-foreground dark:text-zinc-400' : 'font-medium text-foreground dark:text-zinc-50')} numberOfLines={2}>
                         {chip.text}
                       </Text>
                     </View>
@@ -676,7 +676,6 @@ export default function ShoppingItemsScreen() {
               label="Add item"
               size="touch-lg"
               className="w-full"
-              textClassName="text-base"
               disabled={!draft.name.trim()}
               onPress={() => void addCatalogItem().then(() => setAddOpen(false))}
             />
@@ -686,16 +685,16 @@ export default function ShoppingItemsScreen() {
       >
         <View className="gap-4">
           <FormField label="Name">
-            <AppInput autoFocus value={draft.name} onChangeText={(value) => setDraft((prev) => ({ ...prev, name: value }))} placeholder="Rice 5 kg" accessibilityLabel="Catalog item name" className="h-11 text-base" />
+            <AppInput autoFocus value={draft.name} onChangeText={(value) => setDraft((prev) => ({ ...prev, name: value }))} placeholder="Rice 5 kg" accessibilityLabel="Catalog item name" className="" />
           </FormField>
           <FormField label="Category">
-            <DropdownField value={draft.category} options={categoryChoice} onChange={(value) => setDraft((prev) => ({ ...prev, category: value }))} menuStrategy="inline" triggerClassName="min-h-11" />
+            <DropdownField value={draft.category} options={categoryChoice} onChange={(value) => setDraft((prev) => ({ ...prev, category: value }))} menuStrategy="inline" triggerClassName="min-h-11 lg:min-h-9" />
           </FormField>
           <FormField label="Budget line">
-            <DropdownField value={draft.assignedPlanItemId} options={lineChoice} onChange={(value) => setDraft((prev) => ({ ...prev, assignedPlanItemId: value }))} placeholder="Choose a line" menuStrategy="inline" triggerClassName="min-h-11" />
+            <DropdownField value={draft.assignedPlanItemId} options={lineChoice} onChange={(value) => setDraft((prev) => ({ ...prev, assignedPlanItemId: value }))} placeholder="Choose a line" menuStrategy="inline" triggerClassName="min-h-11 lg:min-h-9" />
           </FormField>
           <FormField label="Tags">
-            <AppInput value={draft.tagsInput} onChangeText={(value) => setDraft((prev) => ({ ...prev, tagsInput: value }))} placeholder="staples, pantry" accessibilityLabel="Tags" className="h-11 text-base" />
+            <AppInput value={draft.tagsInput} onChangeText={(value) => setDraft((prev) => ({ ...prev, tagsInput: value }))} placeholder="staples, pantry" accessibilityLabel="Tags" className="" />
           </FormField>
         </View>
       </AppSheet>
@@ -712,7 +711,6 @@ export default function ShoppingItemsScreen() {
                 label={detail.saving ? 'Saving…' : 'Save'}
                 size="touch-lg"
                 className="w-full"
-                textClassName="text-base"
                 disabled={!detail.dirty || detail.saving}
                 onPress={() => void saveCatalogItem(selectedItem)}
               />
@@ -735,9 +733,9 @@ export default function ShoppingItemsScreen() {
         {selectedItem?.id && detail ? (
           <View className="gap-6">
             <View className="gap-2" testID="receipt-prices">
-              <Text className="text-base font-semibold text-foreground dark:text-zinc-50">Prices from receipts</Text>
+              <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">Prices from receipts</Text>
               {receiptPrices.length ? (
-                <Text className="text-base font-medium text-foreground dark:text-zinc-50">
+                <Text className="text-sm font-medium text-foreground dark:text-zinc-50">
                   {plainPriceWords(priceChipText(receiptPrices[0], lastComparable(receiptPrices[0], receiptPrices), fmtObs(receiptPrices[0]))) || 'First price for this item.'}
                 </Text>
               ) : (
@@ -748,12 +746,12 @@ export default function ShoppingItemsScreen() {
                   {receiptPrices.map((o, i) => {
                     const unit = displayUnitPriceMinor(o);
                     return (
-                      <View key={o.id} className={cn('min-h-14 flex-row items-center gap-2 py-1 pl-3', i > 0 && 'border-t border-border dark:border-zinc-800')}>
+                      <View key={o.id} className={cn('min-h-11 lg:min-h-9 flex-row items-center gap-2 py-1 pl-3', i > 0 && 'border-t border-border dark:border-zinc-800')}>
                         <View className="min-w-0 flex-1">
                           <Text className="text-sm text-foreground dark:text-zinc-50">
                             {`${o.observedOn}${o.storeName ? ` · ${o.storeName}` : ''} · ${o.quantity} ${o.unit}${o.packSize ? ` (pack ${o.packSize})` : ''}`}
                           </Text>
-                          <Text className="text-sm text-muted-foreground dark:text-zinc-400" style={{ fontVariant: ['tabular-nums'] }}>
+                          <Text className="text-xs text-muted-foreground dark:text-zinc-400" style={{ fontVariant: ['tabular-nums'] }}>
                             {`${fmtMoney(fromMinor(o.lineTotalMinor), o.currencyCode)}${unit ? ` · ${fmtMoney(fromMinor(unit.minor), o.currencyCode)} / ${unit.unitLabel}` : ' · Missing quantity or price'}${o.isReturn ? ' · Returned' : ''}${o.promo ? ' · Promo' : ''}${o.currencyCode !== APP_CURRENCY ? ' · Other currency' : ''}`}
                           </Text>
                         </View>
@@ -761,7 +759,7 @@ export default function ShoppingItemsScreen() {
                           icon="trash-can-outline"
                           label="Delete receipt"
                           variant="danger"
-                          className="h-11 w-11"
+                          className="h-11 lg:h-9 w-11 lg:w-9"
                           onPress={() => {
                             void deleteReceiptIn(db, uid || '', o.receiptId).then(() => setReceiptPricesTick((t) => t + 1));
                           }}
@@ -775,23 +773,23 @@ export default function ShoppingItemsScreen() {
 
             <View className="gap-4">
               <FormField label="Name">
-                <AppInput value={detail.name} onChangeText={(value) => setEditField(selectedItem.id!, { name: value })} accessibilityLabel="Catalog item name" className="h-11 text-base" />
+                <AppInput value={detail.name} onChangeText={(value) => setEditField(selectedItem.id!, { name: value })} accessibilityLabel="Catalog item name" className="" />
               </FormField>
               <FormField label="Category">
-                <DropdownField value={detail.category} options={categoryChoice} onChange={(value) => setEditField(selectedItem.id!, { category: value })} menuStrategy="inline" triggerClassName="min-h-11" />
+                <DropdownField value={detail.category} options={categoryChoice} onChange={(value) => setEditField(selectedItem.id!, { category: value })} menuStrategy="inline" triggerClassName="min-h-11 lg:min-h-9" />
               </FormField>
               <FormField label="Budget line">
-                <DropdownField value={detail.assignedPlanItemId} options={lineChoice} onChange={(value) => setEditField(selectedItem.id!, { assignedPlanItemId: value })} placeholder="Choose a line" menuStrategy="inline" triggerClassName="min-h-11" />
+                <DropdownField value={detail.assignedPlanItemId} options={lineChoice} onChange={(value) => setEditField(selectedItem.id!, { assignedPlanItemId: value })} placeholder="Choose a line" menuStrategy="inline" triggerClassName="min-h-11 lg:min-h-9" />
               </FormField>
               <FormField label="Tags">
-                <AppInput value={detail.tagsInput} onChangeText={(value) => setEditField(selectedItem.id!, { tagsInput: value })} placeholder="staples, pantry" accessibilityLabel="Tags" className="h-11 text-base" />
+                <AppInput value={detail.tagsInput} onChangeText={(value) => setEditField(selectedItem.id!, { tagsInput: value })} placeholder="staples, pantry" accessibilityLabel="Tags" className="" />
               </FormField>
               {detail.dirty ? <Text className="text-sm text-amber-700 dark:text-amber-300">Unsaved changes</Text> : null}
             </View>
 
             <View className="gap-2">
-              <Text className="text-base font-semibold text-foreground dark:text-zinc-50">From shopping lists</Text>
-              <Text className="text-sm text-muted-foreground dark:text-zinc-400">Estimates from shopping lists (no currency or unit): not compared.</Text>
+              <Text className="text-sm font-semibold text-foreground dark:text-zinc-50">From shopping lists</Text>
+              <Text className="text-xs text-muted-foreground dark:text-zinc-400">Estimates from shopping lists (no currency or unit): not compared.</Text>
               {priceHistory.length ? (
                 <View className="overflow-hidden rounded-xl border border-border dark:border-zinc-800">
                   {priceHistory.map((entry, i) => (
@@ -814,7 +812,7 @@ export default function ShoppingItemsScreen() {
       <AppSheet open={manageOpen} onClose={() => setManageOpen(false)} title="Manage catalog" testID="catalog-manage-sheet">
         <View className="gap-8">
           <View className="gap-3">
-            <Text role="heading" aria-level={3} className="text-base font-semibold text-foreground dark:text-zinc-50">Change many items</Text>
+            <Text role="heading" aria-level={3} className="text-sm font-semibold text-foreground dark:text-zinc-50">Change many items</Text>
             <AppSegmented
               value={bulkScope}
               touch
@@ -845,14 +843,14 @@ export default function ShoppingItemsScreen() {
               </View>
             ) : (
               <FormField label={bulkScope === 'CATEGORY' ? 'Items now in category' : 'Items now on line'}>
-                <DropdownField value={bulkSourceValue} options={bulkSourceOptions} onChange={setBulkSourceValue} menuStrategy="inline" triggerClassName="min-h-11" />
+                <DropdownField value={bulkSourceValue} options={bulkSourceOptions} onChange={setBulkSourceValue} menuStrategy="inline" triggerClassName="min-h-11 lg:min-h-9" />
               </FormField>
             )}
             <FormField label="Set category">
-              <DropdownField value={bulkCategoryValue} options={bulkTargetCategoryOptions} onChange={setBulkCategoryValue} menuStrategy="inline" triggerClassName="min-h-11" />
+              <DropdownField value={bulkCategoryValue} options={bulkTargetCategoryOptions} onChange={setBulkCategoryValue} menuStrategy="inline" triggerClassName="min-h-11 lg:min-h-9" />
             </FormField>
             <FormField label="Set budget line">
-              <DropdownField value={bulkPlanItemId} options={bulkTargetPlanOptions} onChange={setBulkPlanItemId} menuStrategy="inline" triggerClassName="min-h-11" />
+              <DropdownField value={bulkPlanItemId} options={bulkTargetPlanOptions} onChange={setBulkPlanItemId} menuStrategy="inline" triggerClassName="min-h-11 lg:min-h-9" />
             </FormField>
             <AppButton
               label={bulkUpdating ? 'Updating…' : `Update ${bulkMatchedRows.length} item${bulkMatchedRows.length === 1 ? '' : 's'}`}
@@ -863,15 +861,15 @@ export default function ShoppingItemsScreen() {
           </View>
 
           <View className="gap-3">
-            <Text role="heading" aria-level={3} className="text-base font-semibold text-foreground dark:text-zinc-50">Budget lines from</Text>
-            <Text className="text-sm text-muted-foreground dark:text-zinc-400">Lines offered above come from this month&apos;s plan.</Text>
-            <DropdownField value={selectedPid} options={periodOptions} onChange={setSelectedPid} placeholder="Choose month" menuStrategy="inline" triggerClassName="min-h-11" />
+            <Text role="heading" aria-level={3} className="text-sm font-semibold text-foreground dark:text-zinc-50">Budget lines from</Text>
+            <Text className="text-xs text-muted-foreground dark:text-zinc-400">Lines offered above come from this month&apos;s plan.</Text>
+            <DropdownField value={selectedPid} options={periodOptions} onChange={setSelectedPid} placeholder="Choose month" menuStrategy="inline" triggerClassName="min-h-11 lg:min-h-9" />
           </View>
 
           <View className="gap-3">
-            <Text role="heading" aria-level={3} className="text-base font-semibold text-foreground dark:text-zinc-50">Categories</Text>
+            <Text role="heading" aria-level={3} className="text-sm font-semibold text-foreground dark:text-zinc-50">Categories</Text>
             <View className="flex-row items-center gap-2">
-              <AppInput value={categoryDraft} onChangeText={setCategoryDraft} placeholder="Vegetables" accessibilityLabel="New category" className="h-11 min-w-0 flex-1 text-base" />
+              <AppInput value={categoryDraft} onChangeText={setCategoryDraft} placeholder="Vegetables" accessibilityLabel="New category" className="min-w-0 flex-1" />
               <AppButton label="Add" variant="outline" size="touch" onPress={addCategory} />
             </View>
             <View className="flex-row flex-wrap gap-2">
@@ -881,7 +879,7 @@ export default function ShoppingItemsScreen() {
                   accessibilityRole="button"
                   accessibilityLabel={`Delete category ${name}`}
                   onPress={() => void removeCategory(name)}
-                  className="h-11 flex-row items-center gap-1 rounded-full border border-border bg-card px-4 dark:border-zinc-800 dark:bg-zinc-900"
+                  className="h-11 lg:h-9 flex-row items-center gap-1 rounded-full border border-border bg-card px-4 dark:border-zinc-800 dark:bg-zinc-900"
                 >
                   <Text className="text-sm text-foreground dark:text-zinc-50">{name}</Text>
                   <MaterialCommunityIcons name="close" size={16} color="#717182" />
@@ -892,12 +890,12 @@ export default function ShoppingItemsScreen() {
           </View>
 
           <View className="gap-3">
-            <Text role="heading" aria-level={3} className="text-base font-semibold text-foreground dark:text-zinc-50">Import from CSV</Text>
+            <Text role="heading" aria-level={3} className="text-sm font-semibold text-foreground dark:text-zinc-50">Import from CSV</Text>
             <CatalogImport uid={uid} />
           </View>
 
           <View className="gap-3">
-            <Text role="heading" aria-level={3} className="text-base font-semibold text-foreground dark:text-zinc-50">More</Text>
+            <Text role="heading" aria-level={3} className="text-sm font-semibold text-foreground dark:text-zinc-50">More</Text>
             <View className="flex-row flex-wrap gap-2">
               <AppButton label={exporting ? 'Exporting…' : 'Export CSV'} variant="outline" size="touch" onPress={exportCsv} disabled={exporting || displayRows.length === 0} />
               <AppButton label={syncing ? 'Syncing…' : 'Add items from my lists'} variant="outline" size="touch" onPress={syncFromExistingLists} disabled={syncing} />

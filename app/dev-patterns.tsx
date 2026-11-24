@@ -57,7 +57,7 @@ export default function DevPatterns() {
           secondary={<AppButton label="Cancel" variant="ghost" size="touch" onPress={() => undefined} />}
         >
           <FormField label="Amount">
-            <AppInput value={amount} onChangeText={setAmount} placeholder="0.00" keyboardType="decimal-pad" className="h-12 text-3xl" />
+            <AppInput value={amount} onChangeText={setAmount} placeholder="0.00" keyboardType="decimal-pad" className="text-3xl" />
           </FormField>
           <FormRow label="Paid from" value="Household account" onPress={() => undefined} />
         </FormLayout>
@@ -72,7 +72,7 @@ export default function DevPatterns() {
           footer={<AppButton label="Done" size="touch-lg" onPress={() => sheet.hide()} />}
         >
           <FormField label="First field">
-            <AppInput autoFocus placeholder="Focus starts here" className="h-11" />
+            <AppInput autoFocus placeholder="Focus starts here" className="" />
           </FormField>
           <Text className="text-sm text-muted-foreground dark:text-zinc-400">Escape, the close button, the backdrop and browser Back close it; focus returns to the button.</Text>
         </AppSheet>

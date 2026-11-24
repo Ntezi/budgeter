@@ -47,7 +47,7 @@ export function AccountDetail({ vm, pid, closed, transactions, onBack, onMove, o
     <View className="gap-5" testID="account-detail">
       <View className="flex-row items-center gap-2">
         {onBack ? (
-          <Pressable accessibilityRole="button" accessibilityLabel="Back to accounts" onPress={onBack} className="h-11 w-11 items-center justify-center rounded-full hover:bg-muted dark:hover:bg-zinc-800">
+          <Pressable accessibilityRole="button" accessibilityLabel="Back to accounts" onPress={onBack} className="h-11 lg:h-9 w-11 lg:w-9 items-center justify-center rounded-full hover:bg-muted dark:hover:bg-zinc-800">
             <MaterialCommunityIcons name="chevron-left" size={24} color="#717182" />
           </Pressable>
         ) : null}
@@ -58,13 +58,13 @@ export function AccountDetail({ vm, pid, closed, transactions, onBack, onMove, o
       </View>
 
       <View className="gap-1">
-        <Text className="text-sm text-muted-foreground dark:text-zinc-400">{`Balance in ${monthName}`}</Text>
+        <Text className="text-xs text-muted-foreground dark:text-zinc-400">{`Balance in ${monthName}`}</Text>
         <Text testID="account-balance" className={balance < 0 ? 'text-3xl font-bold text-destructive dark:text-red-300' : 'text-3xl font-bold text-foreground dark:text-zinc-50'} style={tabular}>
           {fmtMoney(balance)}
         </Text>
-        {vm.archived ? <Text className="text-sm text-muted-foreground dark:text-zinc-400">Archived · its history stays.</Text> : null}
+        {vm.archived ? <Text className="text-xs text-muted-foreground dark:text-zinc-400">Archived · its history stays.</Text> : null}
         {/* D-8: the status line moved here from the Accounts row (one-line type only there). */}
-        <Text testID="account-hint" className={hint.tone === 'danger' ? 'text-sm text-destructive dark:text-red-300' : 'text-sm text-muted-foreground dark:text-zinc-400'}>
+        <Text testID="account-hint" className={hint.tone === 'danger' ? 'text-xs text-destructive dark:text-red-300' : 'text-xs text-muted-foreground dark:text-zinc-400'}>
           {hint.text}
         </Text>
       </View>
@@ -105,7 +105,7 @@ export function AccountDetail({ vm, pid, closed, transactions, onBack, onMove, o
       </ListGroup>
 
       <View className="gap-2">
-        <Pressable accessibilityRole="button" aria-expanded={moreOpen} onPress={() => setMoreOpen((v) => !v)} className="min-h-11 flex-row items-center gap-2 rounded-lg px-1">
+        <Pressable accessibilityRole="button" aria-expanded={moreOpen} onPress={() => setMoreOpen((v) => !v)} className="min-h-11 lg:min-h-9 flex-row items-center gap-2 rounded-lg px-1">
           <Text className="min-w-0 flex-1 text-sm font-medium text-muted-foreground dark:text-zinc-400">Opening balance · Manual balance</Text>
           <MaterialCommunityIcons name={moreOpen ? 'chevron-up' : 'chevron-down'} size={20} color="#717182" />
         </Pressable>

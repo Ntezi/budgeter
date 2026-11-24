@@ -145,9 +145,9 @@ export default function RecurringScreen() {
   const busy = isGeneratingCurrent || isCreatingNextBudget;
   const next = nextMonthMeta();
   const footer = (
-    <View testID="repeats-use" className="gap-3 rounded-xl border border-border bg-card p-4 dark:border-zinc-800 dark:bg-zinc-900">
-      <Text role="heading" aria-level={2} className="text-base font-semibold text-foreground dark:text-zinc-50">Use repeats in a month</Text>
-      <Text className="text-sm text-muted-foreground dark:text-zinc-400">Active repeats become plan and income lines. Paused ones are skipped.</Text>
+    <View testID="repeats-use" className="gap-3 rounded-xl border border-border bg-card p-3 md:p-4 dark:border-zinc-800 dark:bg-zinc-900">
+      <Text role="heading" aria-level={2} className="text-sm font-semibold text-foreground dark:text-zinc-50">Use repeats in a month</Text>
+      <Text className="text-xs text-muted-foreground dark:text-zinc-400">Active repeats become plan and income lines. Paused ones are skipped.</Text>
       <View className="flex-row flex-wrap gap-2">
         <AppButton label={isCreatingNextBudget ? 'Starting…' : `Start ${next.title}`} size="touch" disabled={busy} onPress={createNextBudgetFromRecurring} />
         <AppButton

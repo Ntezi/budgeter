@@ -66,7 +66,7 @@ export function PeoplePage(p: {
       {p.ownedByMe ? (
         <AppButton label="Invite someone" size="touch" className="self-start" onPress={(e) => invite.show(e)} />
       ) : (
-        <Text className="text-sm text-muted-foreground dark:text-zinc-400">You are in a shared workspace. Switch to your own workspace to invite people.</Text>
+        <Text className="text-xs text-muted-foreground dark:text-zinc-400">You are in a shared workspace. Switch to your own workspace to invite people.</Text>
       )}
       <Notice kind="ok" text={p.inviteResult && !invite.open ? p.inviteResult : ''} />
       <Notice kind="error" text={removeError} />
@@ -74,10 +74,10 @@ export function PeoplePage(p: {
       <SettingsSection title="People you share with">
         {p.members.length ? (
           p.members.map((m) => (
-            <View key={m.id} className="min-h-14 gap-1 px-4 py-2">
+            <View key={m.id} className="min-h-11 lg:min-h-9 gap-1 px-4 py-2">
               <View className="min-w-0">
-                <Text className="text-base font-medium text-foreground dark:text-zinc-50" style={{ overflowWrap: 'anywhere' } as never}>{memberLabel(m)}</Text>
-                <Text className="text-sm text-muted-foreground dark:text-zinc-400">{m.role === 'MEMBER' ? 'Member' : m.role}</Text>
+                <Text className="text-sm font-medium text-foreground dark:text-zinc-50" style={{ overflowWrap: 'anywhere' } as never}>{memberLabel(m)}</Text>
+                <Text className="text-xs text-muted-foreground dark:text-zinc-400">{m.role === 'MEMBER' ? 'Member' : m.role}</Text>
               </View>
               <DangerTextButton
                 label={`Remove ${memberLabel(m)}`}
@@ -112,12 +112,12 @@ export function PeoplePage(p: {
         footer={<AppButton label={busy ? 'Sending…' : 'Send invite'} size="touch-lg" className="w-full" disabled={busy} onPress={send} />}
       >
         <View className="gap-4">
-          <Text className="text-sm text-muted-foreground dark:text-zinc-400">Ask them for the ID under Settings › Your ID for sharing. They will see this whole household.</Text>
+          <Text className="text-xs text-muted-foreground dark:text-zinc-400">Ask them for the ID under Settings › Your ID for sharing. They will see this whole household.</Text>
           <FormField label="Their ID">
-            <AppInput accessibilityLabel="Their ID" value={p.uidDraft} onChangeText={p.setUidDraft} autoCapitalize="none" style={{ height: 44 }} />
+            <AppInput accessibilityLabel="Their ID" value={p.uidDraft} onChangeText={p.setUidDraft} autoCapitalize="none" />
           </FormField>
           <FormField label="Their email (optional)">
-            <AppInput accessibilityLabel="Their email (optional)" value={p.emailDraft} onChangeText={p.setEmailDraft} autoCapitalize="none" keyboardType="email-address" style={{ height: 44 }} />
+            <AppInput accessibilityLabel="Their email (optional)" value={p.emailDraft} onChangeText={p.setEmailDraft} autoCapitalize="none" keyboardType="email-address" />
           </FormField>
           <Notice kind="error" text={p.inviteError} />
           <Notice kind="info" text={invite.open ? p.inviteResult : ''} />

@@ -905,7 +905,7 @@ export default function ReportsScreen() {
                 )}
                 <Disclosure label="How we calculate">
                   <View className="gap-2">
-                    <Text className="text-sm text-muted-foreground dark:text-zinc-400">Across the months in the comparison above.</Text>
+                    <Text className="text-xs text-muted-foreground dark:text-zinc-400">Across the months in the comparison above.</Text>
                     {behaviorSignals.map((signal) => (
                       <LabelValue key={signal.id} label={signal.label} value={signal.value} sub={signal.detail} valueClassName={toneClass(signal.tone)} />
                     ))}
@@ -936,9 +936,9 @@ export default function ReportsScreen() {
             <LabelValue label="Accounts" value="Balances" onPress={() => router.push('/accounts')} />
           </View>
           {!desktop ? (
-            <View testID="report-export" className="gap-3 rounded-xl border border-border bg-card p-4 dark:border-zinc-800 dark:bg-zinc-900">
+            <View testID="report-export" className="gap-3 rounded-xl border border-border bg-card p-3 md:p-4 dark:border-zinc-800 dark:bg-zinc-900">
               <Text role="heading" aria-level={2} className="text-lg font-semibold text-foreground dark:text-zinc-50">Export</Text>
-              <Text className="text-sm text-muted-foreground dark:text-zinc-400">{`${monthLabel} workbook and the accounts workbook, as .xlsx files.`}</Text>
+              <Text className="text-xs text-muted-foreground dark:text-zinc-400">{`${monthLabel} workbook and the accounts workbook, as .xlsx files.`}</Text>
               {exportButton}
             </View>
           ) : null}

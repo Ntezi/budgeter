@@ -75,7 +75,7 @@ export function CatalogImport({ uid, onImported }: { uid: string | null; onImpor
   const n = preview?.length ?? 0;
   return (
     <View className="gap-3" testID="catalog-import">
-      <Text className="text-sm text-muted-foreground dark:text-zinc-400" selectable>{`Columns: ${shoppingCatalogCsvHeader}. Quantity and price are not imported.`}</Text>
+      <Text className="text-xs text-muted-foreground dark:text-zinc-400" selectable>{`Columns: ${shoppingCatalogCsvHeader}. Quantity and price are not imported.`}</Text>
       {Platform.OS === 'web' ? <AppButton label="Choose a .csv file" variant="outline" size="touch" className="self-start" onPress={chooseFile} /> : null}
       <AppInput
         value={csvText}
@@ -83,7 +83,7 @@ export function CatalogImport({ uid, onImported }: { uid: string | null; onImpor
         multiline
         numberOfLines={6}
         accessibilityLabel="CSV text"
-        className="items-start py-2 text-base"
+        className="items-start py-2"
         style={{ height: 144 }}
         autoCapitalize="none"
       />
@@ -92,7 +92,7 @@ export function CatalogImport({ uid, onImported }: { uid: string | null; onImpor
       {preview ? (
         <View testID="csv-preview" className="gap-1 rounded-xl border border-border bg-card p-3 dark:border-zinc-800 dark:bg-zinc-900">
           <Text className="text-sm font-medium text-foreground dark:text-zinc-50">{`${n} row${n === 1 ? '' : 's'} will be imported`}</Text>
-          <Text className="text-sm text-muted-foreground dark:text-zinc-400" numberOfLines={3}>{preview.slice(0, 8).join(', ')}{n > 8 ? ', …' : ''}</Text>
+          <Text className="text-xs text-muted-foreground dark:text-zinc-400" numberOfLines={3}>{preview.slice(0, 8).join(', ')}{n > 8 ? ', …' : ''}</Text>
         </View>
       ) : null}
       <View className="flex-row flex-wrap gap-2">

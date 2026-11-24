@@ -22,14 +22,14 @@ export function ShareSheet({ open, onClose, chefUid, label, onChange, error, bus
   const footer = (
     <>
       {error ? <Text role="alert" className="text-sm text-destructive dark:text-red-300">{error}</Text> : null}
-      <AppButton label={busy ? 'Sharing…' : 'Share list'} size="touch-lg" className="w-full" textClassName="text-base" disabled={busy || !chefUid.trim()} onPress={onShare} />
+      <AppButton label={busy ? 'Sharing…' : 'Share list'} size="touch-lg" className="w-full" disabled={busy || !chefUid.trim()} onPress={onShare} />
       <AppButton label="Cancel" variant="ghost" size="touch" disabled={busy} onPress={onClose} />
     </>
   );
   return (
     <AppSheet open={open} onClose={() => !busy && onClose()} title="Share with chef" footer={footer} testID="share-sheet">
       <View className="gap-4">
-        <Text className="text-base text-foreground dark:text-zinc-50">
+        <Text className="text-sm text-foreground dark:text-zinc-50">
           They can add and tick items on this list only. They can&apos;t see prices, receipts, budgets or other lists.
         </Text>
         <FormField label="Chef's account ID">
@@ -40,11 +40,11 @@ export function ShareSheet({ open, onClose, chefUid, label, onChange, error, bus
             placeholder="From their Settings, Collaborator ID"
             autoCapitalize="none"
             accessibilityLabel="Chef account ID"
-            className="h-11 text-base"
+            className="h-11 lg:h-9 text-sm"
           />
         </FormField>
         <FormField label="Name to show">
-          <AppInput value={label} onChangeText={(v) => onChange({ label: v })} placeholder="Chef" accessibilityLabel="Chef name" className="h-11 text-base" />
+          <AppInput value={label} onChangeText={(v) => onChange({ label: v })} placeholder="Chef" accessibilityLabel="Chef name" className="" />
         </FormField>
       </View>
     </AppSheet>
@@ -56,7 +56,7 @@ export function StopSharingDialog({ open, label, busy, onClose, onConfirm }: { o
   return (
     <AppModal open={open} onClose={() => !busy && onClose()} title="Stop sharing?">
       <View className="gap-4">
-        <Text className="text-base text-foreground dark:text-zinc-50">{`${label} loses access now. Items stay on your list.`}</Text>
+        <Text className="text-sm text-foreground dark:text-zinc-50">{`${label} loses access now. Items stay on your list.`}</Text>
         <View className="flex-row gap-2">
           <AppButton label="Keep sharing" variant="outline" size="touch" className="flex-1" disabled={busy} onPress={onClose} />
           <AppButton label={busy ? 'Stopping…' : 'Stop sharing'} variant="destructive" size="touch" className="flex-1" testID="confirm-stop-sharing" disabled={busy} onPress={onConfirm} />
