@@ -96,3 +96,46 @@ test('C-10 a membership in the pre-change shape (seeded like inviteWorkspaceMemb
   }, { merge: true }), 're-invite existing member');
   await allowed(getDocs(collection(member.db, 'users', OWNER, 'accounts')), 'member still reads after re-invite');
 });
+
+// BUDG-6 H-5: a membership counts only when its own fields bind it (ownerUid == path owner, memberUid ==
+// caller). Documents are written past the rules (emulator admin REST) to stand for data already in
+// production. Cost: isWorkspaceMember reads the one membership document per request, as exists() did.
+const adminUrl = (id: string) => `http://127.0.0.1:${8080 + offset}/v1/projects/demo-budgeta/databases/(default)/documents/workspaceMembers/${id}`;
+async function adminSet(id: string, fields: Record<string, string>) {
+  const body = { fields: Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, { stringValue: v }])) };
+  const res = await fetch(adminUrl(id), { method: 'PATCH', headers: { Authorization: 'Bearer owner', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  assert.ok(res.ok, `admin set ${res.status}`);
+}
+async function adminDelete(id: string) {
+  const res = await fetch(adminUrl(id), { method: 'DELETE', headers: { Authorization: 'Bearer owner' } });
+  assert.ok(res.ok, `admin delete ${res.status}`);
+}
+
+describe('H-5 existing membership documents', () => {
+  test('forged before SEC-1 (ownerUid = attacker, any status) grants nothing; legitimate shapes keep access', async () => {
+    const s = await actor('h5', ['stranger@example.test', 'seed-stranger-pass']);
+    const id = `${OWNER}_${s.uid}`;
+    const read = () => getDocs(collection(s.db, 'users', OWNER, 'accounts'));
+    try {
+      await adminSet(id, { ownerUid: s.uid, memberUid: s.uid, status: 'ACTIVE' });
+      await denied(read(), 'forged {owner}_{me} with ownerUid = me (ACTIVE)');
+      await adminSet(id, { ownerUid: s.uid, memberUid: s.uid, status: 'REMOVED' });
+      await denied(read(), 'forged {owner}_{me} with ownerUid = me (REMOVED, the challenger case)');
+      await adminSet(id, { ownerUid: OWNER, memberUid: 'someone-else', status: 'ACTIVE' });
+      await denied(read(), 'id names me but memberUid is someone else');
+      await adminSet(id, { memberUid: s.uid });
+      await denied(read(), 'no ownerUid field');
+      // Today's invite shape (lib/repo/collaboration.ts inviteWorkspaceMember keys).
+      await adminSet(id, { ownerUid: OWNER, ownerEmail: 'owner@example.test', ownerName: 'Owner', memberUid: s.uid, memberEmail: 'stranger@example.test', memberName: 'Member', role: 'MEMBER', status: 'ACTIVE' });
+      await allowed(read(), 'legitimate membership in today\'s shape');
+      // Older or hand-made legitimate documents: optional fields missing, an extra field, another status value.
+      await adminSet(id, { ownerUid: OWNER, memberUid: s.uid });
+      await allowed(read(), 'legitimate membership without status, role or names');
+      await adminSet(id, { ownerUid: OWNER, memberUid: s.uid, status: 'INVITED', legacyNote: 'kept' });
+      await allowed(read(), 'legitimate membership with an extra field and another status');
+    } finally {
+      await adminDelete(id);
+    }
+    await denied(read(), 'after the membership is deleted');
+  });
+});

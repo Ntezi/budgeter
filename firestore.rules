@@ -4,9 +4,17 @@ service cloud.firestore {
     function isSignedIn() { return request.auth != null; }
     function isSelf(uid) { return isSignedIn() && request.auth.uid == uid; }
     function membershipDocId(ownerUid, memberUid) { return ownerUid + "_" + memberUid; }
+    // H-5 (BUDG-6): a membership counts only when the document's own fields bind it to this owner
+    // and this caller, so a {owner}_{me} doc forged before SEC-1 (ownerUid = me) grants nothing.
+    // exists() and get() read the same document once per request (no extra cost). No status check
+    // on purpose: legitimate older documents may lack it (C-10).
+    function membershipPath(ownerUid) {
+      return /databases/$(database)/documents/workspaceMembers/$(membershipDocId(ownerUid, request.auth.uid));
+    }
     function isWorkspaceMember(ownerUid) {
-      return isSignedIn() &&
-        exists(/databases/$(database)/documents/workspaceMembers/$(membershipDocId(ownerUid, request.auth.uid)));
+      return isSignedIn() && exists(membershipPath(ownerUid)) &&
+        get(membershipPath(ownerUid)).data.get('ownerUid', '') == ownerUid &&
+        get(membershipPath(ownerUid)).data.get('memberUid', '') == request.auth.uid;
     }
     function canAccessWorkspace(ownerUid) {
       return isSelf(ownerUid) || isWorkspaceMember(ownerUid);
