@@ -402,3 +402,30 @@ describe('R-2 large lists: share and revoke in chunks', () => {
     assert.equal((await getDoc(doc(owner.db, 'users', OWNER, 'shoppingLists', listId, 'items', 'it001'))).data()?.note, 'from chef');
   });
 });
+
+// BUDG-6 H-3: the challenger's proof turned into a pass: a chef cannot create an item with an odd id,
+// and a recorded household id re-created by the chef posts a separate expense, never a silent no-op.
+describe('H-3 chef-created item ids', () => {
+  test('odd ids denied for the chef; plain ids allowed', async () => {
+    const live = await getDocs(query(collection(chef.db, 'sharedLists'), where('chefUid', '==', chef.uid), where('status', '==', 'ACTIVE')));
+    const activeId = live.docs.find((d) => d.data().listId === 'list-weekly')?.id || '';
+    assert.ok(activeId, 'seeded active share');
+    await denied(setDoc(doc(chef.db, 'sharedLists', activeId, 'items', `odd id.${run}`), item(chef.uid, { name: 'Tomatoes' })), 'odd id');
+    const ok = `ok_${run}-1`;
+    await allowed(setDoc(doc(chef.db, 'sharedLists', activeId, 'items', ok), item(chef.uid)), 'plain id');
+    await allowed(deleteDoc(doc(chef.db, 'sharedLists', activeId, 'items', ok)), 'chef deletes own item');
+  });
+
+  test('a chef item with an already-recorded id is posted under a household key', async () => {
+    const dateISO = localDateISO();
+    const base = { listId: 'list-weekly', listName: 'Weekly groceries', itemName: 'Milk', amount: 3.25, dateISO, accountId: 'acc-household', planItemId: 'plan-groceries', planItemName: 'Groceries' };
+    const itemId = `h3-${run}`;
+    const first = await recordShoppingExpense(owner.db, OWNER, { ...base, itemId });
+    assert.equal(first.created, true);
+    const replay = await recordShoppingExpense(owner.db, OWNER, { ...base, itemId });
+    assert.equal(replay.created, false, 'same household id: the app now reports it and keeps the item');
+    const keyed = await recordShoppingExpense(owner.db, OWNER, { ...base, itemId, householdKey: `k${run}` });
+    assert.equal(keyed.created, true);
+    assert.notEqual(keyed.txId, first.txId);
+  });
+});

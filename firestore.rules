@@ -112,7 +112,10 @@ service cloud.firestore {
           return (isHouseholdOf(share().ownerUid) && share().status == 'ACTIVE') || isActiveChef(share());
         }
         allow read: if isHouseholdOf(share().ownerUid) || isActiveChef(share());
+        // H-3: an item the chef creates has a plain id (the app's auto ids match); household mirrors keep
+        // the private item id as it is (existing lists may have name-derived ids, C-10).
         allow create: if canWrite() &&
+          (isHouseholdOf(share().ownerUid) || itemId.matches('^[A-Za-z0-9_-]{1,120}$')) &&
           request.resource.data.keys().hasOnly(itemKeys()) &&
           request.resource.data.createdBy == request.auth.uid &&
           request.resource.data.createdAt == request.time &&

@@ -47,7 +47,7 @@ import { watchOwnedWorkspaceMembers } from '@/lib/repo/collaboration';
 import { localDateISO, postingPeriodId } from '@/lib/rules/postingMonth';
 import { monthTitle } from '@/lib/rules/months';
 import { planCatalogWrite, searchCatalog, suggestCatalogMatches, type AddChoice } from '@/lib/rules/catalogMatch';
-import { recordShoppingExpense } from '@/lib/repo/shoppingExpense';
+import { recordKeyFor, recordShoppingExpense } from '@/lib/repo/shoppingExpense';
 import { displayListName } from '@/lib/repo/sharedListsCore';
 import { parseMinorInput } from '@/lib/money';
 import {
@@ -232,6 +232,7 @@ export default function ShoppingScreen() {
   const [listsLoaded, setListsLoaded] = useState(false);
   const [gotFolded, setGotFolded] = useState(false);
   const foldTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recordKeys = useRef<Record<string, string>>({}); // H-3: one key per chef item per open form
   useEffect(() => () => {
     if (foldTimer.current) clearTimeout(foldTimer.current);
   }, []);
@@ -1016,18 +1017,28 @@ export default function ShoppingScreen() {
     }
 
     setFinalizingCompletion(true);
+    setRecordError('');
     try {
-      for (const item of completionTargetItems) {
-        if (!item.id) continue;
+      // H-3: decide every item before the first write; nothing is skipped silently and nothing whose
+      // expense was not written is deleted.
+      const skipped: string[] = [];
+      const already: string[] = [];
+      const ready = completionTargetItems.flatMap((item) => {
+        if (!item.id) return [];
         const input = itemInputs[item.id];
         const quantity = parseQuantity(input?.quantity || '0');
         const totalAmount = Math.max(0, parseMoney(input?.price || '0'));
-        const unitPrice = quantity > 0 ? totalAmount / quantity : 0;
-
         const plan = planById.get(String(input?.planItemId || '').trim());
-        if (!plan || !quantity || totalAmount <= 0 || !hasFundedAmount(fundedByPlanId, plan.id)) continue;
-
-        await recordShoppingExpense(db, uid, {
+        if (!plan || !quantity || totalAmount <= 0 || !hasFundedAmount(fundedByPlanId, plan.id)) {
+          skipped.push(item.name || 'Unnamed item');
+          return [];
+        }
+        const householdKey = recordKeyFor(selectedListId, { id: item.id, fromChef: item.fromChef }, recordKeys.current);
+        return [{ item: item as ShoppingListItem & { id: string }, quantity, totalAmount, plan, householdKey }];
+      });
+      for (const { item, quantity, totalAmount, plan, householdKey } of ready) {
+        const unitPrice = quantity > 0 ? totalAmount / quantity : 0;
+        const res = await recordShoppingExpense(db, uid, {
           listId: selectedListId,
           listName: selectedList.name,
           itemId: item.id,
@@ -1038,7 +1049,13 @@ export default function ShoppingScreen() {
           planItemId: plan.id,
           planItemName: plan.name,
           group: plan.group,
+          householdKey,
         });
+        if (!res.created) {
+          already.push(`${item.name || 'Unnamed item'} (${res.periodId})`);
+          continue; // the expense already exists: keep the item so nothing is lost without the user seeing it
+        }
+        delete recordKeys.current[item.id];
 
         if (item.catalogItemId) {
           await updateShoppingCatalogItem(uid, item.catalogItemId, { lastPrice: unitPrice });
@@ -1059,8 +1076,17 @@ export default function ShoppingScreen() {
         else if (shareId) await deleteSharedItem(shareId, item.id);
       }
 
+      if (skipped.length || already.length) {
+        const parts = [
+          skipped.length ? `Not recorded (needs amount, quantity and a funded line): ${skipped.join(', ')}.` : '',
+          already.length ? `Already recorded, left on the list: ${already.join(', ')}. Remove them if that was this purchase.` : '',
+        ].filter(Boolean);
+        setRecordError(parts.join(' '));
+        return;
+      }
       setCompleting(false);
       setItemInputs({});
+      recordKeys.current = {};
       if (!isWide) setSelectedListId('');
     } catch (e: unknown) {
       setRecordError(e instanceof Error ? e.message : 'Could not record the expense.');

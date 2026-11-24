@@ -25,6 +25,27 @@ export function exactShoppingAmount(amount: number): number {
   return fromMinor(minor);
 }
 
+/**
+ * H-3 (BUDG-6): ids of chef-added items are chosen by the chef, so they never name a transaction.
+ * A household item keeps its deterministic id (the household's private item id); a chef-added item, or any
+ * id outside [A-Za-z0-9_-], gets a household-generated key, made once per open Record expense form and
+ * reused on a retry (so a retry still posts once).
+ */
+export function newRecordKey(): string {
+  const uuid = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto?.randomUUID?.();
+  return (uuid || `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`).replace(/[^A-Za-z0-9_-]/g, '');
+}
+export function recordKeyFor(listId: string, item: { id: string; fromChef?: boolean }, keys: Record<string, string>, newKey: () => string = newRecordKey): string | undefined {
+  if (!item.fromChef && SAFE_ID.test(listId) && SAFE_ID.test(item.id)) return undefined;
+  if (!keys[item.id]) keys[item.id] = newKey();
+  return keys[item.id];
+}
+export function shoppingTxIdFor(listId: string, itemId: string, householdKey?: string) {
+  if (householdKey === undefined) return shoppingTxId(listId, itemId);
+  if (!SAFE_ID.test(householdKey)) throw new Error('Invalid record key.');
+  return `shop_k_${householdKey}`;
+}
+
 export type ShoppingExpenseInput = {
   listId: string;
   listName: string;
@@ -36,6 +57,8 @@ export type ShoppingExpenseInput = {
   planItemId: string;
   planItemName: string;
   group?: string;
+  /** H-3: household-generated key for chef-added items (recordKeyFor). */
+  householdKey?: string;
 };
 
 export type ShoppingExpenseResult = { created: boolean; periodId: string; txId: string };
@@ -45,7 +68,7 @@ export async function recordShoppingExpense(db: Firestore, ownerUid: string, inp
   const amount = exactShoppingAmount(input.amount);
   if (!input.accountId) throw new Error('Choose the account that paid.');
   const periodId = postingPeriodId(input.dateISO);
-  const txId = shoppingTxId(input.listId, input.itemId);
+  const txId = shoppingTxIdFor(input.listId, input.itemId, input.householdKey);
   const periodRef = doc(db, 'users', ownerUid, 'periods', periodId);
   const txRef = doc(db, 'users', ownerUid, 'periods', periodId, 'transactions', txId);
   const created = await runTransaction(db, async (t) => {
