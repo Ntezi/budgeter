@@ -248,7 +248,7 @@ export default function ShoppingScreen() {
   const [revoking, setRevoking] = useState(false);
   const [recordError, setRecordError] = useState('');
   const moreSheet = useSheet();
-  // BUDG-42: select mode, bulk removal, swipe/trash Undo
+  // BUDG-42: select mode, bulk removal, row trash Undo
   const [selectMode, setSelectMode] = useState(false);
   const [pickedIds, setPickedIds] = useState<string[]>([]);
   const [removeAsk, setRemoveAsk] = useState<null | { kind: 'all' | 'got' | 'selected'; ids: string[] }>(null);
