@@ -82,3 +82,9 @@ export function displayListName(name: unknown): string {
   const chars = Array.from(clean);
   return chars.length > SHARED_LIST_NAME_MAX ? `${chars.slice(0, SHARED_LIST_NAME_MAX - 1).join('').trimEnd()}…` : clean;
 }
+
+/** What the household's list header shows: not shared, shared, or the chef left (share REVOKED while the list still names it). */
+export function householdShareState(listShareId: string | undefined, shareStatus: string | undefined): 'none' | 'active' | 'left' {
+  if (!listShareId) return 'none';
+  return shareStatus === 'REVOKED' ? 'left' : 'active';
+}

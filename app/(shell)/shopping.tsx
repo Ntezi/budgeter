@@ -48,7 +48,7 @@ import { localDateISO, postingPeriodId } from '@/lib/rules/postingMonth';
 import { monthTitle } from '@/lib/rules/months';
 import { planCatalogWrite, searchCatalog, suggestCatalogMatches, type AddChoice } from '@/lib/rules/catalogMatch';
 import { recordKeyFor, recordShoppingExpense } from '@/lib/repo/shoppingExpense';
-import { displayListName } from '@/lib/repo/sharedListsCore';
+import { displayListName, householdShareState } from '@/lib/repo/sharedListsCore';
 import { parseMinorInput } from '@/lib/money';
 import {
   deleteSharedItem,
@@ -56,6 +56,7 @@ import {
   shareListWithChef,
   validateChefUid,
   watchSharedItems,
+  watchShare,
   watchSharedWithMe,
   type SharedItem,
   type SharedList,
@@ -232,6 +233,9 @@ export default function ShoppingScreen() {
   const [listsLoaded, setListsLoaded] = useState(false);
   const [gotFolded, setGotFolded] = useState(false);
   const foldTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const addPendingRef = useRef(false); // one Add to list save at a time (a second tap added the item twice)
+  const [addSaving, setAddSaving] = useState(false);
+  const [shareLeft, setShareLeft] = useState(false); // the chef left this list (share REVOKED, list still marked)
   const recordKeys = useRef<Record<string, string>>({}); // H-3: one key per chef item per open form
   useEffect(() => () => {
     if (foldTimer.current) clearTimeout(foldTimer.current);
@@ -331,6 +335,12 @@ export default function ShoppingScreen() {
       return;
     }
     return watchSharedItems(shareId, setSharedItems, () => setSharedItems([]));
+  }, [shareId]);
+
+  useEffect(() => {
+    setShareLeft(false);
+    if (!shareId) return;
+    return watchShare(shareId, (row) => setShareLeft(householdShareState(shareId, row?.status) === 'left'), () => setShareLeft(false));
   }, [shareId]);
 
   // Household view of a shared list: private twins (price, plan, links) merged with
@@ -642,7 +652,7 @@ export default function ShoppingScreen() {
   );
 
   async function submitAddItem() {
-    if (!uid || !selectedListId) return;
+    if (!uid || !selectedListId || addPendingRef.current) return;
     const name = addDraft.name.trim();
     if (!name) {
       setAddError('Item name is required.');
@@ -658,6 +668,8 @@ export default function ShoppingScreen() {
       : addDraft.choice === 'keep'
         ? { kind: 'keep-separate', saveToCatalog: addDraft.saveToCatalog }
         : { kind: 'new', saveToCatalog: addDraft.saveToCatalog };
+    addPendingRef.current = true;
+    setAddSaving(true);
     try {
       const write = planCatalogWrite(choice, addCandidates.length);
       let catalog: ShoppingCatalogItem | undefined;
@@ -693,10 +705,14 @@ export default function ShoppingScreen() {
         completed: false,
       }, mirror);
       setAddOpen(false);
-      setItemDraftName('');
+      // Clear the add bar only if it still holds the name just added: text typed while the save ran is kept.
+      setItemDraftName((current) => (normalize(current) === normalize(name) ? '' : current));
       setItemError('');
     } catch (e: unknown) {
       setAddError(e instanceof Error ? e.message : 'Could not add item.');
+    } finally {
+      addPendingRef.current = false;
+      setAddSaving(false);
     }
   }
 
@@ -726,6 +742,18 @@ export default function ShoppingScreen() {
       await revokeShare(uid, selectedList.id, selectedList.shareId);
     } catch (e: unknown) {
       Alert.alert('Revoke failed', e instanceof Error ? e.message : 'Could not revoke access.');
+    }
+  }
+
+  // The chef left: fold their edits back and clear the share fields (same as Stop sharing), then offer a new share.
+  async function shareAgainAfterLeave() {
+    if (!uid || !selectedList?.id || !selectedList.shareId) return;
+    try {
+      await revokeShare(uid, selectedList.id, selectedList.shareId);
+      setShareError('');
+      setShareOpen(true);
+    } catch (e: unknown) {
+      Alert.alert('Could not end the old share', e instanceof Error ? e.message : 'Try again.');
     }
   }
 
@@ -1349,8 +1377,14 @@ export default function ShoppingScreen() {
         {selectedList.shareId ? (
           <View className="flex-row flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-3 py-1 dark:border-zinc-800 dark:bg-zinc-900">
             <MaterialCommunityIcons name="account-multiple-outline" size={18} color="#717182" />
-            <Text className="min-w-0 flex-1 text-sm text-foreground dark:text-zinc-50">{`Shared with ${selectedList.sharedWithLabel || 'chef'}`}</Text>
-            <AppButton label="Stop sharing" variant="ghost" size="touch" onPress={() => setStopShareOpen(true)} />
+            <Text testID="share-state" className="min-w-0 flex-1 text-sm text-foreground dark:text-zinc-50">
+              {shareLeft ? `${selectedList.sharedWithLabel || 'The chef'} left this list. It is not shared any more.` : `Shared with ${selectedList.sharedWithLabel || 'chef'}`}
+            </Text>
+            {shareLeft ? (
+              <AppButton label="Share again" variant="ghost" size="touch" onPress={() => void shareAgainAfterLeave()} />
+            ) : (
+              <AppButton label="Stop sharing" variant="ghost" size="touch" onPress={() => setStopShareOpen(true)} />
+            )}
           </View>
         ) : (
           <AppButton
@@ -1491,7 +1525,7 @@ export default function ShoppingScreen() {
         onSaveToCatalog={(value) => setAddDraft((prev) => ({ ...prev, saveToCatalog: value }))}
         error={addError}
         saveLabel="Add to list"
-        saveDisabled={addCandidates.length > 0 && !addDraft.choice}
+        saveDisabled={addSaving || (addCandidates.length > 0 && !addDraft.choice)}
         onSave={() => void submitAddItem()}
       />
 

@@ -11,6 +11,7 @@ import {
 } from 'firebase/firestore';
 import { connectAuthEmulator, createUserWithEmailAndPassword, getAuth, signInAnonymously, signInWithEmailAndPassword } from 'firebase/auth';
 import { audienceFor } from '../../lib/shell/nav';
+import { householdShareState } from '../../lib/repo/sharedListsCore';
 import { emulatorPorts } from '../../lib/emulatorPorts';
 import { recordShoppingExpense } from '../../lib/repo/shoppingExpense';
 import { revokeShareIn, shareListWithChefIn } from '../../lib/repo/sharedListsOps';
@@ -427,5 +428,28 @@ describe('H-3 chef-created item ids', () => {
     const keyed = await recordShoppingExpense(owner.db, OWNER, { ...base, itemId, householdKey: `k${run}` });
     assert.equal(keyed.created, true);
     assert.notEqual(keyed.txId, first.txId);
+  });
+});
+
+// BUDG-6: a chef who leaves shows as "left" to the household, whose Share again first ends the old share
+// (fold back, clear the list's share fields), which the rules allow on a REVOKED share.
+describe('chef leaves: the household sees it and can share again', () => {
+  test('left share reads as left; household fold clears the list; a new share works', async () => {
+    const listId = `left-${run}`;
+    await setDoc(doc(owner.db, 'users', OWNER, 'shoppingLists', listId), { name: 'Left list', ownerUid: OWNER });
+    await setDoc(doc(owner.db, 'users', OWNER, 'shoppingLists', listId, 'items', 'eggs'), { name: 'Eggs', quantity: 1, bought: false, status: 'planned' });
+    const id = await shareListWithChefIn(owner.db, OWNER, owner.uid, { id: listId, name: 'Left list' }, chef.uid, 'Chef');
+    await allowed(updateDoc(doc(chef.db, 'sharedLists', id, 'items', 'eggs'), { note: 'big ones', updatedBy: chef.uid, updatedAt: serverTimestamp() }), 'chef edits');
+    await allowed(updateDoc(doc(chef.db, 'sharedLists', id), { status: 'REVOKED', revokedAt: serverTimestamp() }), 'chef leaves');
+    const list = (await getDoc(doc(owner.db, 'users', OWNER, 'shoppingLists', listId))).data();
+    const share = (await getDoc(doc(owner.db, 'sharedLists', id))).data();
+    assert.equal(householdShareState(list?.shareId, share?.status), 'left');
+    await allowed(revokeShareIn(owner.db, OWNER, listId, id), 'household ends the left share');
+    const after = (await getDoc(doc(owner.db, 'users', OWNER, 'shoppingLists', listId))).data();
+    assert.equal(householdShareState(after?.shareId, undefined), 'none');
+    assert.equal((await getDoc(doc(owner.db, 'users', OWNER, 'shoppingLists', listId, 'items', 'eggs'))).data()?.note, 'big ones', 'chef edit kept');
+    const again = await shareListWithChefIn(owner.db, OWNER, owner.uid, { id: listId, name: 'Left list' }, chef.uid, 'Chef');
+    assert.equal(householdShareState((await getDoc(doc(owner.db, 'users', OWNER, 'shoppingLists', listId))).data()?.shareId, 'ACTIVE'), 'active');
+    await allowed(revokeShareIn(owner.db, OWNER, listId, again), 'cleanup');
   });
 });
